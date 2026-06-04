@@ -42,9 +42,13 @@ select = [
 ]
 ignore = [
     "D102",  # Missing docstring in a public method
+    "D104",  # Missing docstring in public package
     "D105",  # Missing docstring in magic method
     "D107",  # Missing docstring in `__init__`
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D100", "D103"]  # Test modules and functions don't need module/function docstrings
 
 [tool.ruff]
 line-length = 119
