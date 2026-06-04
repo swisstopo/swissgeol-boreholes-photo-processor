@@ -17,7 +17,7 @@ This project is released as open source software, under the principle of "_publi
 * Stijn Vermeeren [@stijnvermeeren-swisstopo](https://www.github.com/stijnvermeeren-swisstopo) (swisstopo) - Project Lead
 * [Visium](https://www.visium.com/)
 
-See [contributers](https://github.com/swisstopo/swissgeol-boreholes-photo-processor/graphs/contributors) for all individual contributors.
+See [contributors](https://github.com/swisstopo/swissgeol-boreholes-photo-processor/graphs/contributors) for all individual contributors.
 
 ## Installation
 
@@ -47,7 +47,7 @@ Then activate your environment:
 source .venv/bin/activate
 ```
 
-Adding packages can be done by editing the `pyproject.toml` of the project and adding the required package, then running `uv lock` to update the lock file.
+Adding packages can be done by editing the `pyproject.toml` of the project and adding the required package, then running `uv sync` to update the lock file.
 
 ## Running Tests
 
@@ -73,7 +73,7 @@ You can download the data using the AWS CLI. First, you need to make sure that t
 brew install awscli
 ```
 
-Then configure your credenetials by running:
+Then configure your credentials by running:
 
 ```bash
 aws configure
@@ -91,11 +91,11 @@ Default output format [None]: json
 Now you can download the cores from the bucket:
 
 ```bash
-aws s3 sync s3://stijnvermeeren-corephotos-cuttings ./cores
+aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cores
 ```
 
 And the cuttings from:
 
 ```bash
-aws s3 sync s3://stijnvermeeren-corephotos-cuttings ./cutting
+aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cuttings
 ```
