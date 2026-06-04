@@ -1,0 +1,37 @@
+name: pytest
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies and run tests
+        shell: bash
+        run: |
+          uv sync --extra test
+          uv run pytest \
+            --junitxml=pytest.xml \
+            --cov-report=term-missing:skip-covered \
+            --cov=src \
+            tests/ | tee pytest-coverage.txt
+
+      - name: Pytest coverage comment # For more information see: https://github.com/MishaKav/pytest-coverage-comment/
+        uses: MishaKav/pytest-coverage-comment@main
+        with:
+          pytest-coverage-path: ./pytest-coverage.txt
+          junitxml-path: ./pytest.xml
+          report-only-changed-files: true
