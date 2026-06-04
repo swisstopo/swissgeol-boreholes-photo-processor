@@ -1,0 +1,6 @@
+# Environments
+.venv
+
+# Unit test / coverage reports
+.coverage
+.pytest_cache/
