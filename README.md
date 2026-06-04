@@ -2,23 +2,6 @@
 
 Boreholes Photo Processor is a pipeline that generates composite images from photos of borehole cores and cuttings. This project was initiated by the Swiss Federal Office of Topography [swisstopo](https://www.swisstopo.admin.ch/), and is developed with support from [Visium](https://www.visium.com/).
 
-## Motivation
-
-TODO
-
-## Project Management
-
-This project is managed and financed by the Swiss Federal Office of Topography [swisstopo](https://www.swisstopo.admin.ch/). Many contributions come from [Visium](https://www.visium.com/), in their role as contractor for swisstopo for this project.
-
-This project is released as open source software, under the principle of "_public money, public code_", in accordance with the 2023 federal law "[_EMBAG_](https://www.fedlex.admin.ch/eli/fga/2023/787/de)", and following the guidance of the [tools for OSS published by the Federal Chancellery](https://www.bk.admin.ch/bk/en/home/digitale-transformation-ikt-lenkung/bundesarchitektur/open_source_software/hilfsmittel_oss.html).
-
-### Main Contributors
-
-* Stijn Vermeeren [@stijnvermeeren-swisstopo](https://www.github.com/stijnvermeeren-swisstopo) (swisstopo) - Project Lead
-* [Visium](https://www.visium.com/)
-
-See [contributors](https://github.com/swisstopo/swissgeol-boreholes-photo-processor/graphs/contributors) for all individual contributors.
-
 ## Installation
 
 In a first step you need to clone the repository:
@@ -62,8 +45,6 @@ uv run pytest --cov=src tests/
 ```
 
 ## Pipeline
-
-TODO
 
 ### Download the borehole profiles, optional
 
