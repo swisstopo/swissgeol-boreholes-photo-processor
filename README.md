@@ -51,19 +51,7 @@ You can download the data using the AWS CLI. First, you need to make sure that t
 brew install awscli
 ```
 
-Copy the provided template and fill in all required values:
-
-```bash
-cp .env.template .env
-```
-
-Then load the variables into your shell:
-
-```bash
-set -a && source .env && set +a
-```
-
-Alternatively, you can configure credentials globally using `aws configure`, which will prompt you for:
+Configure your AWS credentials using `aws configure`, which will prompt you for:
 
 ```
 AWS Access Key ID [None]: <your key id>
