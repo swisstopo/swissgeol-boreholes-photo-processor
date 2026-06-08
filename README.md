@@ -7,9 +7,6 @@ Boreholes Photo Processor is a pipeline that generates composite images from pho
 In a first step you need to clone the repository:
 
 ```bash
-# using ssh
-git clone git@github.com:swisstopo/swissgeol-boreholes-photo-processor.git
-
 #using https
 git clone https://github.com/swisstopo/swissgeol-boreholes-photo-processor.git
 ```
@@ -72,11 +69,11 @@ Default output format [None]: json
 Now you can download the cores from the bucket:
 
 ```bash
-aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cores
+aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cores ./data/cores
 ```
 
 And the cuttings from:
 
 ```bash
-aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cuttings
+aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cuttings ./data/cuttings
 ```
