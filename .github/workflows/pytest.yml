@@ -1,7 +1,6 @@
 name: pytest
 
 on:
-  push:
   pull_request:
 
 permissions:
@@ -30,7 +29,7 @@ jobs:
             tests/ | tee pytest-coverage.txt
 
       - name: Pytest coverage comment # For more information see: https://github.com/MishaKav/pytest-coverage-comment/
-        uses: MishaKav/pytest-coverage-comment@main
+        uses: MishaKav/pytest-coverage-comment@v1.7.2
         with:
           pytest-coverage-path: ./pytest-coverage.txt
           junitxml-path: ./pytest.xml

@@ -7,9 +7,6 @@ Boreholes Photo Processor is a pipeline that generates composite images from pho
 In a first step you need to clone the repository:
 
 ```bash
-# using ssh
-git clone git@github.com:swisstopo/swissgeol-boreholes-photo-processor.git
-
 #using https
 git clone https://github.com/swisstopo/swissgeol-boreholes-photo-processor.git
 ```

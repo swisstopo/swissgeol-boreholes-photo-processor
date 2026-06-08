@@ -3,7 +3,7 @@ name = "swissgeol-boreholes-photo-processor"
 version = "0.1.0"
 description = "Python project that generates composite images from photos of borehole cores and cuttings"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
@@ -17,8 +17,6 @@ test = [
 dev = [
     "ruff",
     "ty",
-]
-lint = [
     "pre-commit==4.3.0",
 ]
 

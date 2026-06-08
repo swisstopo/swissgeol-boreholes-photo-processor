@@ -5,3 +5,8 @@
 # Unit test / coverage reports
 .coverage
 .pytest_cache/
+
+# data
+__pycache__/
+.ruff_cache/
+data
