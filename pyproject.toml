@@ -20,6 +20,10 @@ dev = [
     "pre-commit==4.3.0",
 ]
 
+# ---- Configuration for package building
+[project.scripts]
+run-pipeline = "src.run:main"
+
 # ---- Configuration for Ruff
 [tool.ruff.lint]
 select = [
