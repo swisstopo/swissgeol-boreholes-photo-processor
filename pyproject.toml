@@ -1,0 +1,55 @@
+[project]
+name = "swissgeol-boreholes-photo-processor"
+version = "0.1.0"
+description = "Python project that generates composite images from photos of borehole cores and cuttings"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.4.1",
+    "pytest-cov==6.2.1",
+    "moto==5.1.10",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "ty",
+    "pre-commit==4.3.0",
+]
+
+# ---- Configuration for Ruff
+[tool.ruff.lint]
+select = [
+    # pydocstyle
+    "D",
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+ignore = [
+    "D102",  # Missing docstring in a public method
+    "D104",  # Missing docstring in public package
+    "D105",  # Missing docstring in magic method
+    "D107",  # Missing docstring in `__init__`
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D100", "D103"]  # Test modules and functions don't need module/function docstrings
+
+[tool.ruff]
+line-length = 119
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
