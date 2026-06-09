@@ -77,3 +77,14 @@ And the cuttings from:
 ```bash
 aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cuttings ./data/cuttings
 ```
+
+## CLI Usage
+
+Run the borehole photo processing pipeline:
+
+```bash
+uv run run-pipeline --input <input-dir> --output <output-dir>
+```
+
+- `--input`: Path to the directory containing raw borehole photos
+- `--output`: Path to the directory where processed images will be written
