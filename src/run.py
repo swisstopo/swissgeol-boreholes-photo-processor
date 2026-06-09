@@ -2,7 +2,8 @@
 
 import argparse
 from pathlib import Path
-from typing import Any
+
+from PIL import Image
 
 image_extensions = {".tif"}
 
@@ -19,16 +20,16 @@ def segment(images: list) -> list:
     return []  # placeholder
 
 
-def stitch(detections: list) -> Any:  # placeholder, will be changed once library is defined
+def stitch(detections: list) -> Image.Image:
     """Stitch the list of detections into a final image.
 
     Args:
         detections: A list of detected objects.
 
     Returns:
-        A list containing the stitched image.
+        An image object representing the stitched result of the detections.
     """
-    return None  # placeholder
+    return Image.new("RGB", (100, 100))  # placeholder
 
 
 def run(input_dir: Path, output_dir: Path) -> None:
@@ -51,6 +52,7 @@ def run(input_dir: Path, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     if stitched_image is not None:
         stitched_image.save(output_dir / f"{input_dir.name}.tif")
+        stitched_image.save(output_dir / f"{input_dir.name}.png")
 
 
 def batch_run(input_dir: Path, output_dir: Path) -> None:
