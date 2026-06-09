@@ -16,7 +16,7 @@ def segment(images: list) -> list:
     Returns:
         A list of detected objects in the image.
     """
-    raise NotImplementedError
+    return []  # placeholder
 
 
 def stitch(detections: list) -> Any:  # placeholder, will be changed once library is defined
@@ -28,7 +28,7 @@ def stitch(detections: list) -> Any:  # placeholder, will be changed once librar
     Returns:
         A list containing the stitched image.
     """
-    raise NotImplementedError
+    return None  # placeholder
 
 
 def run(input_dir: Path, output_dir: Path) -> None:
