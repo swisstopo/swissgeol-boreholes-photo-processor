@@ -49,7 +49,8 @@ def run(input_dir: Path, output_dir: Path) -> None:
 
     # Write results to output directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    stitched_image.save(output_dir / f"{input_dir.name}.tif")
+    if stitched_image is not None:
+        stitched_image.save(output_dir / f"{input_dir.name}.tif")
 
 
 def batch_run(input_dir: Path, output_dir: Path) -> None:
