@@ -51,15 +51,9 @@ You can download the data using the AWS CLI. First, you need to make sure that t
 brew install awscli
 ```
 
-Then configure your credentials by running:
+Configure your AWS credentials using `aws configure`, which will prompt you for:
 
-```bash
-aws configure
 ```
-
-this will prompt you for
-
-```bash
 AWS Access Key ID [None]: <your key id>
 AWS Secret Access Key [None]: <your key>
 Default region name [None]: eu-central-1
@@ -88,3 +82,51 @@ uv run run-pipeline --input <input-dir> --output <output-dir>
 
 - `--input`: Path to the directory containing raw borehole photos
 - `--output`: Path to the directory where processed images will be written
+To sync only a single borehole (useful for local testing), specify the full prefix:
+
+```bash
+aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cores/GBC/GBC-CB50 ./data/cores/GBC/GBC-CB50
+```
+
+### Bucket Structure and Data Volumes
+
+The S3 bucket `stijnvermeeren-corephotos-cuttings` is organized into two top-level prefixes:
+
+| Category    | Files  | Size      | Primary Format |
+|-------------|-------:|----------:|----------------|
+| `cores/`    | 11,630 | 503.6 GiB | TIF            |
+| `cuttings/` |  6,246 |  24.8 GiB | JPG            |
+
+#### Core Photos (`cores/`)
+
+Files are organized as `cores/<group>/<borehole>/`, covering 53 boreholes across 7 groups:
+
+| Group | Boreholes | Files | Size (GiB) |
+|---|---:|---:|---:|
+| GBC | 12 | 3,527 | 133.2 |
+| GBT | 12 | 1,938 | 108.0 |
+| Georessourcen | 9 | 1,145 | 52.8 |
+| Handstuecke | 1 | 121 | 5.4 |
+| LBT | 12 | 2,839 | 114.6 |
+| LBT_Prognose | 6 | 697 | 28.1 |
+| VP_GBT | 1 | 1,362 | 61.5 |
+
+#### Cuttings (`cuttings/`)
+
+| Borehole | Files | JPG | TIF | HEIC | Other | Size (GiB) |
+|---|---:|---:|---:|---:|---:|---:|
+| Forsthaus GES-F1 | 40 | 33 | 0 | 0 | 7 | 0.20 |
+| Forsthaus GES-F2 | 122 | 121 | 0 | 0 | 1 | 0.82 |
+| Forsthaus GES-F3 | 193 | 192 | 0 | 0 | 1 | 1.25 |
+| Forsthaus GES-F3A | 103 | 102 | 0 | 0 | 1 | 0.64 |
+| GEo-01 | 629 | 628 | 0 | 0 | 1 | 1.42 |
+| GEo-02 | 1,649 | 1,648 | 0 | 0 | 1 | 5.01 |
+| GVL-1 | 1,250 | 1,206 | 0 | 43 | 1 | 5.84 |
+| Lavey-1 ¹ | 2 | 0 | 0 | 0 | 2 | 0.08 |
+| Montagny-2 | 254 | 253 | 0 | 0 | 1 | 1.21 |
+| Montagny-2ST | 181 | 180 | 0 | 0 | 1 | 0.64 |
+| Vinzel-1 | 996 | 786 | 209 | 0 | 1 | 5.52 |
+| Vinzel-1-Malm | 552 | 551 | 0 | 0 | 1 | 1.32 |
+| Vinzel-1S | 274 | 272 | 1 | 0 | 1 | 0.83 |
+
+¹ Lavey-1 does not have original image files. Photos must be extracted from a large PDF file.
