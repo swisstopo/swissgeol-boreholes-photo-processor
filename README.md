@@ -72,6 +72,8 @@ And the cuttings from:
 aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cuttings ./data/cuttings
 ```
 
+To sync only a single borehole (useful for local testing), specify the full prefix:
+
 ```bash
 aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cores/GBC/GBC-CB50 ./data/cores/GBC/GBC-CB50
 ```
@@ -124,9 +126,8 @@ Files are organized as `cores/<group>/<borehole>/`, covering 53 boreholes across
 Run the borehole photo processing pipeline:
 
 ```bash
-uv run run-pipeline --input <input-dir> --output <output-dir>
+uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 ```
 
-- `--input`: Path to the directory containing raw borehole photos
+- `--input`: Path to the directory containing raw borehole photos, or nested folders containing them
 - `--output`: Path to the directory where processed images will be written
-To sync only a single borehole (useful for local testing), specify the full prefix:

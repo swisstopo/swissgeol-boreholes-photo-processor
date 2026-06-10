@@ -16,5 +16,5 @@ jobs:
         shell: bash
         run: |
           uv sync
-          mkdir -p /tmp/borehole-input /tmp/borehole-output
-          uv run run-pipeline --input /tmp/borehole-input --output /tmp/borehole-output
+          mkdir -p $RUNNER_TEMP/borehole-input $RUNNER_TEMP/borehole-output
+          uv run boreholes-photo-processor --input $RUNNER_TEMP/borehole-input --output $RUNNER_TEMP/borehole-output

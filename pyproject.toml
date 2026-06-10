@@ -29,7 +29,7 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [project.scripts]
-run-pipeline = "src.run:main"
+boreholes-photo-processor = "src.run:main"
 
 # ---- Configuration for Ruff
 [tool.ruff.lint]

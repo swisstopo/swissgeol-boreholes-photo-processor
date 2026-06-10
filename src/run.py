@@ -8,8 +8,8 @@ def run(input_dir: Path, output_dir: Path) -> None:
     """Process borehole photos from input to output directory.
 
     Args:
-        input_dir: Path to the directory containing raw borehole photos.
-        output_dir: Path to the directory where processed images will be written.
+        input_dir (Path): Path to the directory containing raw borehole photos.
+        output_dir (Path): Path to the directory where processed images will be written.
     """
     pass
 
