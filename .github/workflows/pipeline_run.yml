@@ -1,0 +1,20 @@
+name: pipeline_run
+
+on:
+  pull_request:
+
+jobs:
+  pipeline_run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.11"
+      - name: Install dependencies and run pipeline
+        shell: bash
+        run: |
+          uv sync
+          mkdir -p $RUNNER_TEMP/borehole-input $RUNNER_TEMP/borehole-output
+          uv run boreholes-photo-processor --input $RUNNER_TEMP/borehole-input --output $RUNNER_TEMP/borehole-output

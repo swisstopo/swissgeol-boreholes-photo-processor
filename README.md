@@ -120,3 +120,14 @@ Files are organized as `cores/<group>/<borehole>/`, covering 53 boreholes across
 | Vinzel-1S | 274 | 272 | 1 | 0 | 1 | 0.83 |
 
 ¹ Lavey-1 does not have original image files. Photos must be extracted from a large PDF file.
+
+## CLI Usage
+
+Run the borehole photo processing pipeline:
+
+```bash
+uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
+```
+
+- `--input`: Path to the directory containing raw borehole photos, or nested folders containing them
+- `--output`: Path to the directory where processed images will be written
