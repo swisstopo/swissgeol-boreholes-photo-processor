@@ -131,7 +131,7 @@ Run the borehole photo processing pipeline:
 uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 ```
 
-- `--input`: Path to the directory containing raw borehole photos, or nested folders containing them
+- `--input`: Path to the directory containing raw borehole photos (`.tif` only), or nested folders containing them
 - `--output`: Path to the directory where processed images will be written
 
 **With MLflow tracking**
@@ -141,3 +141,10 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlf
 ```
 
 - --mlflow: Enable MLflow artifact logging. By default logs to ./mlruns; set MLFLOW_TRACKING_URI for a remote server.
+
+To view logged artifacts, start the MLflow UI:
+```bash
+uv run mlflow ui
+```
+
+Then open http://localhost:5000 in your browser.

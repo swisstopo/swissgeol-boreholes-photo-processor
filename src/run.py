@@ -11,24 +11,25 @@ from PIL import Image
 
 
 def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
-    """Segment the input image and return a list of detections.
+    """Segment the input images and return a list of detections.
 
     Args:
         image_paths (list[Path]): A list of image file paths to be segmented.
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
     Returns:
-        list: A list of detected objects in the image.
+        list: A list of detected objects, one per input image.
     """
     detections: list = []
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        for image_path in image_paths:
-            img = Image.open(image_path)
-            detection = img.copy()  # placeholder
 
-            # log artifact
-            if with_mlflow:
-                try:
+    for image_path in image_paths:
+        img = Image.open(image_path)
+        detection = img.copy()  # placeholder
+
+        # log artifact
+        if with_mlflow:
+            try:
+                with tempfile.TemporaryDirectory() as tmp_dir:
                     # convert to plot with bounding box around the detected object (placeholder)
                     plt.imshow(detection)
                     w, h = img.size
@@ -39,10 +40,10 @@ def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
                     artifact_path = Path(tmp_dir) / f"{image_path.stem}.png"
                     plt.savefig(artifact_path)
                     mlflow.log_artifact(str(artifact_path))
-                finally:
-                    plt.close()
+            finally:
+                plt.close()
 
-            detections.append(detection)
+        detections.append(detection)
 
     return detections
 
@@ -52,7 +53,7 @@ def stitch(detections: list, dir_name: str, with_mlflow: bool = False) -> Image.
 
     Args:
         detections (list): A list of detected objects.
-        dir_name (str): The name of the directory where the stitched image will be saved.
+        dir_name (str): Name used as the stem for the MLflow artifact filename.
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
     Returns:
@@ -62,12 +63,14 @@ def stitch(detections: list, dir_name: str, with_mlflow: bool = False) -> Image.
 
     # log artifact
     if with_mlflow:
-        plt.imshow(stitched_image)
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            artifact_path = Path(tmp_dir) / f"{dir_name}.png"
-            plt.savefig(artifact_path)
+        try:
+            plt.imshow(stitched_image)
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                artifact_path = Path(tmp_dir) / f"{dir_name}.png"
+                plt.savefig(artifact_path)
+                mlflow.log_artifact(str(artifact_path))
+        finally:
             plt.close()
-            mlflow.log_artifact(str(artifact_path))
 
     return stitched_image
 
@@ -76,12 +79,14 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> None:
     """Process borehole photos from input to output directory.
 
     Args:
-        input_dir (Path): Path to the directory containing raw borehole photos.
+        input_dir (Path): Path to the directory containing raw borehole photos (TIF format).
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
     """
     # Collect all images from the input directory
     image_paths: list[Path] = [f for f in input_dir.iterdir() if f.suffix.lower() == ".tif"]
+    if not image_paths:
+        raise ValueError(f"No .tif files found in {input_dir}")
 
     # segmentation
     detections: list = segment(image_paths, with_mlflow=with_mlflow)
@@ -100,7 +105,8 @@ def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> N
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
     Args:
-        input_dir (Path): Path to the root directory whose subdirectories each contain raw borehole photos.
+        input_dir (Path): Path to the root directory whose subdirectories each contain
+            raw borehole photos (TIF format).
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
     """
@@ -122,6 +128,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
     parser.add_argument("--mlflow", action="store_true", help="Whether to log artifacts to MLflow.")
     args = parser.parse_args()
+
+    # Sanity checks
+    if not args.input.exists():
+        parser.error(f"Input directory does not exist: {args.input}")
+    if not args.input.is_dir():
+        parser.error(f"Input path is not a directory: {args.input}")
 
     has_subdirs = any(p.is_dir() for p in args.input.iterdir())
     if has_subdirs:
