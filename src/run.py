@@ -7,11 +7,10 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import mlflow
-import numpy as np
 from PIL import Image
 
 
-def segment(image_paths: list[Path], with_mlflow: bool = True) -> list:
+def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
     """Segment the input image and return a list of detections.
 
     Args:
@@ -25,28 +24,30 @@ def segment(image_paths: list[Path], with_mlflow: bool = True) -> list:
     with tempfile.TemporaryDirectory() as tmp_dir:
         for image_path in image_paths:
             img = Image.open(image_path)
-            detection = img  # placeholder
+            detection = img.copy()  # placeholder
 
             # log artifact
             if with_mlflow:
-                # convert to plot with bounding box around the detected object (placeholder)
-                plt.imshow(detection)
-                h, w = np.array(img).shape[:2]
-                plt.gca().add_patch(
-                    plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none")
-                )  # placeholder
+                try:
+                    # convert to plot with bounding box around the detected object (placeholder)
+                    plt.imshow(detection)
+                    w, h = img.size
+                    plt.gca().add_patch(
+                        plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none")
+                    )  # placeholder
 
-                artifact_path = Path(tmp_dir) / f"{image_path.stem}.png"
-                plt.savefig(artifact_path)
-                plt.close()
-                mlflow.log_artifact(str(artifact_path))
+                    artifact_path = Path(tmp_dir) / f"{image_path.stem}.png"
+                    plt.savefig(artifact_path)
+                    mlflow.log_artifact(str(artifact_path))
+                finally:
+                    plt.close()
 
             detections.append(detection)
 
     return detections
 
 
-def stitch(detections: list, dir_name: str, with_mlflow: bool = True) -> Image.Image:
+def stitch(detections: list, dir_name: str, with_mlflow: bool = False) -> Image.Image:
     """Stitch the list of detections into a final image.
 
     Args:
@@ -71,7 +72,7 @@ def stitch(detections: list, dir_name: str, with_mlflow: bool = True) -> Image.I
     return stitched_image
 
 
-def run(input_dir: Path, output_dir: Path, with_mlflow: bool = True) -> None:
+def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> None:
     """Process borehole photos from input to output directory.
 
     Args:
@@ -95,11 +96,11 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = True) -> None:
         stitched_image.save(output_dir / f"{input_dir.name}.png")
 
 
-def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = True) -> None:
+def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
     Args:
-        input_dir (Path): A list of paths to directories containing raw borehole photos.
+        input_dir (Path): Path to the root directory whose subdirectories each contain raw borehole photos.
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
     """
