@@ -23,16 +23,15 @@ def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
     detections: list = []
 
     for image_path in image_paths:
-        img = Image.open(image_path)
-        detection = img.copy()  # placeholder
+        with Image.open(image_path) as img:
+            detection = img.copy()  # placeholder
+            w, h = img.size  # placeholder for bounding box dimensions
 
-        # log artifact
         if with_mlflow:
             try:
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     # convert to plot with bounding box around the detected object (placeholder)
                     plt.imshow(detection)
-                    w, h = img.size
                     plt.gca().add_patch(
                         plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none")
                     )  # placeholder
@@ -61,11 +60,10 @@ def stitch(detections: list, dir_name: str, with_mlflow: bool = False) -> Image.
     """
     stitched_image: Image.Image = Image.new("RGB", (100, 100))  # placeholder for actual stitched image
 
-    # log artifact
     if with_mlflow:
         try:
-            plt.imshow(stitched_image)
             with tempfile.TemporaryDirectory() as tmp_dir:
+                plt.imshow(stitched_image)
                 artifact_path = Path(tmp_dir) / f"{dir_name}.png"
                 plt.savefig(artifact_path)
                 mlflow.log_artifact(str(artifact_path))
@@ -94,9 +92,8 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> None:
 
     # Write results to output directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    if stitched_image is not None:
-        stitched_image.save(output_dir / f"{input_dir.name}.tif")
-        stitched_image.save(output_dir / f"{input_dir.name}.png")
+    stitched_image.save(output_dir / f"{input_dir.name}.tif")
+    stitched_image.save(output_dir / f"{input_dir.name}.png")
 
 
 def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> None:
