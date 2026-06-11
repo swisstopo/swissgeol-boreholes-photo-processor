@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Python project that generates composite images from photos of borehole cores and cuttings"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "Pillow==12.2.0",
+]
 
 [project.optional-dependencies]
 test = [

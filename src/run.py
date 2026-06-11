@@ -3,6 +3,32 @@
 import argparse
 from pathlib import Path
 
+from PIL import Image
+
+
+def segment(images: list) -> list:
+    """Segment the input image and return a list of detections.
+
+    Args:
+        images (list): A list of image file paths to be segmented.
+
+    Returns:
+        list: A list of detected objects in the image.
+    """
+    return []  # placeholder
+
+
+def stitch(detections: list) -> Image.Image:
+    """Stitch the list of detections into a final image.
+
+    Args:
+        detections (list): A list of detected objects.
+
+    Returns:
+        Image.Image: An image object representing the stitched result of the detections.
+    """
+    return Image.new("RGB", (100, 100))  # placeholder
+
 
 def run(input_dir: Path, output_dir: Path) -> None:
     """Process borehole photos from input to output directory.
@@ -11,7 +37,32 @@ def run(input_dir: Path, output_dir: Path) -> None:
         input_dir (Path): Path to the directory containing raw borehole photos.
         output_dir (Path): Path to the directory where processed images will be written.
     """
-    pass
+    # Collect all images from the input directory
+    images: list = [str(f) for f in input_dir.iterdir() if f.suffix.lower() == ".tif"]
+
+    # segmentation
+    detections: list = segment(images)
+
+    # stitching
+    stitched_image = stitch(detections)
+
+    # Write results to output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if stitched_image is not None:
+        stitched_image.save(output_dir / f"{input_dir.name}.tif")
+        stitched_image.save(output_dir / f"{input_dir.name}.png")
+
+
+def batch_run(input_dir: Path, output_dir: Path) -> None:
+    """Accepts a root directory and runs the pipeline on all subdirectories.
+
+    Args:
+        input_dir (Path): A list of paths to directories containing raw borehole photos.
+        output_dir (Path): Path to the directory where processed images will be written.
+    """
+    for subdir in input_dir.iterdir():
+        if subdir.is_dir():
+            run(input_dir=subdir, output_dir=output_dir / subdir.name)
 
 
 def main() -> None:
@@ -20,4 +71,9 @@ def main() -> None:
     parser.add_argument("--input", type=Path, required=True, help="Path to the input directory.")
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
     args = parser.parse_args()
-    run(input_dir=args.input, output_dir=args.output)
+
+    has_subdirs = any(p.is_dir() for p in args.input.iterdir())
+    if has_subdirs:
+        batch_run(input_dir=args.input, output_dir=args.output)
+    else:
+        run(input_dir=args.input, output_dir=args.output)
