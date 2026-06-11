@@ -5,8 +5,6 @@ from pathlib import Path
 
 from PIL import Image
 
-image_extensions = {".tif"}
-
 
 def segment(images: list) -> list:
     """Segment the input image and return a list of detections.
@@ -40,7 +38,7 @@ def run(input_dir: Path, output_dir: Path) -> None:
         output_dir (Path): Path to the directory where processed images will be written.
     """
     # Collect all images from the input directory
-    images: list = [str(f) for f in input_dir.iterdir() if f.suffix.lower() in image_extensions]
+    images: list = [str(f) for f in input_dir.iterdir() if f.suffix.lower() == ".tif"]
 
     # segmentation
     detections: list = segment(images)
