@@ -125,9 +125,17 @@ Files are organized as `cores/<group>/<borehole>/`, covering 53 boreholes across
 
 Run the borehole photo processing pipeline:
 
+Without tracking
+
 ```bash
 uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 ```
 
 - `--input`: Path to the directory containing raw borehole photos, or nested folders containing them
 - `--output`: Path to the directory where processed images will be written
+
+Or with Mlflow tracking
+
+```bash
+uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlflow
+```

@@ -5,6 +5,8 @@ description = "Python project that generates composite images from photos of bor
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "matplotlib==3.10.9",
+    "mlflow==3.13.0",
     "Pillow==12.2.0",
 ]
 
