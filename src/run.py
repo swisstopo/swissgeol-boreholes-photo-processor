@@ -85,8 +85,6 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> None:
     """
     # Collect all images from the input directory
     image_paths: list[Path] = [f for f in input_dir.iterdir() if f.suffix.lower() == ".tif"]
-    if not image_paths:
-        raise ValueError(f"No .tif files found in {input_dir}")
 
     # segmentation
     detections: list = segment(image_paths, with_mlflow=with_mlflow)
