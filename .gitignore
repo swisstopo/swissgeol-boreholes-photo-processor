@@ -10,3 +10,6 @@
 __pycache__/
 .ruff_cache/
 data
+
+# development
+launch.json.template.jonc
