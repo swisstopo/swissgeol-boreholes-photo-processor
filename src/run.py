@@ -33,9 +33,7 @@ def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     # convert to plot with bounding box around the detected object (placeholder)
                     plt.imshow(detection)
-                    plt.gca().add_patch(
-                        plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none")
-                    )  # placeholder
+                    plt.gca().add_patch(plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none"))
 
                     artifact_path = Path(tmp_dir) / f"{image_path.stem}.png"
                     plt.savefig(artifact_path)
@@ -81,7 +79,7 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
         input_dir (Path): Path to the directory containing raw borehole photos (TIF format).
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
-        nested (bool): Whether to start a nested MLflow run (used when called from batch_run).
+        nested (bool): Whether to start a nested MLflow run under an existing active run.
     """
     ctx = mlflow.start_run(run_name=input_dir.name, nested=nested) if with_mlflow else contextlib.nullcontext()
     with ctx:
@@ -124,7 +122,6 @@ def main() -> None:
     parser.add_argument("--mlflow", action="store_true", help="Whether to log artifacts to MLflow.")
     args = parser.parse_args()
 
-    # Sanity checks
     if not args.input.exists():
         parser.error(f"Input directory does not exist: {args.input}")
     if not args.input.is_dir():

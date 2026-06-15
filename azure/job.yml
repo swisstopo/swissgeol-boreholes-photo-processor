@@ -1,7 +1,7 @@
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 type: command
 
-display_name: borehole-photo-processor-test
+display_name: borehole-photo-processor
 experiment_name: borehole-photo-processor
 
 code: ..
@@ -15,7 +15,7 @@ command: >-
 inputs:
   borehole_data:
     type: uri_folder
-    path: azureml:borehole-test@latest
+    path: azureml:borehole-test@latest  # update when production data asset is registered
 
 outputs:
   results:

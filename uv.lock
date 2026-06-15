@@ -3001,7 +3001,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "azureml-mlflow", specifier = ">=1.62.0.post3" },
+    { name = "azureml-mlflow", specifier = "==1.62.0.post3" },
     { name = "matplotlib", specifier = "==3.10.9" },
     { name = "mlflow", specifier = "==3.13.0" },
     { name = "moto", marker = "extra == 'test'", specifier = "==5.1.10" },

@@ -140,7 +140,7 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlflow
 ```
 
-- --mlflow: Enable MLflow artifact logging. By default logs to ./mlruns; set MLFLOW_TRACKING_URI for a remote server.
+- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server. Also auto-enabled when `MLFLOW_TRACKING_URI` is present in the environment.
 
 To view logged artifacts, start the MLflow UI:
 ```bash
@@ -148,3 +148,36 @@ uv run mlflow ui
 ```
 
 Then open http://localhost:5000 in your browser.
+
+## Remote Execution on Azure ML
+
+The pipeline can be submitted as a job to Azure ML, which runs it on a remote compute cluster with MLflow tracking configured automatically.
+
+### Prerequisites
+
+```bash
+brew install azure-cli
+az extension add -n ml
+az login
+```
+
+### Submitting a job
+
+The job is defined in `azure/job.yml`. Update the `inputs.borehole_data.path` field to point at your registered data asset, then submit:
+
+```bash
+az ml job create \
+  --file azure/job.yml \
+  --resource-group rg-swisstopo-compute \
+  --workspace-name aml-swisstopo-sn
+```
+
+MLflow tracking is enabled automatically — no `--mlflow` flag needed.
+
+### Monitoring results
+
+Open [ml.azure.com](https://ml.azure.com) → workspace `aml-swisstopo-sn` → **Jobs** → your run:
+
+- **Outputs + logs** → `user_logs/std_log.txt` for the full run log
+- **Outputs** tab → `results/` folder for the output TIF and PNG files
+- **Images** → MLflow artifacts (detection plots, stitched image)
