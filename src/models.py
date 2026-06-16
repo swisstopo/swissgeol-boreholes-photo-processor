@@ -14,20 +14,17 @@ class ImageMetadata:
     ):
         """Initializes an ImageMetadata instance.
 
-        All fields are parsed from the image filename, which follows the convention
-        ``[<site_code>][<borehole_id>][<depth_start>-<depth_end>]…``.
+        site_code and borehole_id are derived from the two parent directory names.
+        depth_start and depth_end are parsed from the filename, e.g.
+        ``GBC-CB50_0015.00-0016.00_vd_p.TIF``.
 
         Args:
-            site_code: 1st bracket group in the filename, e.g. ``"GBC"``.
-            borehole_id: 2nd bracket group in the filename, e.g. ``"CB50"``.
-            depth_start: Start of the depth interval (metres), 3rd bracket group
-                before the ``-``, e.g. ``15.0``.
-            depth_end: End of the depth interval (metres), 3rd bracket group
-                after the ``-``, e.g. ``16.0``.
-            image_path: Full filesystem path to the image file,
-                e.g. ``Path(".../[GBC]...TIF")``.
-            folder: Parent directory used for batch routing,
-                e.g. ``Path(".../CB50/")``.
+            site_code: Top-level parent directory name, e.g. ``"GBC"``.
+            borehole_id: Direct parent directory name, e.g. ``"GBC-CB50"``.
+            depth_start: Start of the depth interval (metres), e.g. ``15.0``.
+            depth_end: End of the depth interval (metres), e.g. ``16.0``.
+            image_path: Full filesystem path to the image file.
+            folder: Parent directory of the image file.
         """
         self.site_code = site_code
         self.borehole_id = borehole_id
@@ -36,29 +33,28 @@ class ImageMetadata:
         self.image_path = image_path
         self.folder = folder
 
-    _FILENAME_PATTERN = re.compile(
-        r"^\[(?P<site_code>[^\]]+)\]"
-        r"\[(?P<borehole_id>[^\]]+)\]"
-        r"\[(?P<depth_start>\d+(?:\.\d+)?)\]-\[(?P<depth_end>\d+(?:\.\d+)?)\]"
-    )
+    _DEPTH_PATTERN = re.compile(r"_(?P<depth_start>\d+\.\d+)-(?P<depth_end>\d+\.\d+)")
 
     @classmethod
     def from_path(cls, image_path: Path) -> "ImageMetadata":
-        """Construct an ImageMetadata by parsing the structured filename.
+        """Construct an ImageMetadata from an image path.
+
+        site_code and borehole_id are taken from the two parent directory names.
+        depth_start and depth_end are extracted from the filename via regex.
 
         Args:
-            image_path: Path to an image file whose name follows the convention
-                ``[<site_code>][<borehole_id>][<depth_start>]-[<depth_end>]…``.
+            image_path: Full path to an image file, e.g.
+                ``Path(".../GBC/GBC-CB50/GBC-CB50_0015.00-0016.00_vd_p.TIF")``.
 
         Raises:
-            ValueError: If the filename does not match the expected pattern.
+            ValueError: If no depth range can be found in the filename.
         """
-        match = cls._FILENAME_PATTERN.match(image_path.name)
+        match = cls._DEPTH_PATTERN.search(image_path.stem)
         if not match:
-            raise ValueError(f"Filename does not match expected pattern: {image_path.name}")
+            raise ValueError(f"No depth range found in filename: {image_path.name}")
         return cls(
-            site_code=match.group("site_code"),
-            borehole_id=match.group("borehole_id"),
+            site_code=image_path.parent.parent.name,
+            borehole_id=image_path.parent.name,
             depth_start=float(match.group("depth_start")),
             depth_end=float(match.group("depth_end")),
             image_path=image_path,
