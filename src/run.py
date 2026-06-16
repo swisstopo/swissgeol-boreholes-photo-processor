@@ -10,21 +10,23 @@ import matplotlib.pyplot as plt
 import mlflow
 from PIL import Image
 
+from src.models import ImageMetadata, ImageMetadataProcessed
 
-def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
+
+def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> list[ImageMetadataProcessed]:
     """Segment the input images and return a list of detections.
 
     Args:
-        image_paths (list[Path]): A list of image file paths to be segmented.
+        imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
     Returns:
-        list: A list of detected objects, one per input image.
+        list[ImageMetadataProcessed]: A list of processed image metadata objects, one per input image.
     """
-    detections: list = []
+    detections: list[ImageMetadataProcessed] = []
 
-    for image_path in image_paths:
-        with Image.open(image_path) as img:
+    for img_metadata in imgs_metadata:
+        with Image.open(img_metadata.image_path) as img:
             detection = img.copy()  # placeholder
             w, h = img.size  # placeholder for bounding box dimensions
 
@@ -35,22 +37,24 @@ def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
                     plt.imshow(detection)
                     plt.gca().add_patch(plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none"))
 
-                    artifact_path = Path(tmp_dir) / f"{image_path.stem}.png"
+                    artifact_path = Path(tmp_dir) / f"{img_metadata.image_path.stem}.png"
                     plt.savefig(artifact_path)
                     mlflow.log_artifact(str(artifact_path))
             finally:
                 plt.close()
 
-        detections.append(detection)
+        detections.append(
+            ImageMetadataProcessed(metadata=img_metadata, detections=[detection], bounding_boxes=[(0, 0, w, h)])
+        )
 
     return detections
 
 
-def stitch(detections: list, dir_name: str, with_mlflow: bool = False) -> Image.Image:
+def stitch(detections: list[ImageMetadataProcessed], dir_name: str, with_mlflow: bool = False) -> Image.Image:
     """Stitch the list of detections into a final image.
 
     Args:
-        detections (list): A list of detected objects.
+        detections (list[ImageMetadataProcessed]): A list of processed image metadata objects.
         dir_name (str): Name used as the stem for the MLflow artifact filename.
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
@@ -83,11 +87,13 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
     """
     ctx = mlflow.start_run(run_name=input_dir.name, nested=nested) if with_mlflow else contextlib.nullcontext()
     with ctx:
-        # Collect all images from the input directory
-        image_paths: list[Path] = [f for f in input_dir.iterdir() if f.suffix.lower() == ".tif"]
+        # Collect all images from the input directory and parse filename metadata
+        imgs_metadata: list[ImageMetadata] = [
+            ImageMetadata.from_path(f) for f in input_dir.iterdir() if f.suffix.lower() == ".tif"
+        ]
 
         # segmentation
-        detections: list = segment(image_paths, with_mlflow=with_mlflow)
+        detections: list[ImageMetadataProcessed] = segment(imgs_metadata, with_mlflow=with_mlflow)
 
         # stitching
         stitched_image = stitch(detections, dir_name=input_dir.name, with_mlflow=with_mlflow)
