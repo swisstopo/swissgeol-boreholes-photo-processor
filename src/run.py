@@ -73,6 +73,12 @@ def stitch(detections: list, dir_name: str, with_mlflow: bool = False) -> Image.
     return stitched_image
 
 
+def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False):
+    if with_mlflow:
+        return mlflow.start_run(run_name=run_name, nested=nested)
+    return contextlib.nullcontext()
+
+
 def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bool = False) -> None:
     """Process borehole photos from input to output directory.
 
@@ -82,8 +88,7 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
         with_mlflow (bool): Whether to log artifacts to MLflow.
         nested (bool): Whether to start a nested MLflow run (used when called from batch_run).
     """
-    ctx = mlflow.start_run(run_name=input_dir.name, nested=nested) if with_mlflow else contextlib.nullcontext()
-    with ctx:
+    with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory
         image_paths: list[Path] = [f for f in input_dir.iterdir() if f.suffix.lower() == ".tif"]
 
@@ -108,8 +113,7 @@ def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> N
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
     """
-    parent_ctx = mlflow.start_run(run_name=input_dir.name) if with_mlflow else contextlib.nullcontext()
-    with parent_ctx:
+    with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
         for subdir in input_dir.iterdir():
             if subdir.is_dir():
                 run(input_dir=subdir, output_dir=output_dir / subdir.name, with_mlflow=with_mlflow, nested=True)
