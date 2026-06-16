@@ -13,4 +13,4 @@ data
 test-data/
 
 # development
-launch.json.template.jonc
+launch.json
