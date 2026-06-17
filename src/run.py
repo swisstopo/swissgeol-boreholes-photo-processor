@@ -73,7 +73,17 @@ def stitch(detections: list, dir_name: str, with_mlflow: bool = False) -> Image.
     return stitched_image
 
 
-def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False):
+def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
+    """Context manager for MLflow run.
+
+    Args:
+        run_name (str): Name of the MLflow run.
+        with_mlflow (bool): Whether to log artifacts to MLflow.
+        nested (bool): Whether to start a nested MLflow run.
+
+    Returns:
+        contextlib.AbstractContextManager: A context manager for the MLflow run.
+    """
     if with_mlflow:
         return mlflow.start_run(run_name=run_name, nested=nested)
     return contextlib.nullcontext()
@@ -138,3 +148,7 @@ def main() -> None:
         batch_run(input_dir=args.input, output_dir=args.output, with_mlflow=args.mlflow)
     else:
         run(input_dir=args.input, output_dir=args.output, with_mlflow=args.mlflow)
+
+
+if __name__ == "__main__":
+    main()

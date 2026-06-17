@@ -13,3 +13,7 @@ data
 
 # development
 launch.json
+
+# mlflow
+mlruns/
+mlflow.db

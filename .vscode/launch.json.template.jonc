@@ -11,7 +11,7 @@
             "name": "Python: Run photo-processor",
             "type": "debugpy",
             "request": "launch",
-            "module": "src.main",
+            "module": "src.run",
             "args": [
                 "-i",
                 "data/cores"
