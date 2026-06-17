@@ -80,7 +80,7 @@ aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cores/GBC/GBC-CB50 ./data/co
 
 ### Expected Data Format
 
-The pipeline processes borehole core photos in **TIF format** (`.tif`). Files with other extensions are ignored.
+The pipeline processes borehole core photos in **TIF format** (`.tif`/`.TIF`, case-insensitive). Files with other extensions are ignored.
 
 **Filename convention**
 

@@ -2,6 +2,7 @@
 
 import argparse
 import contextlib
+import logging
 import tempfile
 from pathlib import Path
 
@@ -102,9 +103,13 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory and parse filename metadata
-        imgs_metadata: list[ImageMetadata] = [
-            ImageMetadata.from_path(f) for f in input_dir.iterdir() if f.suffix.lower() == ".tif"
-        ]
+        imgs_metadata: list[ImageMetadata] = []
+        for f in input_dir.iterdir():
+            if f.suffix.lower() == ".tif":
+                try:
+                    imgs_metadata.append(ImageMetadata.from_path(f))
+                except ValueError as e:
+                    logging.warning("Skipping %s: %s", f.name, e)
 
         # segmentation
         detections: list[ImageMetadataProcessed] = segment(imgs_metadata, with_mlflow=with_mlflow)
