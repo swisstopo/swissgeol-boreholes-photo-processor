@@ -78,48 +78,47 @@ To sync only a single borehole (useful for local testing), specify the full pref
 aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cores/GBC/GBC-CB50 ./data/cores/GBC/GBC-CB50
 ```
 
-### Bucket Structure and Data Volumes
+### Expected Data Format
 
-The S3 bucket `stijnvermeeren-corephotos-cuttings` is organized into two top-level prefixes:
+The pipeline processes borehole core photos in **TIF format** (`.tif`). Files with other extensions are ignored.
 
-| Category    | Files  | Size      | Primary Format |
-|-------------|-------:|----------:|----------------|
-| `cores/`    | 11,630 | 503.6 GiB | TIF            |
-| `cuttings/` |  6,246 |  24.8 GiB | JPG            |
+**Filename convention**
 
-#### Core Photos (`cores/`)
+Each image filename **must** contain a depth interval of the form `_XXXX.XX-YYYY.YY`, where `XXXX.XX` is the start depth and `YYYY.YY` is the end depth in metres. Files without this pattern are rejected at runtime.
 
-Files are organized as `cores/<group>/<borehole>/`, covering 53 boreholes across 7 groups:
+The borehole identifier is derived from the filename prefix — everything before the depth range:
 
-| Group | Boreholes | Files | Size (GiB) |
-|---|---:|---:|---:|
-| GBC | 12 | 3,527 | 133.2 |
-| GBT | 12 | 1,938 | 108.0 |
-| Georessourcen | 9 | 1,145 | 52.8 |
-| Handstuecke | 1 | 121 | 5.4 |
-| LBT | 12 | 2,839 | 114.6 |
-| LBT_Prognose | 6 | 697 | 28.1 |
-| VP_GBT | 1 | 1,362 | 61.5 |
+```
+<borehole-id>_0015.00-0016.00_<optional-suffix>.tif
+└─────────────┘└────────────────────────────────────┘
+  borehole_id         depth range (required)
+```
 
-#### Cuttings (`cuttings/`)
+**Folder structure**
 
-| Borehole | Files | JPG | TIF | HEIC | Other | Size (GiB) |
-|---|---:|---:|---:|---:|---:|---:|
-| Forsthaus GES-F1 | 40 | 33 | 0 | 0 | 7 | 0.20 |
-| Forsthaus GES-F2 | 122 | 121 | 0 | 0 | 1 | 0.82 |
-| Forsthaus GES-F3 | 193 | 192 | 0 | 0 | 1 | 1.25 |
-| Forsthaus GES-F3A | 103 | 102 | 0 | 0 | 1 | 0.64 |
-| GEo-01 | 629 | 628 | 0 | 0 | 1 | 1.42 |
-| GEo-02 | 1,649 | 1,648 | 0 | 0 | 1 | 5.01 |
-| GVL-1 | 1,250 | 1,206 | 0 | 43 | 1 | 5.84 |
-| Lavey-1 ¹ | 2 | 0 | 0 | 0 | 2 | 0.08 |
-| Montagny-2 | 254 | 253 | 0 | 0 | 1 | 1.21 |
-| Montagny-2ST | 181 | 180 | 0 | 0 | 1 | 0.64 |
-| Vinzel-1 | 996 | 786 | 209 | 0 | 1 | 5.52 |
-| Vinzel-1-Malm | 552 | 551 | 0 | 0 | 1 | 1.32 |
-| Vinzel-1S | 274 | 272 | 1 | 0 | 1 | 0.83 |
+For a **single borehole**, the input directory should contain TIF files directly:
 
-¹ Lavey-1 does not have original image files. Photos must be extracted from a large PDF file.
+```
+<any-folder>/
+└── <borehole-folder>/          ← pass this as --input
+    ├── <borehole-id>_0000.00-0001.00_*.tif
+    ├── <borehole-id>_0001.00-0002.00_*.tif
+    └── ...
+```
+
+For **batch processing** across multiple boreholes, the input directory should contain one subdirectory per borehole:
+
+```
+<any-folder>/                   ← pass this as --input
+├── <borehole-folder-1>/
+│   ├── <borehole-id-1>_0000.00-0001.00_*.tif
+│   └── ...
+└── <borehole-folder-2>/
+    ├── <borehole-id-2>_0000.00-0001.00_*.tif
+    └── ...
+```
+
+The pipeline detects the mode automatically: if the input directory contains subdirectories it runs in batch mode, otherwise it processes the directory as a single borehole. The input folder structure is mirrored in the output directory.
 
 ## CLI Usage
 
@@ -140,7 +139,7 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlflow
 ```
 
-- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server. Also auto-enabled when `MLFLOW_TRACKING_URI` is present in the environment.
+- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server.
 
 To view logged artifacts, start the MLflow UI:
 ```bash
