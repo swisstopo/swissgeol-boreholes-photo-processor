@@ -9,24 +9,20 @@ from PIL import Image
 class ImageMetadata:
     """Class to represent metadata for an image."""
 
-    def __init__(
-        self, site_code: str, borehole_id: str, depth_start: float, depth_end: float, image_path: Path, folder: Path
-    ):
+    def __init__(self, borehole_id: str, depth_start: float, depth_end: float, image_path: Path, folder: Path):
         """Initializes an ImageMetadata instance.
 
-        site_code and borehole_id are derived from the two parent directory names.
+        borehole_id is the filename prefix before the depth range.
         depth_start and depth_end are parsed from the filename, e.g.
         ``GBC-CB50_0015.00-0016.00_vd_p.TIF``.
 
         Args:
-            site_code: Top-level parent directory name, e.g. ``"GBC"``.
-            borehole_id: Direct parent directory name, e.g. ``"GBC-CB50"``.
+            borehole_id: Filename prefix before the depth range, e.g. ``"GBC-CB50"``.
             depth_start: Start of the depth interval (metres), e.g. ``15.0``.
             depth_end: End of the depth interval (metres), e.g. ``16.0``.
             image_path: Full filesystem path to the image file.
-            folder: Parent directory of the image file.
+            folder: Parent directory of the image file, used to reconstruct the output path.
         """
-        self.site_code = site_code
         self.borehole_id = borehole_id
         self.depth_start = depth_start
         self.depth_end = depth_end
@@ -39,7 +35,7 @@ class ImageMetadata:
     def from_path(cls, image_path: Path) -> "ImageMetadata":
         """Construct an ImageMetadata from an image path.
 
-        site_code and borehole_id are taken from the two parent directory names.
+        borehole_id is extracted as the filename prefix before the depth range.
         depth_start and depth_end are extracted from the filename via regex.
 
         Args:
@@ -53,8 +49,7 @@ class ImageMetadata:
         if not match:
             raise ValueError(f"No depth range found in filename: {image_path.name}")
         return cls(
-            site_code=image_path.parent.parent.name,
-            borehole_id=image_path.parent.name,
+            borehole_id=image_path.stem[: match.start()],
             depth_start=float(match.group("depth_start")),
             depth_end=float(match.group("depth_end")),
             image_path=image_path,
@@ -80,7 +75,6 @@ class ImageMetadataProcessed(ImageMetadata):
                 used for drawing rectangles when plotting.
         """
         super().__init__(
-            site_code=metadata.site_code,
             borehole_id=metadata.borehole_id,
             depth_start=metadata.depth_start,
             depth_end=metadata.depth_end,
