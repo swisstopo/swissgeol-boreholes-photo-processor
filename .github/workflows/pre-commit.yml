@@ -13,4 +13,4 @@ jobs:
         with:
           python-version: "3.11"
       - run: uv sync --extra test
-      - run: uvx pre-commit run --all-files
+      - run: uv run pre-commit run --all-files
