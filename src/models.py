@@ -9,7 +9,7 @@ from PIL import Image
 class ImageMetadata:
     """Class to represent metadata for an image."""
 
-    def __init__(self, borehole_id: str, depth_start: float, depth_end: float, image_path: Path, folder: Path):
+    def __init__(self, borehole_id: str, depth_start: float, depth_end: float, image_path: Path):
         """Initializes an ImageMetadata instance.
 
         borehole_id is the filename prefix before the depth range.
@@ -21,13 +21,11 @@ class ImageMetadata:
             depth_start: Start of the depth interval (metres), e.g. ``15.0``.
             depth_end: End of the depth interval (metres), e.g. ``16.0``.
             image_path: Full filesystem path to the image file.
-            folder: Parent directory of the image file, used to reconstruct the output path.
         """
         self.borehole_id = borehole_id
         self.depth_start = depth_start
         self.depth_end = depth_end
         self.image_path = image_path
-        self.folder = folder
 
     _DEPTH_PATTERN = re.compile(r"_(?P<depth_start>\d+\.\d+)-(?P<depth_end>\d+\.\d+)")
 
@@ -48,13 +46,23 @@ class ImageMetadata:
         match = cls._DEPTH_PATTERN.search(image_path.stem)
         if not match:
             raise ValueError(f"No depth range found in filename: {image_path.name}")
+        depth_start = float(match.group("depth_start"))
+        depth_end = float(match.group("depth_end"))
+        if depth_end <= depth_start:
+            raise ValueError(
+                f"depth_end ({depth_end}) must be greater than depth_start ({depth_start}) "
+                f"in filename: {image_path.name}"
+            )
         return cls(
             borehole_id=image_path.stem[: match.start()],
-            depth_start=float(match.group("depth_start")),
-            depth_end=float(match.group("depth_end")),
+            depth_start=depth_start,
+            depth_end=depth_end,
             image_path=image_path,
-            folder=image_path.parent,
         )
+
+    @property
+    def folder(self) -> Path:
+        return self.image_path.parent
 
 
 class ImageMetadataProcessed(ImageMetadata):
@@ -79,7 +87,6 @@ class ImageMetadataProcessed(ImageMetadata):
             depth_start=metadata.depth_start,
             depth_end=metadata.depth_end,
             image_path=metadata.image_path,
-            folder=metadata.folder,
         )
         self.detections = detections
         self.bounding_boxes = bounding_boxes
