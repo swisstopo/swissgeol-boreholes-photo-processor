@@ -14,3 +14,7 @@ test-data/
 
 # development
 launch.json.template.jonc
+
+# mlflow
+mlruns/
+mlflow.db

@@ -76,6 +76,22 @@ def stitch(detections: list[ImageMetadataProcessed], dir_name: str, with_mlflow:
     return stitched_image
 
 
+def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
+    """Context manager for MLflow run.
+
+    Args:
+        run_name (str): Name of the MLflow run.
+        with_mlflow (bool): Whether to log artifacts to MLflow.
+        nested (bool): Whether to start a nested MLflow run.
+
+    Returns:
+        contextlib.AbstractContextManager: A context manager for the MLflow run.
+    """
+    if with_mlflow:
+        return mlflow.start_run(run_name=run_name, nested=nested)
+    return contextlib.nullcontext()
+
+
 def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bool = False) -> None:
     """Process borehole photos from input to output directory.
 
@@ -85,8 +101,7 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
         with_mlflow (bool): Whether to log artifacts to MLflow.
         nested (bool): Whether to start a nested MLflow run under an existing active run.
     """
-    ctx = mlflow.start_run(run_name=input_dir.name, nested=nested) if with_mlflow else contextlib.nullcontext()
-    with ctx:
+    with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory and parse filename metadata
         imgs_metadata: list[ImageMetadata] = [
             ImageMetadata.from_path(f) for f in input_dir.iterdir() if f.suffix.lower() == ".tif"
@@ -113,8 +128,7 @@ def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> N
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
     """
-    parent_ctx = mlflow.start_run(run_name=input_dir.name) if with_mlflow else contextlib.nullcontext()
-    with parent_ctx:
+    with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
         for subdir in input_dir.iterdir():
             if subdir.is_dir():
                 run(input_dir=subdir, output_dir=output_dir / subdir.name, with_mlflow=with_mlflow, nested=True)
@@ -142,3 +156,7 @@ def main() -> None:
         batch_run(input_dir=args.input, output_dir=args.output, with_mlflow=args.mlflow)
     else:
         run(input_dir=args.input, output_dir=args.output, with_mlflow=args.mlflow)
+
+
+if __name__ == "__main__":
+    main()
