@@ -2,7 +2,6 @@
 
 import argparse
 import contextlib
-import os
 import tempfile
 from pathlib import Path
 
@@ -146,10 +145,6 @@ def main() -> None:
         parser.error(f"Input directory does not exist: {args.input}")
     if not args.input.is_dir():
         parser.error(f"Input path is not a directory: {args.input}")
-
-    # Auto-enable MLflow when running on a platform that provides a tracking URI
-    if os.environ.get("MLFLOW_TRACKING_URI"):
-        args.mlflow = True
 
     has_subdirs = any(p.is_dir() for p in args.input.iterdir())
     if has_subdirs:
