@@ -29,11 +29,11 @@ def _make_processed(
     return ImageMetadataProcessed.from_metadata(metadata=metadata, result=result)
 
 
-def _derived_gap(crop_widths: list[int], output_width: int = OUTPUT_WIDTH) -> int:
-    num_gaps = len(crop_widths) - 1
-    if num_gaps == 0:
+def _derived_gap(crop_width: int, num_cores_per_image: int = 6, output_width: int = OUTPUT_WIDTH) -> int:
+    full_batch_gaps = num_cores_per_image - 1
+    if full_batch_gaps == 0:
         return 0
-    return max(0, (output_width - 2 * PADDING - sum(crop_widths)) // num_gaps)
+    return max(0, (output_width - 2 * PADDING - crop_width * num_cores_per_image) // full_batch_gaps)
 
 
 @pytest.mark.parametrize(
@@ -47,14 +47,14 @@ def _derived_gap(crop_widths: list[int], output_width: int = OUTPUT_WIDTH) -> in
 )
 def test_output_count_and_dimensions(tmp_path, num_cores, expected_count):
     cores = [_make_processed(tmp_path, float(i), float(i + 1), (100, 200)) for i in range(num_cores)]
-    result = stitching(cores, num_cores_per_image=6)
+    result = list(stitching(cores, num_cores_per_image=6))
     assert len(result) == expected_count
     assert all(img.size == (OUTPUT_WIDTH, OUTPUT_HEIGHT) for img in result)
 
 
 def test_padding_pixels_are_black(tmp_path):
     core = _make_processed(tmp_path, 0.0, 1.0, (100, 200), color=(255, 0, 0))
-    img = stitching([core], num_cores_per_image=6)[0]
+    img = next(stitching([core], num_cores_per_image=6))
     assert img.getpixel((0, 0)) == (0, 0, 0)  # top-left corner
     assert img.getpixel((img.width - 1, img.height - 1)) == (0, 0, 0)  # bottom-right corner
     assert img.getpixel((0, img.height // 2)) == (0, 0, 0)  # left edge mid
@@ -63,7 +63,7 @@ def test_padding_pixels_are_black(tmp_path):
 def test_gap_pixels_are_black(tmp_path):
     red = _make_processed(tmp_path, 0.0, 1.0, (10, 10), color=(255, 0, 0))
     blue = _make_processed(tmp_path, 1.0, 2.0, (10, 10), color=(0, 0, 255))
-    img = stitching([red, blue], num_cores_per_image=6)[0]
+    img = next(stitching([red, blue], num_cores_per_image=6))
     gap_x = PADDING + 10  # one pixel into the gap between red and blue
     assert img.getpixel((gap_x, PADDING)) == (0, 0, 0)
 
@@ -71,28 +71,28 @@ def test_gap_pixels_are_black(tmp_path):
 def test_cores_appear_in_order_left_to_right(tmp_path):
     red = _make_processed(tmp_path, 0.0, 1.0, (10, 10), color=(255, 0, 0))
     blue = _make_processed(tmp_path, 1.0, 2.0, (10, 10), color=(0, 0, 255))
-    img = stitching([red, blue], num_cores_per_image=6)[0]
-    gap = _derived_gap([10, 10])
+    img = next(stitching([red, blue], num_cores_per_image=6))
+    gap = _derived_gap(crop_width=10, num_cores_per_image=6)
     assert img.getpixel((PADDING, PADDING)) == (255, 0, 0)  # first core
     assert img.getpixel((PADDING + 10 + gap, PADDING)) == (0, 0, 255)  # second core
 
 
 def test_first_core_starts_after_left_padding(tmp_path):
     red = _make_processed(tmp_path, 0.0, 1.0, (10, 10), color=(255, 0, 0))
-    img = stitching([red], num_cores_per_image=6)[0]
+    img = next(stitching([red], num_cores_per_image=6))
     assert img.getpixel((PADDING - 1, PADDING)) == (0, 0, 0)  # last padding pixel is black
     assert img.getpixel((PADDING, PADDING)) == (255, 0, 0)  # first core pixel is red
 
 
 def test_custom_output_dimensions_create_canvas_at_that_size(tmp_path):
     core = _make_processed(tmp_path, 0.0, 1.0, (100, 200))
-    result = stitching([core], num_cores_per_image=6, output_width=800, output_height=400)
-    assert result[0].size == (800, 400)
+    img = next(stitching([core], num_cores_per_image=6, output_width=800, output_height=400))
+    assert img.size == (800, 400)
 
 
 def test_depth_labels_write_into_padding_band(tmp_path):
     core = _make_processed(tmp_path, 15.0, 16.0, (100, 200))
-    img = stitching([core], num_cores_per_image=6)[0]
+    img = next(stitching([core], num_cores_per_image=6))
     cx = PADDING + 100 // 2  # center of the first (only) core strip
     top_band_pixels = [img.getpixel((cx + dx, PADDING // 2)) for dx in range(-20, 20)]
     bottom_band_pixels = [img.getpixel((cx + dx, img.height - PADDING // 2)) for dx in range(-20, 20)]
@@ -103,8 +103,8 @@ def test_depth_labels_write_into_padding_band(tmp_path):
 def test_cores_of_different_heights_are_top_aligned(tmp_path):
     tall = _make_processed(tmp_path, 0.0, 1.0, (50, 300), color=(255, 0, 0))
     short = _make_processed(tmp_path, 1.0, 2.0, (50, 100), color=(0, 0, 255))
-    img = stitching([tall, short], num_cores_per_image=6)[0]
-    gap = _derived_gap([50, 50])
+    img = next(stitching([tall, short], num_cores_per_image=6))
+    gap = _derived_gap(crop_width=50, num_cores_per_image=6)
     short_x = PADDING + 50 + gap
     assert img.getpixel((short_x, PADDING)) == (0, 0, 255)  # short core top
     assert img.getpixel((short_x, PADDING + 100)) == (0, 0, 0)  # below short core is black
@@ -126,7 +126,7 @@ _CORE_COLORS = [
 def test_save_two_output_images(tmp_path):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     cores = [_make_processed(tmp_path, float(i), float(i + 1), (100, 600), color=_CORE_COLORS[i]) for i in range(7)]
-    results = stitching(cores, num_cores_per_image=6)
+    results = stitching(cores, num_cores_per_image=4)
     for idx, img in enumerate(results):
         out_path = OUTPUT_DIR / f"stitched_{idx + 1}.png"
         img.save(out_path)

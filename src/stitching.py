@@ -1,16 +1,26 @@
 """Module for stitching core segments together."""
 
+from collections.abc import Generator
+
 from PIL import Image, ImageDraw, ImageFont
 
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
-PADDING = 85
+PADDING = 90
 OUTPUT_WIDTH = 1144
 OUTPUT_HEIGHT = 1260
 
 
 def cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
-    """Cut a core segment from the source image using the bounding box from the result."""
+    """Cut a core segment from the source image using the bounding box from the result.
+
+    Args:
+        source (Image.Image): The source image from which to cut the core segment.
+        result (CoreSegmentResult): The result containing the bounding box for the core segment.
+
+    Returns:
+        Image.Image: The cropped core segment image.
+    """
     left, upper, right, lower = result.bounding_box
     return source.crop((left, upper, right, lower))
 
@@ -22,7 +32,15 @@ def _draw_depth_labels(
     padding: int,
     gap: int,
 ) -> None:
-    """Draw depth_start above and depth_end below each individual core strip."""
+    """Draw depth_start above and depth_end below each individual core strip.
+
+    Args:
+        img (Image.Image): The stitched image on which to draw the labels.
+        chunk (list[ImageMetadataProcessed]): The list of processed image metadata objects for the cores.
+        crop_widths (list[int]): The widths of the cropped core images.
+        padding (int): The uniform border around the entire image (outside the cores).
+        gap (int): The gap between cores in the stitched image.
+    """
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default(size=max(12, padding // 3))
     x = padding
@@ -42,7 +60,18 @@ def stitch_side_by_side(
     canvas_width: int,
     canvas_height: int,
 ) -> Image.Image:
-    """Place core crops side by side horizontally on a black background."""
+    """Place core crops side by side horizontally on a black background.
+
+    Args:
+        crops (list[Image.Image]): The list of cropped core images to stitch together.
+        gap (int): The gap between cores in the stitched image.
+        padding (int): The uniform border around the entire image (outside the cores).
+        canvas_width (int): The width of the output stitched image.
+        canvas_height (int): The height of the output stitched image.
+
+    Returns:
+        Image.Image: The stitched image with cores placed side by side.
+    """
     canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
     x = padding
     for img in crops:
@@ -58,8 +87,17 @@ def stitching(
     output_width: int = OUTPUT_WIDTH,
     output_height: int = OUTPUT_HEIGHT,
     with_mlflow: bool = False,
-) -> list[Image.Image]:
-    """Stitch core segments together.
+) -> Generator[Image.Image, None, None]:
+    """Stitch core segments together, yielding one output image at a time.
+
+    This is a generator: it yields each stitched image as soon as it is ready
+    instead of building a list of all results in memory. This keeps memory usage
+    constant regardless of how many output images are produced — the caller should
+    save or process each image before requesting the next one.
+
+    Typical usage::
+        for img in stitching(cores):
+            img.save("output.png")
 
     Args:
         imgs (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
@@ -69,11 +107,9 @@ def stitching(
         output_height (int): The canvas height.
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
-    Returns:
-        list[Image.Image]: A list of stitched images, each containing up to num_cores_per_image cores.
+    Yields:
+        Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
     """
-    stitched_images: list[Image.Image] = []
-
     for i in range(0, len(imgs), num_cores_per_image):
         chunk = imgs[i : i + num_cores_per_image]
         crops = []
@@ -82,18 +118,19 @@ def stitching(
             crop = cut_core(src, meta.result)
             crops.append(crop)
 
-        num_gaps = len(crops) - 1
-        total_crop_width = sum(c.width for c in crops)
-        gap = max(0, (output_width - 2 * padding - total_crop_width) // num_gaps) if num_gaps > 0 else 0
+        full_batch_gaps = num_cores_per_image - 1
+        gap = (
+            max(0, (output_width - 2 * padding - crops[0].width * num_cores_per_image) // full_batch_gaps)
+            if full_batch_gaps > 0
+            else 0
+        )
 
         img = stitch_side_by_side(
             crops, gap=gap, padding=padding, canvas_width=output_width, canvas_height=output_height
         )
         _draw_depth_labels(img, chunk=chunk, crop_widths=[c.width for c in crops], padding=padding, gap=gap)
 
-        stitched_images.append(img)
-
-    return stitched_images
+        yield img
 
 
 # TODO: add mlflow tracking
