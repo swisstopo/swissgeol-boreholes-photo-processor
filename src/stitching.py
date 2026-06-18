@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
 PADDING = 90
+CORE_WIDTH = 140  # assumed width of a segmented borehole core in pixels
 OUTPUT_WIDTH = 1144
 OUTPUT_HEIGHT = 1260
 
@@ -53,6 +54,17 @@ def _draw_depth_labels(
         x += width + gap
 
 
+def _draw_rulerlabel(
+    img: Image.Image,
+) -> None:
+    """Draw a ruler label at the specified position.
+
+    Args:
+        img (Image.Image): The image on which to draw the label.
+    """
+    pass  # placeholder for drawing a ruler label
+
+
 def stitch_side_by_side(
     crops: list[Image.Image],
     gap: int,
@@ -86,7 +98,6 @@ def stitching(
     padding: int = PADDING,
     output_width: int = OUTPUT_WIDTH,
     output_height: int = OUTPUT_HEIGHT,
-    with_mlflow: bool = False,
 ) -> Generator[Image.Image, None, None]:
     """Stitch core segments together, yielding one output image at a time.
 
@@ -96,7 +107,7 @@ def stitching(
     save or process each image before requesting the next one.
 
     Typical usage::
-        for img in stitching(cores):
+        for img in stitch(cores):
             img.save("output.png")
 
     Args:
@@ -105,32 +116,32 @@ def stitching(
         padding (int): The uniform border around the entire image (outside the cores).
         output_width (int): The canvas width. The gap between cores is derived from the remaining space.
         output_height (int): The canvas height.
-        with_mlflow (bool): Whether to log artifacts to MLflow.
 
     Yields:
         Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
     """
     for i in range(0, len(imgs), num_cores_per_image):
+        # Process a chunk of up to num_cores_per_image cores
         chunk = imgs[i : i + num_cores_per_image]
         crops = []
         for meta in chunk:
             src = Image.open(meta.image_path)
+            # Cut the core from the src image using the bounding box from the result
             crop = cut_core(src, meta.result)
             crops.append(crop)
 
-        full_batch_gaps = num_cores_per_image - 1
+        # calculate gap based on remaining space after placing cores and padding
         gap = (
-            max(0, (output_width - 2 * padding - crops[0].width * num_cores_per_image) // full_batch_gaps)
-            if full_batch_gaps > 0
+            max(0, (output_width - 2 * padding - CORE_WIDTH * num_cores_per_image) // (num_cores_per_image - 1))
+            if num_cores_per_image > 1
             else 0
         )
 
+        # place cores side by side on a black canvas and draw depth labels
         img = stitch_side_by_side(
             crops, gap=gap, padding=padding, canvas_width=output_width, canvas_height=output_height
         )
         _draw_depth_labels(img, chunk=chunk, crop_widths=[c.width for c in crops], padding=padding, gap=gap)
+        _draw_rulerlabel(img)  # placeholder
 
         yield img
-
-
-# TODO: add mlflow tracking

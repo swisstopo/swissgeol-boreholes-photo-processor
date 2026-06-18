@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
-from src.stitching import OUTPUT_HEIGHT, OUTPUT_WIDTH, PADDING, stitching
+from src.stitching import CORE_WIDTH, OUTPUT_HEIGHT, OUTPUT_WIDTH, PADDING, stitching
 
 
 def _make_processed(
@@ -29,11 +29,10 @@ def _make_processed(
     return ImageMetadataProcessed.from_metadata(metadata=metadata, result=result)
 
 
-def _derived_gap(crop_width: int, num_cores_per_image: int = 6, output_width: int = OUTPUT_WIDTH) -> int:
-    full_batch_gaps = num_cores_per_image - 1
-    if full_batch_gaps == 0:
+def _derived_gap(num_cores_per_image: int = 6, output_width: int = OUTPUT_WIDTH) -> int:
+    if num_cores_per_image <= 1:
         return 0
-    return max(0, (output_width - 2 * PADDING - crop_width * num_cores_per_image) // full_batch_gaps)
+    return max(0, (output_width - 2 * PADDING - CORE_WIDTH * num_cores_per_image) // (num_cores_per_image - 1))
 
 
 @pytest.mark.parametrize(
@@ -72,7 +71,7 @@ def test_cores_appear_in_order_left_to_right(tmp_path):
     red = _make_processed(tmp_path, 0.0, 1.0, (10, 10), color=(255, 0, 0))
     blue = _make_processed(tmp_path, 1.0, 2.0, (10, 10), color=(0, 0, 255))
     img = next(stitching([red, blue], num_cores_per_image=6))
-    gap = _derived_gap(crop_width=10, num_cores_per_image=6)
+    gap = _derived_gap(num_cores_per_image=6)
     assert img.getpixel((PADDING, PADDING)) == (255, 0, 0)  # first core
     assert img.getpixel((PADDING + 10 + gap, PADDING)) == (0, 0, 255)  # second core
 
@@ -104,7 +103,7 @@ def test_cores_of_different_heights_are_top_aligned(tmp_path):
     tall = _make_processed(tmp_path, 0.0, 1.0, (50, 300), color=(255, 0, 0))
     short = _make_processed(tmp_path, 1.0, 2.0, (50, 100), color=(0, 0, 255))
     img = next(stitching([tall, short], num_cores_per_image=6))
-    gap = _derived_gap(crop_width=50, num_cores_per_image=6)
+    gap = _derived_gap(num_cores_per_image=6)
     short_x = PADDING + 50 + gap
     assert img.getpixel((short_x, PADDING)) == (0, 0, 255)  # short core top
     assert img.getpixel((short_x, PADDING + 100)) == (0, 0, 0)  # below short core is black

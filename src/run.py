@@ -11,6 +11,7 @@ import mlflow
 from PIL import Image
 
 from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
+from src.stitching import stitching
 
 
 def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> list[ImageMetadataProcessed]:
@@ -53,32 +54,6 @@ def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> li
     return detections
 
 
-def stitch(detections: list[ImageMetadataProcessed], dir_name: str, with_mlflow: bool = False) -> Image.Image:
-    """Stitch the list of detections into a final image.
-
-    Args:
-        detections (list[ImageMetadataProcessed]): A list of processed image metadata objects.
-        dir_name (str): Name used as the stem for the MLflow artifact filename.
-        with_mlflow (bool): Whether to log artifacts to MLflow.
-
-    Returns:
-        Image.Image: An image object representing the stitched result of the detections.
-    """
-    stitched_image: Image.Image = Image.new("RGB", (100, 100))  # placeholder for actual stitched image
-
-    if with_mlflow:
-        try:
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                plt.imshow(stitched_image)
-                artifact_path = Path(tmp_dir) / f"{dir_name}.png"
-                plt.savefig(artifact_path)
-                mlflow.log_artifact(str(artifact_path))
-        finally:
-            plt.close()
-
-    return stitched_image
-
-
 def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
     """Context manager for MLflow run.
 
@@ -118,12 +93,22 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
         detections: list[ImageMetadataProcessed] = segment(imgs_metadata, with_mlflow=with_mlflow)
 
         # stitching
-        stitched_image = stitch(detections, dir_name=input_dir.name, with_mlflow=with_mlflow)
-
-        # Write results to output directory
         output_dir.mkdir(parents=True, exist_ok=True)
-        stitched_image.save(output_dir / f"{input_dir.name}.tif")
-        stitched_image.save(output_dir / f"{input_dir.name}.png")
+        for idx, img in enumerate(stitching(detections)):
+            stem = f"{input_dir.name}_{idx + 1:03d}"
+
+            if with_mlflow:
+                try:
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        plt.imshow(img)
+                        artifact_path = Path(tmp_dir) / f"{stem}.png"
+                        plt.savefig(artifact_path)
+                        mlflow.log_artifact(str(artifact_path))
+                finally:
+                    plt.close()
+
+            img.save(output_dir / f"{stem}.tif")
+            img.save(output_dir / f"{stem}.png")
 
 
 def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> None:
