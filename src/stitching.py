@@ -1,6 +1,6 @@
 """Module for stitching core segments together."""
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
@@ -14,6 +14,26 @@ def cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
     """Cut a core segment from the source image using the bounding box from the result."""
     left, upper, right, lower = result.bounding_box
     return source.crop((left, upper, right, lower))
+
+
+def _draw_depth_labels(
+    img: Image.Image,
+    chunk: list[ImageMetadataProcessed],
+    crop_widths: list[int],
+    padding: int,
+    gap: int,
+) -> None:
+    """Draw depth_start above and depth_end below each individual core strip."""
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=max(12, padding // 3))
+    x = padding
+    for meta, width in zip(chunk, crop_widths, strict=True):
+        cx = x + width // 2
+        draw.text((cx, padding // 2), f"{meta.depth_start:.2f} m", fill=(255, 255, 255), font=font, anchor="mm")
+        draw.text(
+            (cx, img.height - padding // 2), f"{meta.depth_end:.2f} m", fill=(255, 255, 255), font=font, anchor="mm"
+        )
+        x += width + gap
 
 
 def stitch_side_by_side(
@@ -65,6 +85,7 @@ def stitching(
             canvas_width = padding + crops[0].width * num_cores_per_image + gap * (num_cores_per_image - 1) + padding
 
         img = stitch_side_by_side(crops, gap=gap, padding=padding, canvas_width=canvas_width)
+        _draw_depth_labels(img, chunk=chunk, crop_widths=[c.width for c in crops], padding=padding, gap=gap)
 
         if output_width is not None or output_height is not None:
             target_w = output_width or img.width
@@ -77,4 +98,3 @@ def stitching(
 
 
 # TODO: add depth ruler along the side
-# TODO: add start and end depth labels for each core segment

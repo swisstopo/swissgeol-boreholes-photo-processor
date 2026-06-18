@@ -105,6 +105,21 @@ class TestStitching:
         assert result[0].width == 800
         assert result[0].height == _full_height(200)
 
+    def test_depth_labels_do_not_change_image_size(self, tmp_path):
+        core = _make_processed(tmp_path, 15.0, 16.0, (100, 200))
+        result = stitching([core], num_cores_per_image=6)
+        assert result[0].size == (_full_width(6, 100), _full_height(200))
+
+    def test_depth_labels_write_into_padding_band(self, tmp_path):
+        # Labels are centered over each core strip, not over the full canvas.
+        core = _make_processed(tmp_path, 15.0, 16.0, (100, 200))
+        img = stitching([core], num_cores_per_image=6)[0]
+        cx = PADDING + 100 // 2  # center of the first (only) core strip
+        top_band_pixels = [img.getpixel((cx + dx, PADDING // 2)) for dx in range(-20, 20)]
+        bottom_band_pixels = [img.getpixel((cx + dx, img.height - PADDING // 2)) for dx in range(-20, 20)]
+        assert any(p != (0, 0, 0) for p in top_band_pixels), "expected depth label in top padding"
+        assert any(p != (0, 0, 0) for p in bottom_band_pixels), "expected depth label in bottom padding"
+
     def test_cores_of_different_heights_are_top_aligned(self, tmp_path):
         tall = _make_processed(tmp_path, 0.0, 1.0, (50, 300), color=(255, 0, 0))
         short = _make_processed(tmp_path, 1.0, 2.0, (50, 100), color=(0, 0, 255))
