@@ -1,33 +1,28 @@
 """Module containing data models for the borehole image processing application."""
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
-from attr import dataclass
+from PIL import Image
 
 
+@dataclass
 class ImageMetadata:
-    """Class to represent metadata for an image."""
+    """Metadata for an image file.
 
-    def __init__(self, borehole_id: str, depth_start: float, depth_end: float, image_path: Path):
-        """Initializes an ImageMetadata instance.
+    borehole_id is the filename prefix before the depth range.
+    depth_start and depth_end are parsed from the filename, e.g.
+    ``GBC-CB50_0015.00-0016.00_vd_p.TIF``.
+    """
 
-        borehole_id is the filename prefix before the depth range.
-        depth_start and depth_end are parsed from the filename, e.g.
-        ``GBC-CB50_0015.00-0016.00_vd_p.TIF``.
+    borehole_id: str
+    depth_start: float
+    depth_end: float
+    image_path: Path
 
-        Args:
-            borehole_id: Filename prefix before the depth range, e.g. ``"GBC-CB50"``.
-            depth_start: Start of the depth interval (metres), e.g. ``15.0``.
-            depth_end: End of the depth interval (metres), e.g. ``16.0``.
-            image_path: Full filesystem path to the image file.
-        """
-        self.borehole_id = borehole_id
-        self.depth_start = depth_start
-        self.depth_end = depth_end
-        self.image_path = image_path
-
-    _DEPTH_PATTERN = re.compile(r"_(?P<depth_start>\d+\.\d+)-(?P<depth_end>\d+\.\d+)")
+    _DEPTH_PATTERN: ClassVar[re.Pattern] = re.compile(r"_(?P<depth_start>\d+\.\d+)-(?P<depth_end>\d+\.\d+)")
 
     @classmethod
     def from_path(cls, image_path: Path) -> "ImageMetadata":
@@ -70,27 +65,31 @@ class CoreSegmentResult:
     """Class to represent the result of processing a core segment image."""
 
     bounding_box: tuple[float, float, float, float]
-    segmentation_mask: None = None
+    segmentation_mask: Image.Image | None = None
 
 
+@dataclass
 class ImageMetadataProcessed(ImageMetadata):
-    """Class to represent metadata for a processed image."""
+    """Metadata for a processed image with detected regions."""
 
-    def __init__(
-        self,
+    result: CoreSegmentResult
+
+    @classmethod
+    def from_metadata(
+        cls,
         metadata: ImageMetadata,
         result: CoreSegmentResult,
-    ):
-        """Initializes an ImageMetadataProcessed instance.
+    ) -> "ImageMetadataProcessed":
+        """Construct an ImageMetadataProcessed from an existing ImageMetadata.
 
         Args:
             metadata: The original image metadata.
             result: The result of processing the image, e.g. bounding box and segmentation mask.
         """
-        super().__init__(
+        return cls(
             borehole_id=metadata.borehole_id,
             depth_start=metadata.depth_start,
             depth_end=metadata.depth_end,
             image_path=metadata.image_path,
+            result=result,
         )
-        self.result = result

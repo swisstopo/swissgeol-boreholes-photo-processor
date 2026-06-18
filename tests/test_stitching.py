@@ -25,7 +25,7 @@ def _make_processed(
         image_path=image_path,
     )
     result = CoreSegmentResult(bounding_box=(0.0, 0.0, float(size[0]), float(size[1])))
-    return ImageMetadataProcessed(metadata=metadata, result=result)
+    return ImageMetadataProcessed.from_metadata(metadata=metadata, result=result)
 
 
 def _full_width(num_cores: int, core_width: int) -> int:

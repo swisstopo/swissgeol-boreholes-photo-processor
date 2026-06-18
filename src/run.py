@@ -44,7 +44,7 @@ def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> li
                 plt.close()
 
         detections.append(
-            ImageMetadataProcessed(
+            ImageMetadataProcessed.from_metadata(
                 metadata=img_metadata,
                 result=CoreSegmentResult(bounding_box=(0.0, 0.0, float(w), float(h))),
             )
