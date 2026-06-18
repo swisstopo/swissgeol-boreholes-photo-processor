@@ -64,28 +64,28 @@ class ImageMetadata:
 class ImageMetadataProcessed(ImageMetadata):
     """Metadata for a processed image with detected regions."""
 
-    detections: list[Image.Image]
-    bounding_boxes: list[tuple[float, float, float, float]]
+    detection: Image.Image
+    bounding_box: tuple[float, float, float, float]
 
     @classmethod
     def from_metadata(
         cls,
         metadata: ImageMetadata,
-        detections: list[Image.Image],
-        bounding_boxes: list[tuple[float, float, float, float]],
+        detection: Image.Image,
+        bounding_box: tuple[float, float, float, float],
     ) -> "ImageMetadataProcessed":
         """Construct an ImageMetadataProcessed from an existing ImageMetadata.
 
         Args:
             metadata: The original image metadata.
-            detections: Detected image regions produced by segmentation.
-            bounding_boxes: Bounding box per detection as (x, y, width, height).
+            detection: Detected image region produced by segmentation.
+            bounding_box: Bounding box of the detection as (x, y, width, height).
         """
         return cls(
             borehole_id=metadata.borehole_id,
             depth_start=metadata.depth_start,
             depth_end=metadata.depth_end,
             image_path=metadata.image_path,
-            detections=detections,
-            bounding_boxes=bounding_boxes,
+            detection=detection,
+            bounding_box=bounding_box,
         )
