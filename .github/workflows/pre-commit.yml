@@ -12,5 +12,5 @@ jobs:
         uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: "3.11"
-      - run: uv sync
-      - run: uvx pre-commit run --all-files
+      - run: uv sync --extra test
+      - run: uv run pre-commit run --all-files

@@ -2,6 +2,7 @@
 
 import argparse
 import contextlib
+import logging
 import tempfile
 from pathlib import Path
 
@@ -9,21 +10,23 @@ import matplotlib.pyplot as plt
 import mlflow
 from PIL import Image
 
+from src.models import ImageMetadata, ImageMetadataProcessed
 
-def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
+
+def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> list[ImageMetadataProcessed]:
     """Segment the input images and return a list of detections.
 
     Args:
-        image_paths (list[Path]): A list of image file paths to be segmented.
+        imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
     Returns:
-        list: A list of detected objects, one per input image.
+        list[ImageMetadataProcessed]: A list of processed image metadata objects, one per input image.
     """
-    detections: list = []
+    detections: list[ImageMetadataProcessed] = []
 
-    for image_path in image_paths:
-        with Image.open(image_path) as img:
+    for img_metadata in imgs_metadata:
+        with Image.open(img_metadata.image_path) as img:
             detection = img.copy()  # placeholder
             w, h = img.size  # placeholder for bounding box dimensions
 
@@ -32,26 +35,26 @@ def segment(image_paths: list[Path], with_mlflow: bool = False) -> list:
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     # convert to plot with bounding box around the detected object (placeholder)
                     plt.imshow(detection)
-                    plt.gca().add_patch(
-                        plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none")
-                    )  # placeholder
+                    plt.gca().add_patch(plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none"))
 
-                    artifact_path = Path(tmp_dir) / f"{image_path.stem}.png"
+                    artifact_path = Path(tmp_dir) / f"{img_metadata.image_path.stem}.png"
                     plt.savefig(artifact_path)
                     mlflow.log_artifact(str(artifact_path))
             finally:
                 plt.close()
 
-        detections.append(detection)
+        detections.append(
+            ImageMetadataProcessed.from_metadata(metadata=img_metadata, detection=detection, bounding_box=(0, 0, w, h))
+        )
 
     return detections
 
 
-def stitch(detections: list, dir_name: str, with_mlflow: bool = False) -> Image.Image:
+def stitch(detections: list[ImageMetadataProcessed], dir_name: str, with_mlflow: bool = False) -> Image.Image:
     """Stitch the list of detections into a final image.
 
     Args:
-        detections (list): A list of detected objects.
+        detections (list[ImageMetadataProcessed]): A list of processed image metadata objects.
         dir_name (str): Name used as the stem for the MLflow artifact filename.
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
@@ -96,14 +99,20 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
         input_dir (Path): Path to the directory containing raw borehole photos (TIF format).
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
-        nested (bool): Whether to start a nested MLflow run (used when called from batch_run).
+        nested (bool): Whether to start a nested MLflow run under an existing active run.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
-        # Collect all images from the input directory
-        image_paths: list[Path] = [f for f in input_dir.iterdir() if f.suffix.lower() == ".tif"]
+        # Collect all images from the input directory and parse filename metadata
+        imgs_metadata: list[ImageMetadata] = []
+        for f in input_dir.iterdir():
+            if f.suffix.lower() == ".tif":
+                try:
+                    imgs_metadata.append(ImageMetadata.from_path(f))
+                except ValueError as e:
+                    logging.warning("Skipping %s: %s", f.name, e)
 
         # segmentation
-        detections: list = segment(image_paths, with_mlflow=with_mlflow)
+        detections: list[ImageMetadataProcessed] = segment(imgs_metadata, with_mlflow=with_mlflow)
 
         # stitching
         stitched_image = stitch(detections, dir_name=input_dir.name, with_mlflow=with_mlflow)
@@ -137,7 +146,6 @@ def main() -> None:
     parser.add_argument("--mlflow", action="store_true", help="Whether to log artifacts to MLflow.")
     args = parser.parse_args()
 
-    # Sanity checks
     if not args.input.exists():
         parser.error(f"Input directory does not exist: {args.input}")
     if not args.input.is_dir():
