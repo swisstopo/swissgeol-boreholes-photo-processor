@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
-from src.stitching import GAP, PADDING, stitching
+from src.stitching import OUTPUT_HEIGHT, OUTPUT_WIDTH, PADDING, stitching
 
 
 def _make_processed(
@@ -28,12 +28,11 @@ def _make_processed(
     return ImageMetadataProcessed.from_metadata(metadata=metadata, result=result)
 
 
-def _full_width(num_cores: int, core_width: int) -> int:
-    return PADDING + num_cores * core_width + GAP * (num_cores - 1) + PADDING
-
-
-def _full_height(core_height: int) -> int:
-    return PADDING + core_height + PADDING
+def _derived_gap(crop_widths: list[int], output_width: int = OUTPUT_WIDTH) -> int:
+    num_gaps = len(crop_widths) - 1
+    if num_gaps == 0:
+        return 0
+    return max(0, (output_width - 2 * PADDING - sum(crop_widths)) // num_gaps)
 
 
 class TestStitching:
@@ -44,22 +43,22 @@ class TestStitching:
         result = stitching([core])
         assert len(result) == 1
 
-    def test_canvas_includes_padding_on_all_sides(self, tmp_path):
+    def test_canvas_has_default_output_dimensions(self, tmp_path):
         core = _make_processed(tmp_path, 0.0, 1.0, (100, 200))
         result = stitching([core], num_cores_per_image=6)
-        assert result[0].size == (_full_width(6, 100), _full_height(200))
+        assert result[0].size == (OUTPUT_WIDTH, OUTPUT_HEIGHT)
 
     def test_multiple_cores_placed_side_by_side(self, tmp_path):
         cores = [_make_processed(tmp_path, float(i), float(i + 1), (100, 200)) for i in range(3)]
         result = stitching(cores, num_cores_per_image=6)
         assert len(result) == 1
-        assert result[0].size == (_full_width(6, 100), _full_height(200))
+        assert result[0].size == (OUTPUT_WIDTH, OUTPUT_HEIGHT)
 
     def test_full_batch_fills_one_output_image(self, tmp_path):
         cores = [_make_processed(tmp_path, float(i), float(i + 1), (100, 200)) for i in range(6)]
         result = stitching(cores, num_cores_per_image=6)
         assert len(result) == 1
-        assert result[0].size == (_full_width(6, 100), _full_height(200))
+        assert result[0].size == (OUTPUT_WIDTH, OUTPUT_HEIGHT)
 
     def test_overflow_both_images_have_same_size(self, tmp_path):
         cores = [_make_processed(tmp_path, float(i), float(i + 1), (100, 200)) for i in range(7)]
@@ -85,8 +84,9 @@ class TestStitching:
         red = _make_processed(tmp_path, 0.0, 1.0, (10, 10), color=(255, 0, 0))
         blue = _make_processed(tmp_path, 1.0, 2.0, (10, 10), color=(0, 0, 255))
         img = stitching([red, blue], num_cores_per_image=6)[0]
+        gap = _derived_gap([10, 10])
         assert img.getpixel((PADDING, PADDING)) == (255, 0, 0)  # first core
-        assert img.getpixel((PADDING + 10 + GAP, PADDING)) == (0, 0, 255)  # second core
+        assert img.getpixel((PADDING + 10 + gap, PADDING)) == (0, 0, 255)  # second core
 
     def test_first_core_starts_after_left_padding(self, tmp_path):
         red = _make_processed(tmp_path, 0.0, 1.0, (10, 10), color=(255, 0, 0))
@@ -94,21 +94,15 @@ class TestStitching:
         assert img.getpixel((PADDING - 1, PADDING)) == (0, 0, 0)  # last padding pixel is black
         assert img.getpixel((PADDING, PADDING)) == (255, 0, 0)  # first core pixel is red
 
-    def test_output_size_is_resized_when_specified(self, tmp_path):
+    def test_custom_output_dimensions_create_canvas_at_that_size(self, tmp_path):
         core = _make_processed(tmp_path, 0.0, 1.0, (100, 200))
         result = stitching([core], num_cores_per_image=6, output_width=800, output_height=400)
         assert result[0].size == (800, 400)
 
-    def test_output_width_only_keeps_natural_height(self, tmp_path):
-        core = _make_processed(tmp_path, 0.0, 1.0, (100, 200))
-        result = stitching([core], num_cores_per_image=6, output_width=800)
-        assert result[0].width == 800
-        assert result[0].height == _full_height(200)
-
     def test_depth_labels_do_not_change_image_size(self, tmp_path):
         core = _make_processed(tmp_path, 15.0, 16.0, (100, 200))
         result = stitching([core], num_cores_per_image=6)
-        assert result[0].size == (_full_width(6, 100), _full_height(200))
+        assert result[0].size == (OUTPUT_WIDTH, OUTPUT_HEIGHT)
 
     def test_depth_labels_write_into_padding_band(self, tmp_path):
         # Labels are centered over each core strip, not over the full canvas.
@@ -124,7 +118,8 @@ class TestStitching:
         tall = _make_processed(tmp_path, 0.0, 1.0, (50, 300), color=(255, 0, 0))
         short = _make_processed(tmp_path, 1.0, 2.0, (50, 100), color=(0, 0, 255))
         img = stitching([tall, short], num_cores_per_image=6)[0]
-        short_x = PADDING + 50 + GAP
+        gap = _derived_gap([50, 50])
+        short_x = PADDING + 50 + gap
         assert img.getpixel((short_x, PADDING)) == (0, 0, 255)  # short core top
         assert img.getpixel((short_x, PADDING + 100)) == (0, 0, 0)  # below short core is black
 

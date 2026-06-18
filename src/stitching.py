@@ -4,10 +4,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
-GAP = 25
-PADDING = 80
-OUTPUT_WIDTH: int | None = None  # set to resize the final image; None keeps the natural size
-OUTPUT_HEIGHT: int | None = None
+PADDING = 85
+OUTPUT_WIDTH = 1144
+OUTPUT_HEIGHT = 1260
 
 
 def cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
@@ -40,19 +39,11 @@ def stitch_side_by_side(
     crops: list[Image.Image],
     gap: int,
     padding: int,
-    canvas_width: int | None = None,
+    canvas_width: int,
+    canvas_height: int,
 ) -> Image.Image:
-    """Place core crops side by side horizontally on a black background.
-
-    gap:          space between adjacent cores.
-    padding:      uniform border around the entire image (outside the cores).
-    canvas_width: fixes the total output width so all images in a run match.
-                  Unoccupied space on the right (before the right padding) is black.
-    """
-    natural_width = padding + sum(img.width for img in crops) + gap * (len(crops) - 1) + padding
-    total_width = canvas_width if canvas_width is not None else natural_width
-    total_height = padding + max(img.height for img in crops) + padding
-    canvas = Image.new("RGB", (total_width, total_height), color=(0, 0, 0))
+    """Place core crops side by side horizontally on a black background."""
+    canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
     x = padding
     for img in crops:
         canvas.paste(img, (x, padding))
@@ -63,15 +54,25 @@ def stitch_side_by_side(
 def stitching(
     imgs: list[ImageMetadataProcessed],
     num_cores_per_image: int = 6,
-    gap: int = GAP,
     padding: int = PADDING,
-    output_width: int | None = OUTPUT_WIDTH,
-    output_height: int | None = OUTPUT_HEIGHT,
+    output_width: int = OUTPUT_WIDTH,
+    output_height: int = OUTPUT_HEIGHT,
     with_mlflow: bool = False,
 ) -> list[Image.Image]:
-    """Stitch core segments together."""
+    """Stitch core segments together.
+
+    Args:
+        imgs (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
+        num_cores_per_image (int): The number of cores to place side by side in each stitched image.
+        padding (int): The uniform border around the entire image (outside the cores).
+        output_width (int): The canvas width. The gap between cores is derived from the remaining space.
+        output_height (int): The canvas height.
+        with_mlflow (bool): Whether to log artifacts to MLflow.
+
+    Returns:
+        list[Image.Image]: A list of stitched images, each containing up to num_cores_per_image cores.
+    """
     stitched_images: list[Image.Image] = []
-    canvas_width: int | None = None
 
     for i in range(0, len(imgs), num_cores_per_image):
         chunk = imgs[i : i + num_cores_per_image]
@@ -81,20 +82,18 @@ def stitching(
             crop = cut_core(src, meta.result)
             crops.append(crop)
 
-        if canvas_width is None:
-            canvas_width = padding + crops[0].width * num_cores_per_image + gap * (num_cores_per_image - 1) + padding
+        num_gaps = len(crops) - 1
+        total_crop_width = sum(c.width for c in crops)
+        gap = max(0, (output_width - 2 * padding - total_crop_width) // num_gaps) if num_gaps > 0 else 0
 
-        img = stitch_side_by_side(crops, gap=gap, padding=padding, canvas_width=canvas_width)
+        img = stitch_side_by_side(
+            crops, gap=gap, padding=padding, canvas_width=output_width, canvas_height=output_height
+        )
         _draw_depth_labels(img, chunk=chunk, crop_widths=[c.width for c in crops], padding=padding, gap=gap)
-
-        if output_width is not None or output_height is not None:
-            target_w = output_width or img.width
-            target_h = output_height or img.height
-            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
         stitched_images.append(img)
 
     return stitched_images
 
 
-# TODO: add depth ruler along the side
+# TODO: add mlflow tracking
