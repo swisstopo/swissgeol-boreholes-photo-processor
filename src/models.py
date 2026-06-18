@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from PIL import Image
+from attr import dataclass
 
 
 class ImageMetadata:
@@ -65,22 +65,27 @@ class ImageMetadata:
         return self.image_path.parent
 
 
+@dataclass
+class CoreSegmentResult:
+    """Class to represent the result of processing a core segment image."""
+
+    bounding_box: tuple[float, float, float, float]
+    segmentation_mask: None = None
+
+
 class ImageMetadataProcessed(ImageMetadata):
     """Class to represent metadata for a processed image."""
 
     def __init__(
         self,
         metadata: ImageMetadata,
-        detections: list[Image.Image],
-        bounding_boxes: list[tuple[float, float, float, float]],
+        result: CoreSegmentResult,
     ):
         """Initializes an ImageMetadataProcessed instance.
 
         Args:
             metadata: The original image metadata.
-            detections: Detected image regions produced by segmentation.
-            bounding_boxes: Bounding box per detection as (x, y, width, height),
-                used for drawing rectangles when plotting.
+            result: The result of processing the image, e.g. bounding box and segmentation mask.
         """
         super().__init__(
             borehole_id=metadata.borehole_id,
@@ -88,5 +93,4 @@ class ImageMetadataProcessed(ImageMetadata):
             depth_end=metadata.depth_end,
             image_path=metadata.image_path,
         )
-        self.detections = detections
-        self.bounding_boxes = bounding_boxes
+        self.result = result

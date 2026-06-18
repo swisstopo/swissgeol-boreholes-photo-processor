@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import mlflow
 from PIL import Image
 
-from src.models import ImageMetadata, ImageMetadataProcessed
+from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
 
 
 def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> list[ImageMetadataProcessed]:
@@ -44,7 +44,10 @@ def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> li
                 plt.close()
 
         detections.append(
-            ImageMetadataProcessed(metadata=img_metadata, detections=[detection], bounding_boxes=[(0, 0, w, h)])
+            ImageMetadataProcessed(
+                metadata=img_metadata,
+                result=CoreSegmentResult(bounding_box=(0.0, 0.0, float(w), float(h))),
+            )
         )
 
     return detections
