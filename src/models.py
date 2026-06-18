@@ -32,7 +32,7 @@ class ImageMetadata:
         depth_start and depth_end are extracted from the filename via regex.
 
         Args:
-            image_path: Full path to an image file, e.g.
+            image_path (Path): Full path to an image file, e.g.
                 ``Path(".../GBC/GBC-CB50/GBC-CB50_0015.00-0016.00_vd_p.TIF")``.
 
         Raises:
@@ -83,8 +83,8 @@ class ImageMetadataProcessed(ImageMetadata):
         """Construct an ImageMetadataProcessed from an existing ImageMetadata.
 
         Args:
-            metadata: The original image metadata.
-            result: The result of processing the image, e.g. bounding box and segmentation mask.
+            metadata (ImageMetadata): The original image metadata.
+            result (CoreSegmentResult): The result of processing the image, e.g. bounding box and segmentation mask.
         """
         return cls(
             borehole_id=metadata.borehole_id,

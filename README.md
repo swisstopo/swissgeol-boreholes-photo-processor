@@ -90,8 +90,8 @@ The borehole identifier is derived from the filename prefix — everything befor
 
 ```
 <borehole-id>_0015.00-0016.00_<optional-suffix>.tif
-└─────────────┘└────────────────────────────────────┘
-  borehole_id         depth range (required)
+└───────────┘ └─────────────┘
+ borehole_id    depth range
 ```
 
 **Folder structure**
