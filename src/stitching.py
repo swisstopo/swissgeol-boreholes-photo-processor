@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
-NUM_CORES_PER_IMAGE = 6
+NUM_CORES_PER_IMAGE = 6  # Cores placed side by side per output sheet
 
 # Fixed output canvas
 OUTPUT_WIDTH = 1144
@@ -16,10 +16,6 @@ OUTPUT_HEIGHT = 1260
 # horizontal controls left/right margins (and therefore gap between cores).
 PADDING_VERTICAL = 95
 PADDING_HORIZONTAL = 110
-
-# CORE_STRIP_HEIGHT is the pixel budget available for a 1 m core.
-# Derived from the fixed canvas height minus top and bottom padding.
-CORE_STRIP_HEIGHT = OUTPUT_HEIGHT - 2 * PADDING_VERTICAL
 
 # Maximum expected core length in metres — a core this long fills CORE_STRIP_HEIGHT exactly.
 # Any shorter core is scaled proportionally within that pixel budget.
@@ -36,11 +32,12 @@ def cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
     Returns:
         Image.Image: The cropped core segment image.
     """
-    left, upper, right, lower = result.bounding_box
-    return source.crop((left, upper, right, lower))
+    src = source.copy()
+    left, upper, right, lower = (round(v) for v in result.bounding_box)
+    return src.crop((left, upper, right, lower))
 
 
-def _resize_core(crop: Image.Image, depth_start: float, depth_end: float) -> Image.Image:
+def _resize_core(crop: Image.Image, depth_start: float, depth_end: float, core_strip_height: int) -> Image.Image:
     """Resize a core crop so its height is proportional to its depth extent.
 
     The aspect ratio of the original crop is preserved — only the height is
@@ -52,16 +49,32 @@ def _resize_core(crop: Image.Image, depth_start: float, depth_end: float) -> Ima
         crop (Image.Image): The raw cropped core image.
         depth_start (float): Top-of-core depth in metres.
         depth_end (float): Bottom-of-core depth in metres.
+        core_strip_height (int): The pixel budget available for a 1 m core.
 
     Returns:
         Image.Image: Aspect-ratio-preserved resized core image.
     """
     core_length_m = depth_end - depth_start
-    target_height = round((core_length_m / MAX_CORE_LENGTH_M) * CORE_STRIP_HEIGHT)
+    target_height = round((core_length_m / MAX_CORE_LENGTH_M) * core_strip_height)
     target_height = max(1, target_height)
     aspect = crop.width / crop.height
     target_width = max(1, round(target_height * aspect))
     return crop.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+
+def _content_x_start(crops: list[Image.Image], gap: int, canvas_width: int) -> int:
+    """Return the x-coordinate where the centred group of crops begins on the canvas.
+
+    Args:
+        crops (list[Image.Image]): The list of core crops to be stitched together.
+        gap (int): The gap in pixels between adjacent core crops.
+        canvas_width (int): The width of the output stitched image.
+
+    Returns:
+        int: The x-coordinate where the first core crop should be placed to centre the group.
+    """
+    total = sum(c.width for c in crops) + gap * max(0, len(crops) - 1)
+    return (canvas_width - total) // 2
 
 
 def _draw_depth_labels(
@@ -76,16 +89,15 @@ def _draw_depth_labels(
     Args:
         img (Image.Image): The stitched image on which to draw the labels.
         chunk (list[ImageMetadataProcessed]): The list of processed image metadata objects for the cores.
-        crops (list[Image.Image]): The list of cropped core images.
+        crops (list[Image.Image]): The list of cropped core images. Includes placeholders for missing cores, but zip
+        stops after the real cores are exhausted.
         padding_vertical (int): The vertical padding around the entire image (outside the cores).
         gap (int): The gap between cores in the stitched image.
     """
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default(size=max(12, padding_vertical // 3))
 
-    total_cores_width = sum(c.width for c in crops)
-    total_content_width = total_cores_width + gap * (len(crops) - 1)
-    x = (img.width - total_content_width) // 2
+    x = _content_x_start(crops, gap, img.width)
 
     for meta, crop in zip(chunk, crops, strict=False):
         cx = x + crop.width // 2
@@ -170,9 +182,7 @@ def stitch_side_by_side(
         Image.Image: The stitched image with cores placed side by side.
     """
     canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
-    total_cores_width = sum(c.width for c in crops)
-    total_content_width = total_cores_width + gap * max(0, len(crops) - 1)
-    x = (canvas_width - total_content_width) // 2
+    x = _content_x_start(crops, gap, canvas_width)
     for crop in crops:
         canvas.paste(crop, (x, padding_vertical))
         x += crop.width + gap
@@ -200,7 +210,7 @@ def stitching(
     instead of building a list of all results in memory.
 
     Typical usage::
-        for img in stitch(cores):
+        for img in stitching(cores):
             img.save("output.png")
 
     Args:
@@ -215,22 +225,26 @@ def stitching(
         Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
     """
     for i in range(0, len(imgs), num_cores_per_image):
+        # core_strip_height is the pixel budget available for a 1 m core.
+        # Derived from the fixed canvas height minus top and bottom padding.
+        core_strip_height = output_height - 2 * padding_vertical
+
         # Process a chunk of up to num_cores_per_image cores
         chunk = imgs[i : i + num_cores_per_image]
 
         # Cut and resize each real core, preserving aspect ratio
         crops: list[Image.Image] = []
         for meta in chunk:
-            src = Image.open(meta.image_path)
-            crop = cut_core(src, meta.result)
-            crop = _resize_core(crop, meta.depth_start, meta.depth_end)
+            with Image.open(meta.image_path) as src:
+                crop = cut_core(src, meta.result)
+            crop = _resize_core(crop, meta.depth_start, meta.depth_end, core_strip_height)
             crops.append(crop)
 
         # Pad with black placeholders so every output image has the same layout.
         # Width is the average of the real crops so the layout stays consistent.
         if len(crops) < num_cores_per_image:
             avg_core_width = round(sum(c.width for c in crops) / len(crops))
-            placeholder = Image.new("RGB", (avg_core_width, CORE_STRIP_HEIGHT), color=(0, 0, 0))
+            placeholder = Image.new("RGB", (avg_core_width, core_strip_height), color=(0, 0, 0))
             crops += [placeholder] * (num_cores_per_image - len(crops))
 
         # Derive gap from remaining horizontal space after placing all cores

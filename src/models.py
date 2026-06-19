@@ -37,6 +37,9 @@ class ImageMetadata:
 
         Raises:
             ValueError: If no depth range can be found in the filename.
+
+        Returns:
+            ImageMetadata: An instance containing the parsed metadata.
         """
         match = cls._DEPTH_PATTERN.search(image_path.stem)
         if not match:
@@ -57,6 +60,7 @@ class ImageMetadata:
 
     @property
     def folder(self) -> Path:
+        """Parent directory of the image file."""
         return self.image_path.parent
 
 
@@ -64,7 +68,7 @@ class ImageMetadata:
 class CoreSegmentResult:
     """Class to represent the result of processing a core segment image."""
 
-    bounding_box: tuple[float, float, float, float]
+    bounding_box: tuple[float, float, float, float]  # (left, upper, right, lower)
     segmentation_mask: Image.Image | None = None
 
 
@@ -85,6 +89,9 @@ class ImageMetadataProcessed(ImageMetadata):
         Args:
             metadata (ImageMetadata): The original image metadata.
             result (CoreSegmentResult): The result of processing the image, e.g. bounding box and segmentation mask.
+
+        Return:
+            ImageMetadataProcessed: A new instance containing the original metadata and the processing result.
         """
         return cls(
             borehole_id=metadata.borehole_id,
