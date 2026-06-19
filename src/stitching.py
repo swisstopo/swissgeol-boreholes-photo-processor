@@ -19,22 +19,28 @@ PADDING_HORIZONTAL = 110
 
 # Maximum expected core length in metres — a core this long fills CORE_STRIP_HEIGHT exactly.
 # Any shorter core is scaled proportionally within that pixel budget.
-MAX_CORE_LENGTH_M = 1.0
+MAX_CORE_LENGTH_M = 2.0
 
 
 def _cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
-    """Cut a core segment from the source image using the bounding box from the result.
+    """Cut a core segment from the source image, rotating to portrait if needed.
+
+    Cores are stored vertically in the output, so landscape crops (width > height)
+    are rotated 90° clockwise so the left edge (shallow end) becomes the top.
 
     Args:
         source (Image.Image): The source image from which to cut the core segment.
         result (CoreSegmentResult): The result containing the bounding box for the core segment.
 
     Returns:
-        Image.Image: The cropped core segment image.
+        Image.Image: The cropped core segment image in portrait orientation.
     """
     src = source.copy()
     left, upper, right, lower = (round(v) for v in result.bounding_box)
-    return src.crop((left, upper, right, lower))
+    crop = src.crop((left, upper, right, lower))
+    if crop.width > crop.height:
+        crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
+    return crop
 
 
 def _resize_core(
