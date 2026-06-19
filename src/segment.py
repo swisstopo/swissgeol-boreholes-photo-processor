@@ -22,19 +22,21 @@ def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> li
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         with Image.open(img_metadata.image_path) as img:
             detection = img.copy()  # placeholder
-            w, h = img.size  # placeholder for bounding box dimensions
+            w, h = img.size
+
+        bounding_box = (0.0, h * 2 / 3, float(w), float(h))  # placeholder: lower third of the image
 
         if with_mlflow:
             log_artifact_with_mlflow(
                 img=detection,
                 filename=f"{img_metadata.image_path.stem}",
-                bounding_box=(0.0, 0.0, float(w), float(h)),  # placeholder for bounding box
+                bounding_box=bounding_box,
             )
 
         detections.append(
             ImageMetadataProcessed.from_metadata(
                 metadata=img_metadata,
-                result=CoreSegmentResult(bounding_box=(0.0, 0.0, float(w), float(h))),
+                result=CoreSegmentResult(bounding_box=bounding_box),
             )
         )
 

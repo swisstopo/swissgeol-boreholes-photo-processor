@@ -73,6 +73,7 @@ def run(
                     imgs_metadata.append(ImageMetadata.from_path(f))
                 except ValueError as e:
                     logging.warning("Skipping %s: %s", f.name, e)
+        imgs_metadata.sort(key=lambda m: m.depth_start)
         logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
 
         # segmentation
@@ -80,6 +81,7 @@ def run(
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
+        idx = -1  # guards against NameError in the logging call when detections is empty
         for idx, img in enumerate(
             stitching(
                 detections,
@@ -101,6 +103,7 @@ def run(
 
             img.save(output_dir / f"{stem}.tif")
             img.save(output_dir / f"{stem}.png")
+        logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
 
 def batch_run(
@@ -148,6 +151,7 @@ def batch_run(
 
 def main() -> None:
     """Parse CLI arguments and run the pipeline."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description="Process borehole photos from input to output directory.")
     parser.add_argument("--input", type=Path, required=True, help="Path to the input directory.")
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
