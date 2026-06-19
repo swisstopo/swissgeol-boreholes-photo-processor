@@ -6,7 +6,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
-PADDING = 90
+NUM_CORES_PER_IMAGE = 6
+PADDING = 80
 CORE_WIDTH = 140  # assumed width of a segmented borehole core in pixels
 OUTPUT_WIDTH = 1144
 OUTPUT_HEIGHT = 1260
@@ -44,14 +45,28 @@ def _draw_depth_labels(
     """
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default(size=max(12, padding // 3))
-    x = padding
-    for meta, width in zip(chunk, crop_widths, strict=True):
+    total_content_width = CORE_WIDTH * len(crop_widths) + gap * max(0, len(crop_widths) - 1)
+    x = (img.width - total_content_width) // 2
+    for meta, width in zip(chunk, crop_widths, strict=False):
         cx = x + width // 2
-        draw.text((cx, padding // 2), f"{meta.depth_start:.2f} m", fill=(255, 255, 255), font=font, anchor="mm")
+        draw.text((cx, padding * 3 // 4), f"{meta.depth_start:.2f} m", fill=(255, 255, 255), font=font, anchor="mm")
         draw.text(
             (cx, img.height - padding // 2), f"{meta.depth_end:.2f} m", fill=(255, 255, 255), font=font, anchor="mm"
         )
-        x += width + gap
+        x += CORE_WIDTH + gap
+
+
+def _draw_borehole_label(img: Image.Image, borehole_id: str, padding: int) -> None:
+    """Draw the borehole ID in the top-left corner of the image.
+
+    Args:
+        img (Image.Image): The stitched image on which to draw the label.
+        borehole_id (str): The borehole identifier to display.
+        padding (int): The uniform border around the entire image (outside the cores).
+    """
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=max(12, padding // 3))
+    draw.text((padding // 4, padding // 4), borehole_id, fill=(255, 255, 255), font=font, anchor="lm")
 
 
 def _draw_rulerlabel(
@@ -85,16 +100,17 @@ def stitch_side_by_side(
         Image.Image: The stitched image with cores placed side by side.
     """
     canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
-    x = padding
+    total_content_width = CORE_WIDTH * len(crops) + gap * max(0, len(crops) - 1)
+    x = (canvas_width - total_content_width) // 2
     for img in crops:
         canvas.paste(img, (x, padding))
-        x += img.width + gap
+        x += CORE_WIDTH + gap
     return canvas
 
 
 def stitching(
     imgs: list[ImageMetadataProcessed],
-    num_cores_per_image: int = 6,
+    num_cores_per_image: int = NUM_CORES_PER_IMAGE,
     padding: int = PADDING,
     output_width: int = OUTPUT_WIDTH,
     output_height: int = OUTPUT_HEIGHT,
@@ -126,9 +142,13 @@ def stitching(
         crops = []
         for meta in chunk:
             src = Image.open(meta.image_path)
-            # Cut the core from the src image using the bounding box from the result
             crop = cut_core(src, meta.result)
             crops.append(crop)
+
+        # Pad with black placeholders so every output image has the same num_cores_per_image layout
+        placeholder_height = output_height - 2 * padding
+        for _ in range(num_cores_per_image - len(crops)):
+            crops.append(Image.new("RGB", (CORE_WIDTH, placeholder_height), color=(0, 0, 0)))
 
         # calculate gap based on remaining space after placing cores and padding
         gap = (
@@ -141,7 +161,10 @@ def stitching(
         img = stitch_side_by_side(
             crops, gap=gap, padding=padding, canvas_width=output_width, canvas_height=output_height
         )
+        # Pass all crop widths (including placeholders) so x-start matches stitch_side_by_side;
+        # zip stops at len(chunk) so only real cores get labels.
         _draw_depth_labels(img, chunk=chunk, crop_widths=[c.width for c in crops], padding=padding, gap=gap)
+        _draw_borehole_label(img, borehole_id=chunk[0].borehole_id, padding=padding)
         _draw_rulerlabel(img)  # placeholder
 
         yield img
