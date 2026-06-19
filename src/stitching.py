@@ -7,10 +7,23 @@ from PIL import Image, ImageDraw, ImageFont
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
 NUM_CORES_PER_IMAGE = 6
-PADDING = 80
-CORE_WIDTH = 140  # assumed width of a segmented borehole core in pixels
+
+# Fixed output canvas
 OUTPUT_WIDTH = 1144
 OUTPUT_HEIGHT = 1260
+
+# Padding — vertical controls top/bottom space (and therefore core height),
+# horizontal controls left/right margins (and therefore gap between cores).
+PADDING_VERTICAL = 95
+PADDING_HORIZONTAL = 110
+
+# CORE_STRIP_HEIGHT is the pixel budget available for a 1 m core.
+# Derived from the fixed canvas height minus top and bottom padding.
+CORE_STRIP_HEIGHT = OUTPUT_HEIGHT - 2 * PADDING_VERTICAL
+
+# Maximum expected core length in metres — a core this long fills CORE_STRIP_HEIGHT exactly.
+# Any shorter core is scaled proportionally within that pixel budget.
+MAX_CORE_LENGTH_M = 1.0
 
 
 def cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
@@ -27,11 +40,35 @@ def cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
     return source.crop((left, upper, right, lower))
 
 
+def _resize_core(crop: Image.Image, depth_start: float, depth_end: float) -> Image.Image:
+    """Resize a core crop so its height is proportional to its depth extent.
+
+    The aspect ratio of the original crop is preserved — only the height is
+    derived from the depth interval, and the width scales accordingly.  This
+    means each core retains its natural width after resizing, which is then
+    used to compute the gap between cores in the stitched image.
+
+    Args:
+        crop (Image.Image): The raw cropped core image.
+        depth_start (float): Top-of-core depth in metres.
+        depth_end (float): Bottom-of-core depth in metres.
+
+    Returns:
+        Image.Image: Aspect-ratio-preserved resized core image.
+    """
+    core_length_m = depth_end - depth_start
+    target_height = round((core_length_m / MAX_CORE_LENGTH_M) * CORE_STRIP_HEIGHT)
+    target_height = max(1, target_height)
+    aspect = crop.width / crop.height
+    target_width = max(1, round(target_height * aspect))
+    return crop.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+
 def _draw_depth_labels(
     img: Image.Image,
     chunk: list[ImageMetadataProcessed],
-    crop_widths: list[int],
-    padding: int,
+    crops: list[Image.Image],
+    padding_vertical: int,
     gap: int,
 ) -> None:
     """Draw depth_start above and depth_end below each individual core strip.
@@ -39,43 +76,72 @@ def _draw_depth_labels(
     Args:
         img (Image.Image): The stitched image on which to draw the labels.
         chunk (list[ImageMetadataProcessed]): The list of processed image metadata objects for the cores.
-        crop_widths (list[int]): The widths of the cropped core images.
-        padding (int): The uniform border around the entire image (outside the cores).
+        crops (list[Image.Image]): The list of cropped core images.
+        padding_vertical (int): The vertical padding around the entire image (outside the cores).
         gap (int): The gap between cores in the stitched image.
     """
     draw = ImageDraw.Draw(img)
-    font = ImageFont.load_default(size=max(12, padding // 3))
-    total_content_width = CORE_WIDTH * len(crop_widths) + gap * max(0, len(crop_widths) - 1)
+    font = ImageFont.load_default(size=max(12, padding_vertical // 3))
+
+    total_cores_width = sum(c.width for c in crops)
+    total_content_width = total_cores_width + gap * (len(crops) - 1)
     x = (img.width - total_content_width) // 2
-    for meta, width in zip(chunk, crop_widths, strict=False):
-        cx = x + width // 2
-        draw.text((cx, padding * 3 // 4), f"{meta.depth_start:.2f} m", fill=(255, 255, 255), font=font, anchor="mm")
+
+    for meta, crop in zip(chunk, crops, strict=False):
+        cx = x + crop.width // 2
         draw.text(
-            (cx, img.height - padding // 2), f"{meta.depth_end:.2f} m", fill=(255, 255, 255), font=font, anchor="mm"
+            (cx, padding_vertical * 3 // 4),
+            f"{meta.depth_start:.2f} m",
+            fill=(255, 255, 255),
+            font=font,
+            anchor="mm",
         )
-        x += CORE_WIDTH + gap
+        draw.text(
+            (cx, img.height - padding_vertical // 2),
+            f"{meta.depth_end:.2f} m",
+            fill=(255, 255, 255),
+            font=font,
+            anchor="mm",
+        )
+        x += crop.width + gap
 
 
-def _draw_borehole_label(img: Image.Image, borehole_id: str, padding: int) -> None:
+def _draw_borehole_label(
+    img: Image.Image,
+    borehole_id: str,
+    padding_vertical: int,
+    padding_horizontal: int,
+) -> None:
     """Draw the borehole ID in the top-left corner of the image.
 
     Args:
         img (Image.Image): The stitched image on which to draw the label.
         borehole_id (str): The borehole identifier to display.
-        padding (int): The uniform border around the entire image (outside the cores).
+        padding_vertical (int): Top and bottom border height in pixels.
+        padding_horizontal (int): Left and right border width in pixels.
     """
     draw = ImageDraw.Draw(img)
-    font = ImageFont.load_default(size=max(12, padding // 3))
-    draw.text((padding // 4, padding // 4), borehole_id, fill=(255, 255, 255), font=font, anchor="lm")
+    font = ImageFont.load_default(size=max(12, padding_vertical // 3))
+    draw.text(
+        (padding_horizontal // 4, padding_vertical // 4),
+        borehole_id,
+        fill=(255, 255, 255),
+        font=font,
+        anchor="lm",
+    )
 
 
 def _draw_rulerlabel(
     img: Image.Image,
+    padding_vertical: int,
+    padding_horizontal: int,
 ) -> None:
     """Draw a ruler label at the specified position.
 
     Args:
         img (Image.Image): The image on which to draw the label.
+        padding_vertical (int): Top and bottom border height in pixels.
+        padding_horizontal (int): Left and right border width in pixels.
     """
     pass  # placeholder for drawing a ruler label
 
@@ -83,16 +149,20 @@ def _draw_rulerlabel(
 def stitch_side_by_side(
     crops: list[Image.Image],
     gap: int,
-    padding: int,
+    padding_vertical: int,
     canvas_width: int,
     canvas_height: int,
 ) -> Image.Image:
     """Place core crops side by side horizontally on a black background.
 
+    Crops are centred horizontally. Each crop is pasted at the top of its
+    slot (y = padding_vertical). Cores shorter than CORE_STRIP_HEIGHT leave a
+    black gap at the bottom, reflecting partial recovery.
+
     Args:
-        crops (list[Image.Image]): The list of cropped core images to stitch together.
-        gap (int): The gap between cores in the stitched image.
-        padding (int): The uniform border around the entire image (outside the cores).
+        crops (list[Image.Image]): Core strips resized to their natural aspect-ratio widths.
+        gap (int): Gap in pixels between adjacent core strips.
+        padding_vertical (int): Top and bottom border height in pixels.
         canvas_width (int): The width of the output stitched image.
         canvas_height (int): The height of the output stitched image.
 
@@ -100,27 +170,34 @@ def stitch_side_by_side(
         Image.Image: The stitched image with cores placed side by side.
     """
     canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
-    total_content_width = CORE_WIDTH * len(crops) + gap * max(0, len(crops) - 1)
+    total_cores_width = sum(c.width for c in crops)
+    total_content_width = total_cores_width + gap * max(0, len(crops) - 1)
     x = (canvas_width - total_content_width) // 2
-    for img in crops:
-        canvas.paste(img, (x, padding))
-        x += CORE_WIDTH + gap
+    for crop in crops:
+        canvas.paste(crop, (x, padding_vertical))
+        x += crop.width + gap
     return canvas
 
 
 def stitching(
     imgs: list[ImageMetadataProcessed],
     num_cores_per_image: int = NUM_CORES_PER_IMAGE,
-    padding: int = PADDING,
+    padding_vertical: int = PADDING_VERTICAL,
+    padding_horizontal: int = PADDING_HORIZONTAL,
     output_width: int = OUTPUT_WIDTH,
     output_height: int = OUTPUT_HEIGHT,
 ) -> Generator[Image.Image, None, None]:
     """Stitch core segments together, yielding one output image at a time.
 
+    Each core is resized preserving its aspect ratio, with height proportional
+    to its depth extent (depth_end - depth_start) relative to MAX_CORE_LENGTH_M.
+    The gap between cores is derived from the remaining horizontal space after
+    placing all cores and side padding:
+
+        gap = (output_width - 2 * padding_horizontal - sum(core widths)) / (n - 1)
+
     This is a generator: it yields each stitched image as soon as it is ready
-    instead of building a list of all results in memory. This keeps memory usage
-    constant regardless of how many output images are produced — the caller should
-    save or process each image before requesting the next one.
+    instead of building a list of all results in memory.
 
     Typical usage::
         for img in stitch(cores):
@@ -129,7 +206,8 @@ def stitching(
     Args:
         imgs (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
         num_cores_per_image (int): The number of cores to place side by side in each stitched image.
-        padding (int): The uniform border around the entire image (outside the cores).
+        padding_vertical (int): Top and bottom border height in pixels.
+        padding_horizontal (int): Left and right border width in pixels.
         output_width (int): The canvas width. The gap between cores is derived from the remaining space.
         output_height (int): The canvas height.
 
@@ -139,32 +217,53 @@ def stitching(
     for i in range(0, len(imgs), num_cores_per_image):
         # Process a chunk of up to num_cores_per_image cores
         chunk = imgs[i : i + num_cores_per_image]
-        crops = []
+
+        # Cut and resize each real core, preserving aspect ratio
+        crops: list[Image.Image] = []
         for meta in chunk:
             src = Image.open(meta.image_path)
             crop = cut_core(src, meta.result)
+            crop = _resize_core(crop, meta.depth_start, meta.depth_end)
             crops.append(crop)
 
-        # Pad with black placeholders so every output image has the same num_cores_per_image layout
-        placeholder_height = output_height - 2 * padding
-        for _ in range(num_cores_per_image - len(crops)):
-            crops.append(Image.new("RGB", (CORE_WIDTH, placeholder_height), color=(0, 0, 0)))
+        # Pad with black placeholders so every output image has the same layout.
+        # Width is the average of the real crops so the layout stays consistent.
+        if len(crops) < num_cores_per_image:
+            avg_core_width = round(sum(c.width for c in crops) / len(crops))
+            placeholder = Image.new("RGB", (avg_core_width, CORE_STRIP_HEIGHT), color=(0, 0, 0))
+            crops += [placeholder] * (num_cores_per_image - len(crops))
 
-        # calculate gap based on remaining space after placing cores and padding
+        # Derive gap from remaining horizontal space after placing all cores
+        total_cores_width = sum(c.width for c in crops)
         gap = (
-            max(0, (output_width - 2 * padding - CORE_WIDTH * num_cores_per_image) // (num_cores_per_image - 1))
+            max(0, (output_width - 2 * padding_horizontal - total_cores_width) // (num_cores_per_image - 1))
             if num_cores_per_image > 1
             else 0
         )
 
         # place cores side by side on a black canvas and draw depth labels
         img = stitch_side_by_side(
-            crops, gap=gap, padding=padding, canvas_width=output_width, canvas_height=output_height
+            crops,
+            gap=gap,
+            padding_vertical=padding_vertical,
+            canvas_width=output_width,
+            canvas_height=output_height,
         )
-        # Pass all crop widths (including placeholders) so x-start matches stitch_side_by_side;
-        # zip stops at len(chunk) so only real cores get labels.
-        _draw_depth_labels(img, chunk=chunk, crop_widths=[c.width for c in crops], padding=padding, gap=gap)
-        _draw_borehole_label(img, borehole_id=chunk[0].borehole_id, padding=padding)
-        _draw_rulerlabel(img)  # placeholder
+        # Pass all crops (real + placeholders) so x-start matches stitch_side_by_side;
+        # strict=False stops the zip after the real cores are exhausted.
+        _draw_depth_labels(
+            img,
+            chunk=chunk,
+            crops=crops,
+            padding_vertical=padding_vertical,
+            gap=gap,
+        )
+        _draw_borehole_label(
+            img,
+            borehole_id=chunk[0].borehole_id,
+            padding_vertical=padding_vertical,
+            padding_horizontal=padding_horizontal,
+        )
+        _draw_rulerlabel(img, padding_vertical=padding_vertical, padding_horizontal=padding_horizontal)
 
         yield img
