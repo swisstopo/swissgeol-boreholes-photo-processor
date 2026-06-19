@@ -191,7 +191,7 @@ _CORE_COLORS = [
 ]
 
 
-@pytest.mark.skip(reason="visual inspection only — run manually")
+# @pytest.mark.skip(reason="visual inspection only — run manually")
 def test_save_two_output_images(tmp_path):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     cores = [_make_processed(tmp_path, float(i), float(i + 1), color=_CORE_COLORS[i]) for i in range(7)]

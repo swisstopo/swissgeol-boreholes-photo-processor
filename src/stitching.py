@@ -22,7 +22,7 @@ PADDING_HORIZONTAL = 110
 MAX_CORE_LENGTH_M = 1.0
 
 
-def cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
+def _cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
     """Cut a core segment from the source image using the bounding box from the result.
 
     Args:
@@ -37,7 +37,13 @@ def cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
     return src.crop((left, upper, right, lower))
 
 
-def _resize_core(crop: Image.Image, depth_start: float, depth_end: float, core_strip_height: int) -> Image.Image:
+def _resize_core(
+    crop: Image.Image,
+    depth_start: float,
+    depth_end: float,
+    core_strip_height: int,
+    max_core_length_m: float = MAX_CORE_LENGTH_M,
+) -> Image.Image:
     """Resize a core crop so its height is proportional to its depth extent.
 
     The aspect ratio of the original crop is preserved — only the height is
@@ -50,12 +56,13 @@ def _resize_core(crop: Image.Image, depth_start: float, depth_end: float, core_s
         depth_start (float): Top-of-core depth in metres.
         depth_end (float): Bottom-of-core depth in metres.
         core_strip_height (int): The pixel budget available for a 1 m core.
+        max_core_length_m (float): Maximum core length in metres (fills core_strip_height exactly).
 
     Returns:
         Image.Image: Aspect-ratio-preserved resized core image.
     """
     core_length_m = depth_end - depth_start
-    target_height = round((core_length_m / MAX_CORE_LENGTH_M) * core_strip_height)
+    target_height = round((core_length_m / max_core_length_m) * core_strip_height)
     target_height = max(1, target_height)
     aspect = crop.width / crop.height
     target_width = max(1, round(target_height * aspect))
@@ -83,7 +90,7 @@ def _draw_depth_labels(
     crops: list[Image.Image],
     padding_vertical: int,
     gap: int,
-) -> None:
+) -> Image.Image:
     """Draw depth_start above and depth_end below each individual core strip.
 
     Args:
@@ -93,6 +100,9 @@ def _draw_depth_labels(
         stops after the real cores are exhausted.
         padding_vertical (int): The vertical padding around the entire image (outside the cores).
         gap (int): The gap between cores in the stitched image.
+
+    Returns:
+        Image.Image: The image with depth labels drawn on it.
     """
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default(size=max(12, padding_vertical // 3))
@@ -116,6 +126,7 @@ def _draw_depth_labels(
             anchor="mm",
         )
         x += crop.width + gap
+    return img
 
 
 def _draw_borehole_label(
@@ -123,7 +134,7 @@ def _draw_borehole_label(
     borehole_id: str,
     padding_vertical: int,
     padding_horizontal: int,
-) -> None:
+) -> Image.Image:
     """Draw the borehole ID in the top-left corner of the image.
 
     Args:
@@ -131,6 +142,9 @@ def _draw_borehole_label(
         borehole_id (str): The borehole identifier to display.
         padding_vertical (int): Top and bottom border height in pixels.
         padding_horizontal (int): Left and right border width in pixels.
+
+    Returns:
+        Image.Image: The image with the borehole label drawn on it.
     """
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default(size=max(12, padding_vertical // 3))
@@ -141,21 +155,25 @@ def _draw_borehole_label(
         font=font,
         anchor="lm",
     )
+    return img
 
 
-def _draw_rulerlabel(
+def _draw_ruler_label(
     img: Image.Image,
     padding_vertical: int,
     padding_horizontal: int,
-) -> None:
+) -> Image.Image:
     """Draw a ruler label at the specified position.
 
     Args:
         img (Image.Image): The image on which to draw the label.
         padding_vertical (int): Top and bottom border height in pixels.
         padding_horizontal (int): Left and right border width in pixels.
+
+    Returns:
+        Image.Image: The image with the ruler label drawn on it.
     """
-    pass  # placeholder for drawing a ruler label
+    return img  # placeholder
 
 
 def stitch_side_by_side(
@@ -196,11 +214,12 @@ def stitching(
     padding_horizontal: int = PADDING_HORIZONTAL,
     output_width: int = OUTPUT_WIDTH,
     output_height: int = OUTPUT_HEIGHT,
+    max_core_length_m: float = MAX_CORE_LENGTH_M,
 ) -> Generator[Image.Image, None, None]:
     """Stitch core segments together, yielding one output image at a time.
 
     Each core is resized preserving its aspect ratio, with height proportional
-    to its depth extent (depth_end - depth_start) relative to MAX_CORE_LENGTH_M.
+    to its depth extent (depth_end - depth_start) relative to max_core_length_m.
     The gap between cores is derived from the remaining horizontal space after
     placing all cores and side padding:
 
@@ -220,6 +239,7 @@ def stitching(
         padding_horizontal (int): Left and right border width in pixels.
         output_width (int): The canvas width. The gap between cores is derived from the remaining space.
         output_height (int): The canvas height.
+        max_core_length_m (float): Maximum core length in metres (fills the strip height exactly).
 
     Yields:
         Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
@@ -236,8 +256,8 @@ def stitching(
         crops: list[Image.Image] = []
         for meta in chunk:
             with Image.open(meta.image_path) as src:
-                crop = cut_core(src, meta.result)
-            crop = _resize_core(crop, meta.depth_start, meta.depth_end, core_strip_height)
+                crop = _cut_core(src, meta.result)
+            crop = _resize_core(crop, meta.depth_start, meta.depth_end, core_strip_height, max_core_length_m)
             crops.append(crop)
 
         # Pad with black placeholders so every output image has the same layout.
@@ -265,19 +285,19 @@ def stitching(
         )
         # Pass all crops (real + placeholders) so x-start matches stitch_side_by_side;
         # strict=False stops the zip after the real cores are exhausted.
-        _draw_depth_labels(
+        img = _draw_depth_labels(
             img,
             chunk=chunk,
             crops=crops,
             padding_vertical=padding_vertical,
             gap=gap,
         )
-        _draw_borehole_label(
+        img = _draw_borehole_label(
             img,
             borehole_id=chunk[0].borehole_id,
             padding_vertical=padding_vertical,
             padding_horizontal=padding_horizontal,
         )
-        _draw_rulerlabel(img, padding_vertical=padding_vertical, padding_horizontal=padding_horizontal)
+        img = _draw_ruler_label(img, padding_vertical=padding_vertical, padding_horizontal=padding_horizontal)
 
         yield img
