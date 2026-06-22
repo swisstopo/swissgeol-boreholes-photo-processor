@@ -3,77 +3,15 @@
 import argparse
 import contextlib
 import logging
-import tempfile
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import mlflow
-from PIL import Image
+from tqdm import tqdm
 
+from src.mlflow_utils import log_artifact_with_mlflow
 from src.models import ImageMetadata, ImageMetadataProcessed
-
-
-def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> list[ImageMetadataProcessed]:
-    """Segment the input images and return a list of detections.
-
-    Args:
-        imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
-        with_mlflow (bool): Whether to log artifacts to MLflow.
-
-    Returns:
-        list[ImageMetadataProcessed]: A list of processed image metadata objects, one per input image.
-    """
-    detections: list[ImageMetadataProcessed] = []
-
-    for img_metadata in imgs_metadata:
-        with Image.open(img_metadata.image_path) as img:
-            detection = img.copy()  # placeholder
-            w, h = img.size  # placeholder for bounding box dimensions
-
-        if with_mlflow:
-            try:
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    # convert to plot with bounding box around the detected object (placeholder)
-                    plt.imshow(detection)
-                    plt.gca().add_patch(plt.Rectangle((0, 0), w, h, linewidth=2, edgecolor="red", facecolor="none"))
-
-                    artifact_path = Path(tmp_dir) / f"{img_metadata.image_path.stem}.png"
-                    plt.savefig(artifact_path)
-                    mlflow.log_artifact(str(artifact_path))
-            finally:
-                plt.close()
-
-        detections.append(
-            ImageMetadataProcessed.from_metadata(metadata=img_metadata, detection=detection, bounding_box=(0, 0, w, h))
-        )
-
-    return detections
-
-
-def stitch(detections: list[ImageMetadataProcessed], dir_name: str, with_mlflow: bool = False) -> Image.Image:
-    """Stitch the list of detections into a final image.
-
-    Args:
-        detections (list[ImageMetadataProcessed]): A list of processed image metadata objects.
-        dir_name (str): Name used as the stem for the MLflow artifact filename.
-        with_mlflow (bool): Whether to log artifacts to MLflow.
-
-    Returns:
-        Image.Image: An image object representing the stitched result of the detections.
-    """
-    stitched_image: Image.Image = Image.new("RGB", (100, 100))  # placeholder for actual stitched image
-
-    if with_mlflow:
-        try:
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                plt.imshow(stitched_image)
-                artifact_path = Path(tmp_dir) / f"{dir_name}.png"
-                plt.savefig(artifact_path)
-                mlflow.log_artifact(str(artifact_path))
-        finally:
-            plt.close()
-
-    return stitched_image
+from src.segment import segment
+from src.stitching import stitching
 
 
 def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
@@ -92,7 +30,18 @@ def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> conte
     return contextlib.nullcontext()
 
 
-def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bool = False) -> None:
+def run(
+    input_dir: Path,
+    output_dir: Path,
+    with_mlflow: bool = False,
+    nested: bool = False,
+    num_cores_per_image: int = 6,
+    padding_vertical: int = 95,
+    padding_horizontal: int = 110,
+    output_width: int = 1144,
+    output_height: int = 1260,
+    max_core_length_m: float = 2.0,
+) -> None:
     """Process borehole photos from input to output directory.
 
     Args:
@@ -100,6 +49,12 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
         nested (bool): Whether to start a nested MLflow run under an existing active run.
+        num_cores_per_image (int): Number of cores placed side by side per output sheet.
+        padding_vertical (int): Top and bottom border height in pixels.
+        padding_horizontal (int): Left and right border width in pixels.
+        output_width (int): Output canvas width in pixels.
+        output_height (int): Output canvas height in pixels.
+        max_core_length_m (float): Maximum core length in metres (fills the strip height exactly).
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory and parse filename metadata
@@ -110,20 +65,50 @@ def run(input_dir: Path, output_dir: Path, with_mlflow: bool = False, nested: bo
                     imgs_metadata.append(ImageMetadata.from_path(f))
                 except ValueError as e:
                     logging.warning("Skipping %s: %s", f.name, e)
+        imgs_metadata.sort(key=lambda m: m.depth_start)
+        logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
 
         # segmentation
         detections: list[ImageMetadataProcessed] = segment(imgs_metadata, with_mlflow=with_mlflow)
 
         # stitching
-        stitched_image = stitch(detections, dir_name=input_dir.name, with_mlflow=with_mlflow)
-
-        # Write results to output directory
         output_dir.mkdir(parents=True, exist_ok=True)
-        stitched_image.save(output_dir / f"{input_dir.name}.tif")
-        stitched_image.save(output_dir / f"{input_dir.name}.png")
+        idx = -1  # guards against NameError in the logging call when detections is empty
+        for idx, img in enumerate(
+            stitching(
+                detections,
+                num_cores_per_image=num_cores_per_image,
+                padding_vertical=padding_vertical,
+                padding_horizontal=padding_horizontal,
+                output_width=output_width,
+                output_height=output_height,
+                max_core_length_m=max_core_length_m,
+            )
+        ):
+            stem = f"{input_dir.name}_{idx + 1:03d}"
+
+            if with_mlflow:
+                log_artifact_with_mlflow(
+                    img=img,
+                    filename=stem,
+                )
+
+            img.save(output_dir / f"{stem}.tif")
+            img.save(output_dir / f"{stem}.png")
+        logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
 
-def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> None:
+def batch_run(
+    input_dir: Path,
+    output_dir: Path,
+    with_mlflow: bool = False,
+    num_cores_per_image: int = 6,
+    padding_vertical: int = 95,
+    padding_horizontal: int = 110,
+    output_width: int = 1144,
+    output_height: int = 1260,
+    max_core_length_m: float = 2.0,
+) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
     Args:
@@ -131,19 +116,64 @@ def batch_run(input_dir: Path, output_dir: Path, with_mlflow: bool = False) -> N
             raw borehole photos (TIF format).
         output_dir (Path): Path to the directory where processed images will be written.
         with_mlflow (bool): Whether to log artifacts to MLflow.
+        num_cores_per_image (int): Number of cores placed side by side per output sheet.
+        padding_vertical (int): Top and bottom border height in pixels.
+        padding_horizontal (int): Left and right border width in pixels.
+        output_width (int): Output canvas width in pixels.
+        output_height (int): Output canvas height in pixels.
+        max_core_length_m (float): Maximum core length in metres (fills the strip height exactly).
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
-        for subdir in input_dir.iterdir():
-            if subdir.is_dir():
-                run(input_dir=subdir, output_dir=output_dir / subdir.name, with_mlflow=with_mlflow, nested=True)
+        subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
+        logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
+        for subdir in tqdm(subdirs, desc="Processing folders"):
+            run(
+                input_dir=subdir,
+                output_dir=output_dir / subdir.name,
+                with_mlflow=with_mlflow,
+                nested=True,
+                num_cores_per_image=num_cores_per_image,
+                padding_vertical=padding_vertical,
+                padding_horizontal=padding_horizontal,
+                output_width=output_width,
+                output_height=output_height,
+                max_core_length_m=max_core_length_m,
+            )
 
 
 def main() -> None:
     """Parse CLI arguments and run the pipeline."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description="Process borehole photos from input to output directory.")
     parser.add_argument("--input", type=Path, required=True, help="Path to the input directory.")
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
     parser.add_argument("--mlflow", action="store_true", help="Whether to log artifacts to MLflow.")
+    parser.add_argument(
+        "--num-cores",
+        type=int,
+        default=6,
+        help="Cores per output sheet (default: 6).",
+    )
+    parser.add_argument(
+        "--padding-vertical",
+        type=int,
+        default=95,
+        help="Top/bottom border in pixels (default: 95).",
+    )
+    parser.add_argument(
+        "--padding-horizontal",
+        type=int,
+        default=110,
+        help="Left/right border in pixels (default: 110).",
+    )
+    parser.add_argument("--output-width", type=int, default=1144, help="Canvas width in pixels (default: 1144).")
+    parser.add_argument("--output-height", type=int, default=1260, help="Canvas height in pixels (default: 1260).")
+    parser.add_argument(
+        "--max-core-length",
+        type=float,
+        default=2.0,
+        help="Max core length in metres (default: 2.0).",
+    )
     args = parser.parse_args()
 
     if not args.input.exists():
@@ -151,11 +181,20 @@ def main() -> None:
     if not args.input.is_dir():
         parser.error(f"Input path is not a directory: {args.input}")
 
+    kwargs = dict(
+        num_cores_per_image=args.num_cores,
+        padding_vertical=args.padding_vertical,
+        padding_horizontal=args.padding_horizontal,
+        output_width=args.output_width,
+        output_height=args.output_height,
+        max_core_length_m=args.max_core_length,
+    )
+
     has_subdirs = any(p.is_dir() for p in args.input.iterdir())
     if has_subdirs:
-        batch_run(input_dir=args.input, output_dir=args.output, with_mlflow=args.mlflow)
+        batch_run(input_dir=args.input, output_dir=args.output, with_mlflow=args.mlflow, **kwargs)
     else:
-        run(input_dir=args.input, output_dir=args.output, with_mlflow=args.mlflow)
+        run(input_dir=args.input, output_dir=args.output, with_mlflow=args.mlflow, **kwargs)
 
 
 if __name__ == "__main__":

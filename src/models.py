@@ -37,6 +37,9 @@ class ImageMetadata:
 
         Raises:
             ValueError: If no depth range can be found in the filename.
+
+        Returns:
+            ImageMetadata: An instance containing the parsed metadata.
         """
         match = cls._DEPTH_PATTERN.search(image_path.stem)
         if not match:
@@ -57,35 +60,43 @@ class ImageMetadata:
 
     @property
     def folder(self) -> Path:
+        """Parent directory of the image file."""
         return self.image_path.parent
+
+
+@dataclass
+class CoreSegmentResult:
+    """Class to represent the result of processing a core segment image."""
+
+    bounding_box: tuple[float, float, float, float]  # (left, upper, right, lower)
+    segmentation_mask: Image.Image | None = None
 
 
 @dataclass
 class ImageMetadataProcessed(ImageMetadata):
     """Metadata for a processed image with detected regions."""
 
-    detection: Image.Image
-    bounding_box: tuple[float, float, float, float]
+    result: CoreSegmentResult
 
     @classmethod
     def from_metadata(
         cls,
         metadata: ImageMetadata,
-        detection: Image.Image,
-        bounding_box: tuple[float, float, float, float],
+        result: CoreSegmentResult,
     ) -> "ImageMetadataProcessed":
         """Construct an ImageMetadataProcessed from an existing ImageMetadata.
 
         Args:
             metadata (ImageMetadata): The original image metadata.
-            detection (Image.Image): Detected image region produced by segmentation.
-            bounding_box (tuple[float, float, float, float]): Bounding box of the detection as (x, y, width, height).
+            result (CoreSegmentResult): The result of processing the image, e.g. bounding box and segmentation mask.
+
+        Return:
+            ImageMetadataProcessed: A new instance containing the original metadata and the processing result.
         """
         return cls(
             borehole_id=metadata.borehole_id,
             depth_start=metadata.depth_start,
             depth_end=metadata.depth_end,
             image_path=metadata.image_path,
-            detection=detection,
-            bounding_box=bounding_box,
+            result=result,
         )
