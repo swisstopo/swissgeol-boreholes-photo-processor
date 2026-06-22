@@ -6,21 +6,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
-NUM_CORES_PER_IMAGE = 6  # Cores placed side by side per output sheet
-
-# Fixed output canvas
-OUTPUT_WIDTH = 1144
-OUTPUT_HEIGHT = 1260
-
-# Padding — vertical controls top/bottom space (and therefore core height),
-# horizontal controls left/right margins (and therefore gap between cores).
-PADDING_VERTICAL = 95
-PADDING_HORIZONTAL = 110
-
-# Maximum expected core length in metres — a core this long fills CORE_STRIP_HEIGHT exactly.
-# Any shorter core is scaled proportionally within that pixel budget.
-MAX_CORE_LENGTH_M = 2.0
-
 
 def _cut_core(source: Image.Image, result: CoreSegmentResult) -> Image.Image:
     """Cut a core segment from the source image, rotating to portrait if needed.
@@ -48,7 +33,7 @@ def _resize_core(
     depth_start: float,
     depth_end: float,
     core_strip_height: int,
-    max_core_length_m: float = MAX_CORE_LENGTH_M,
+    max_core_length_m: float = 2.0,
 ) -> Image.Image:
     """Resize a core crop so its height is proportional to its depth extent.
 
@@ -215,12 +200,12 @@ def stitch_side_by_side(
 
 def stitching(
     imgs: list[ImageMetadataProcessed],
-    num_cores_per_image: int = NUM_CORES_PER_IMAGE,
-    padding_vertical: int = PADDING_VERTICAL,
-    padding_horizontal: int = PADDING_HORIZONTAL,
-    output_width: int = OUTPUT_WIDTH,
-    output_height: int = OUTPUT_HEIGHT,
-    max_core_length_m: float = MAX_CORE_LENGTH_M,
+    num_cores_per_image: int = 6,
+    padding_vertical: int = 95,
+    padding_horizontal: int = 110,
+    output_width: int = 1144,
+    output_height: int = 1260,
+    max_core_length_m: float = 2.0,
 ) -> Generator[Image.Image, None, None]:
     """Stitch core segments together, yielding one output image at a time.
 

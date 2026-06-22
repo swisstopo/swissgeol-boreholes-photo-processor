@@ -11,6 +11,7 @@ __pycache__/
 .ruff_cache/
 data
 test-data/
+.DS_Store
 
 # test output
 tests/output/

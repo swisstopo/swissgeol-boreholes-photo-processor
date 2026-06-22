@@ -11,15 +11,7 @@ from tqdm import tqdm
 from src.mlflow_utils import log_artifact_with_mlflow
 from src.models import ImageMetadata, ImageMetadataProcessed
 from src.segment import segment
-from src.stitching import (
-    MAX_CORE_LENGTH_M,
-    NUM_CORES_PER_IMAGE,
-    OUTPUT_HEIGHT,
-    OUTPUT_WIDTH,
-    PADDING_HORIZONTAL,
-    PADDING_VERTICAL,
-    stitching,
-)
+from src.stitching import stitching
 
 
 def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
@@ -43,12 +35,12 @@ def run(
     output_dir: Path,
     with_mlflow: bool = False,
     nested: bool = False,
-    num_cores_per_image: int = NUM_CORES_PER_IMAGE,
-    padding_vertical: int = PADDING_VERTICAL,
-    padding_horizontal: int = PADDING_HORIZONTAL,
-    output_width: int = OUTPUT_WIDTH,
-    output_height: int = OUTPUT_HEIGHT,
-    max_core_length_m: float = MAX_CORE_LENGTH_M,
+    num_cores_per_image: int = 6,
+    padding_vertical: int = 95,
+    padding_horizontal: int = 110,
+    output_width: int = 1144,
+    output_height: int = 1260,
+    max_core_length_m: float = 2.0,
 ) -> None:
     """Process borehole photos from input to output directory.
 
@@ -110,12 +102,12 @@ def batch_run(
     input_dir: Path,
     output_dir: Path,
     with_mlflow: bool = False,
-    num_cores_per_image: int = NUM_CORES_PER_IMAGE,
-    padding_vertical: int = PADDING_VERTICAL,
-    padding_horizontal: int = PADDING_HORIZONTAL,
-    output_width: int = OUTPUT_WIDTH,
-    output_height: int = OUTPUT_HEIGHT,
-    max_core_length_m: float = MAX_CORE_LENGTH_M,
+    num_cores_per_image: int = 6,
+    padding_vertical: int = 95,
+    padding_horizontal: int = 110,
+    output_width: int = 1144,
+    output_height: int = 1260,
+    max_core_length_m: float = 2.0,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -159,32 +151,28 @@ def main() -> None:
     parser.add_argument(
         "--num-cores",
         type=int,
-        default=NUM_CORES_PER_IMAGE,
-        help=f"Cores per output sheet (default: {NUM_CORES_PER_IMAGE}).",
+        default=6,
+        help="Cores per output sheet (default: 6).",
     )
     parser.add_argument(
         "--padding-vertical",
         type=int,
-        default=PADDING_VERTICAL,
-        help=f"Top/bottom border in pixels (default: {PADDING_VERTICAL}).",
+        default=95,
+        help="Top/bottom border in pixels (default: 95).",
     )
     parser.add_argument(
         "--padding-horizontal",
         type=int,
-        default=PADDING_HORIZONTAL,
-        help=f"Left/right border in pixels (default: {PADDING_HORIZONTAL}).",
+        default=110,
+        help="Left/right border in pixels (default: 110).",
     )
-    parser.add_argument(
-        "--output-width", type=int, default=OUTPUT_WIDTH, help=f"Canvas width in pixels (default: {OUTPUT_WIDTH})."
-    )
-    parser.add_argument(
-        "--output-height", type=int, default=OUTPUT_HEIGHT, help=f"Canvas height in pixels (default: {OUTPUT_HEIGHT})."
-    )
+    parser.add_argument("--output-width", type=int, default=1144, help="Canvas width in pixels (default: 1144).")
+    parser.add_argument("--output-height", type=int, default=1260, help="Canvas height in pixels (default: 1260).")
     parser.add_argument(
         "--max-core-length",
         type=float,
-        default=MAX_CORE_LENGTH_M,
-        help=f"Max core length in metres (default: {MAX_CORE_LENGTH_M}).",
+        default=2.0,
+        help="Max core length in metres (default: 2.0).",
     )
     args = parser.parse_args()
 
