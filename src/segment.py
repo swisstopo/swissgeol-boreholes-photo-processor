@@ -1,5 +1,7 @@
 """Module for image segmentation."""
 
+import logging
+
 import numpy as np
 from PIL import Image
 from skimage.color import rgb2gray, rgb2hsv
@@ -10,6 +12,13 @@ from tqdm import tqdm
 from src.mlflow_utils import log_artifact_with_mlflow
 from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
 
+logger = logging.getLogger(__name__)
+
+
+class SegmentationError(Exception):
+    """Raised when segmentation fails for a single image."""
+
+
 OPENING_DISK = 20  # radius for binary_opening (removes noise)
 CLOSING_DISK = 20  # radius for binary_closing (fills gaps)
 MIN_OBJECT_SIZE = 500  # minimum blob size in pixels
@@ -19,12 +28,12 @@ MIN_BBOX_HEIGHT = 500
 TRAY_SAT_THRESHOLD = 0.28  # saturation above this = wooden tray (not rock)
 
 
-def _apply_threshold_and_clean(img: Image.Image) -> np.ndarray:
+def _apply_threshold_and_clean(img: Image.Image) -> tuple[np.ndarray, np.ndarray]:
     grey = rgb2gray(img)
     thresh = threshold_triangle(grey)
     binary_mask = grey > thresh
 
-    return binary_mask
+    return binary_mask, grey
 
 
 def _select_bbox(props: list, img_height: int) -> tuple[int, int, int, int]:
@@ -112,37 +121,36 @@ def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> li
     detections: list[ImageMetadataProcessed] = []
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
-        with Image.open(img_metadata.image_path) as img:
-            detection = img.copy()  # placeholder
-            w, h = img.size
+        try:
+            with Image.open(img_metadata.image_path) as img:
+                binary, grey = _apply_threshold_and_clean(img)
+                props = regionprops(label(binary), intensity_image=grey)
 
-        binary = _apply_threshold_and_clean(img)
-        props = regionprops(label(binary), intensity_image=rgb2gray(img))
+                if not props:
+                    raise SegmentationError(f"No regions found in image {img_metadata.image_path}")
 
-        if not props:  # TODO: how should we handle this case?
-            print(f"No regions found in image {img_metadata.image_path}. Skipping.")
-            continue
+                min_row, min_col, max_row, max_col = _select_bbox(props, img.height)
 
-        min_row, min_col, max_row, max_col = _select_bbox(props, h)
+                bounding_box = _tray_trim(img, (min_row, min_col, max_row, max_col))
 
-        if (min_row, min_col, max_row, max_col) == (0, 0, 0, 0):  # TODO: again, decide what happens in this case
-            print(f"No suitable bounding box found in image {img_metadata.image_path}. Skipping.")
-            continue
+                if with_mlflow:
+                    log_artifact_with_mlflow(
+                        img=img,
+                        filename=f"{img_metadata.image_path.stem}",
+                        bounding_box=bounding_box,
+                    )
 
-        bounding_box = _tray_trim(img, (min_row, min_col, max_row, max_col))
-
-        if with_mlflow:
-            log_artifact_with_mlflow(
-                img=detection,
-                filename=f"{img_metadata.image_path.stem}",
-                bounding_box=bounding_box,
-            )
-
-        detections.append(
-            ImageMetadataProcessed.from_metadata(
-                metadata=img_metadata,
-                result=CoreSegmentResult(bounding_box=bounding_box),
-            )
-        )
+                detections.append(
+                    ImageMetadataProcessed.from_metadata(
+                        metadata=img_metadata,
+                        result=CoreSegmentResult(bounding_box=bounding_box),
+                    )
+                )
+        except SegmentationError as e:
+            logger.warning("%s. Skipping.", e)
 
     return detections
+
+
+# TODO: add docstring and comments
+# TODO: add tests

@@ -12,6 +12,7 @@ __pycache__/
 data
 test-data/
 .DS_Store
+output/
 
 # test output
 tests/output/
