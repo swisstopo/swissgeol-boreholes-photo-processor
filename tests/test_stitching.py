@@ -41,13 +41,13 @@ def make_processed(tmp_path):
 
 def _resized_width(orig_w: int, orig_h: int, depth_start: float, depth_end: float) -> int:
     """Expected crop width after _resize_core (mirrors its logic)."""
-    target_h = max(1, round((depth_end - depth_start) / 2.0 * _CORE_STRIP_HEIGHT))
+    target_h = max(1, round((depth_end - depth_start) / 1.0 * _CORE_STRIP_HEIGHT))
     return max(1, round(target_h * orig_w / orig_h))
 
 
 def _resized_height(depth_start: float, depth_end: float) -> int:
     """Expected crop height after _resize_core."""
-    return max(1, round((depth_end - depth_start) / 2.0 * _CORE_STRIP_HEIGHT))
+    return max(1, round((depth_end - depth_start) / 1.0 * _CORE_STRIP_HEIGHT))
 
 
 def _derived_gap(crop_widths: list[int], num_cores: int, output_width: int = 1144) -> int:
@@ -182,6 +182,20 @@ def test_partial_chunk_padded_with_black_placeholders(make_processed):
     assert img.getpixel((x0, 95)) == (255, 0, 0)  # real core is red
     placeholder_cx = x0 + w + gap + w // 2
     assert img.getpixel((placeholder_cx, 95)) == (0, 0, 0)  # placeholder is black
+
+
+def test_outlier_core_width_matches_normal_cores(make_processed):
+    """A core with depth extent > max_core_length_m is width-matched to the normal cores in the chunk."""
+    normal = make_processed(0.0, 1.0, color=(255, 0, 0))
+    outlier = make_processed(1.0, 3.0, color=(0, 0, 255))  # 2 m extent — exceeds max_core_length_m=1.0
+    img = next(stitching([normal, outlier], num_cores_per_image=6))
+    normal_w = _resized_width(*_STD_CROP_SIZE, 0.0, 1.0)
+    # Outlier is width-matched to normal_w, so both slots have the same width
+    all_widths = [normal_w, normal_w] + [normal_w] * 4
+    gap = _derived_gap(all_widths, 6)
+    x0 = _x_start(all_widths, gap)
+    assert img.getpixel((x0, 95)) == (255, 0, 0)  # normal core — red
+    assert img.getpixel((x0 + normal_w + gap, 95)) == (0, 0, 255)  # outlier core — blue
 
 
 OUTPUT_DIR = Path(__file__).parent / "output" / "stitching"

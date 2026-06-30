@@ -40,7 +40,7 @@ def run(
     padding_horizontal: int = 110,
     output_width: int = 1144,
     output_height: int = 1260,
-    max_core_length_m: float = 2.0,
+    max_core_length_m: float = 1.0,
 ) -> None:
     """Process borehole photos from input to output directory.
 
@@ -107,7 +107,7 @@ def batch_run(
     padding_horizontal: int = 110,
     output_width: int = 1144,
     output_height: int = 1260,
-    max_core_length_m: float = 2.0,
+    max_core_length_m: float = 1.0,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -171,8 +171,8 @@ def main() -> None:
     parser.add_argument(
         "--max-core-length",
         type=float,
-        default=2.0,
-        help="Max core length in metres (default: 2.0).",
+        default=1.0,
+        help="Max core length in metres (default: 1.0).",
     )
     args = parser.parse_args()
 
