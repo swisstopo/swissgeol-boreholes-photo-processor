@@ -9,6 +9,7 @@ segmentation:
   edge_margin_bottom: 5 # ignore bottom edge of image (ruler)
   min_bbox_height: 500 # minimum height for a candidate core bounding box
   tray_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
+  min_size_for_bottom: 500000 # minimum area for a candidate core to touch the bottom edge of the image
 
 stitching:
   num_cores_per_image: 6 # cores placed side by side per output sheet

@@ -2,7 +2,9 @@
 
 from collections.abc import Callable
 
+import numpy as np
 import pytest
+import tifffile
 from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
@@ -98,3 +100,14 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     assert len(detections) == 1
     assert detections[0].depth_start == 16.0
     assert detections[0].result.bounding_box == core_box
+
+
+def test_segment_skips_blank_non_integer_image_without_dividing_by_zero(tmp_path):
+    """A blank image with a non-uint8/uint16 dtype (e.g. float32) is skipped instead of producing NaNs."""
+    image_path = tmp_path / "GBC-CB50_0015.00-0016.00_vd_p.TIF"
+    tifffile.imwrite(image_path, np.zeros((300, 300, 3), dtype=np.float32), photometric="rgb")
+    metadata = ImageMetadata(borehole_id="GBC-CB50", depth_start=15.0, depth_end=16.0, image_path=image_path)
+
+    detections = segment([metadata])
+
+    assert detections == []

@@ -1,12 +1,15 @@
 """Module for image segmentation."""
 
 import logging
+from pathlib import Path
 
 import numpy as np
+import tifffile
 from PIL import Image
 from skimage.color import rgb2gray, rgb2hsv
 from skimage.filters import threshold_triangle
 from skimage.measure import label, regionprops
+from skimage.morphology import closing, disk, opening, remove_small_objects
 from tqdm import tqdm
 
 from src.config import SegmentationConfig
@@ -20,20 +23,60 @@ class SegmentationError(Exception):
     """Raised when segmentation fails for a single image."""
 
 
-def _apply_threshold_and_clean(img: Image.Image) -> tuple[np.ndarray, np.ndarray]:
+def _load_image(image_path: Path) -> np.ndarray:
+    """Load a TIF image and normalize it to an RGB float array in [0, 1].
+
+    Uses tifffile instead of PIL since raw borehole scans may be 16-bit, which
+    PIL does not handle as reliably for downstream processing.
+
+    Args:
+        image_path (Path): Path to the TIF image to load.
+
+    Returns:
+        np.ndarray: RGB image array with float values in [0, 1].
+    """
+    img = tifffile.imread(str(image_path))
+
+    # grayscale → RGB
+    if img.ndim == 2:
+        img = np.stack([img] * 3, axis=-1)
+
+    # normalize to [0, 1]
+    if img.dtype == np.uint8:
+        return img.astype(float) / 255.0
+    elif img.dtype == np.uint16:
+        return img.astype(float) / 65535.0
+    else:
+        if img.max() == 0:
+            raise SegmentationError(f"Image is blank (all-zero pixels): {image_path}")
+        return img.astype(float) / img.max()
+
+
+def _apply_threshold_and_clean(
+    img: np.ndarray, min_object_size: int, opening_disk: int, closing_disk: int
+) -> tuple[np.ndarray, np.ndarray]:
     """Apply thresholding to the input image and return a binary mask and grayscale image.
 
     Args:
-        img (Image.Image): Input image to be thresholded.
+        img (np.ndarray): RGB image array (float, [0, 1]) to be thresholded.
+        min_object_size (int): Minimum size of objects to be retained.
+        opening_disk (int): Size of the disk for binary opening.
+        closing_disk (int): Size of the disk for binary closing.
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: A tuple containing the binary mask and the grayscale image.
+        tuple[np.ndarray, np.ndarray]: A tuple containing the cleaned binary mask and the grayscale image.
     """
+    # thresholding: convert to grayscale, then apply triangle thresholding
     grey = rgb2gray(img)
     thresh = threshold_triangle(grey)
     binary_mask = grey > thresh
 
-    return binary_mask, grey
+    # morphology: remove small objects and fill holes
+    cleaned = opening(binary_mask, footprint=disk(opening_disk))
+    cleaned = closing(cleaned, footprint=disk(closing_disk))
+    cleaned = remove_small_objects(cleaned, min_size=min_object_size)
+
+    return cleaned, grey
 
 
 def _select_bbox(
@@ -42,6 +85,7 @@ def _select_bbox(
     min_bbox_height: int,
     edge_margin_top: int,
     edge_margin_bottom: int,
+    min_size_for_bottom: int,
 ) -> tuple[int, int, int, int]:
     """Select the bounding box of the core region from the list of region properties.
 
@@ -60,6 +104,7 @@ def _select_bbox(
         min_bbox_height (int): Minimum height for a candidate core bounding box.
         edge_margin_top (int): Ignore top edge of image (ruler).
         edge_margin_bottom (int): Ignore bottom edge of image (ruler).
+        min_size_for_bottom (int): Minimum area for a candidate core to touch the bottom edge of the image.
 
     Returns:
         tuple[int, int, int, int]: A tuple containing the coordinates of the bounding box
@@ -70,7 +115,9 @@ def _select_bbox(
         for r in props
         if (r.bbox[2] - r.bbox[0]) > min_bbox_height  # exclude ruler
         and r.bbox[0] > edge_margin_top  # doesn't touch top edge
-        and (r.bbox[2] <= img_height - edge_margin_bottom or r.area > 500_000)  # only large regions can touch bottom
+        and (
+            r.bbox[2] <= img_height - edge_margin_bottom or r.area > min_size_for_bottom
+        )  # only large regions can touch bottom
     ]
     if not candidates:
         # fallback: just pick the largest region
@@ -90,14 +137,14 @@ def _select_bbox(
 
 
 def _tray_trim(
-    img: Image.Image,
+    img: np.ndarray,
     bbox: tuple[int, int, int, int],
     tray_sat_threshold: float,
 ) -> tuple[int, int, int, int]:
     """Trim the bounding box to exclude the wooden tray based on saturation.
 
     Args:
-        img (Image.Image): Input image to be trimmed.
+        img (np.ndarray): RGB image array (float, [0, 1]) to be trimmed.
         bbox (tuple[int, int, int, int]): Bounding box coordinates in the format (min_row, min_col, max_row, max_col).
         tray_sat_threshold (float): Saturation above this value is treated as wooden tray (not rock).
 
@@ -106,8 +153,7 @@ def _tray_trim(
         min_col, min_row, max_col, max_row).
     """
     min_row_s, min_col_s, max_row_s, max_col_s = bbox
-    img_array = np.array(img)
-    cropped = img_array[min_row_s:max_row_s, min_col_s:max_col_s]
+    cropped = img[min_row_s:max_row_s, min_col_s:max_col_s]
 
     hsv = rgb2hsv(cropped)
     saturation = hsv[:, :, 1]  # 0 = grey, 1 = vivid colour
@@ -171,44 +217,47 @@ def segment(
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
-            with Image.open(img_metadata.image_path) as img:
-                binary, grey = _apply_threshold_and_clean(img)
-                props = regionprops(label(binary), intensity_image=grey)
+            img = _load_image(img_metadata.image_path)
+            binary, grey = _apply_threshold_and_clean(
+                img,
+                min_object_size=config.min_object_size,
+                opening_disk=config.opening_disk,
+                closing_disk=config.closing_disk,
+            )
+            props = regionprops(label(binary), intensity_image=grey)
 
-                if not props:
-                    raise SegmentationError(f"No regions found in image {img_metadata.image_path}")
+            if not props:
+                raise SegmentationError(f"No regions found in image {img_metadata.image_path}")
 
-                min_row, min_col, max_row, max_col = _select_bbox(
-                    props,
-                    img.height,
-                    min_bbox_height=config.min_bbox_height,
-                    edge_margin_top=config.edge_margin_top,
-                    edge_margin_bottom=config.edge_margin_bottom,
+            min_row, min_col, max_row, max_col = _select_bbox(
+                props,
+                img.shape[0],
+                min_bbox_height=config.min_bbox_height,
+                edge_margin_top=config.edge_margin_top,
+                edge_margin_bottom=config.edge_margin_bottom,
+                min_size_for_bottom=config.min_size_for_bottom,
+            )
+
+            bounding_box = _tray_trim(
+                img,
+                (min_row, min_col, max_row, max_col),
+                tray_sat_threshold=config.tray_sat_threshold,
+            )
+
+            if with_mlflow:
+                log_artifact_with_mlflow(
+                    img=Image.fromarray((img * 255).astype(np.uint8)),
+                    filename=f"{img_metadata.image_path.stem}",
+                    bounding_box=bounding_box,
                 )
 
-                bounding_box = _tray_trim(
-                    img,
-                    (min_row, min_col, max_row, max_col),
-                    tray_sat_threshold=config.tray_sat_threshold,
+            detections.append(
+                ImageMetadataProcessed.from_metadata(
+                    metadata=img_metadata,
+                    result=CoreSegmentResult(bounding_box=bounding_box),
                 )
-
-                if with_mlflow:
-                    log_artifact_with_mlflow(
-                        img=img,
-                        filename=f"{img_metadata.image_path.stem}",
-                        bounding_box=bounding_box,
-                    )
-
-                detections.append(
-                    ImageMetadataProcessed.from_metadata(
-                        metadata=img_metadata,
-                        result=CoreSegmentResult(bounding_box=bounding_box),
-                    )
-                )
+            )
         except SegmentationError as e:
             logger.warning("%s. Skipping.", e)
 
     return detections
-
-
-# TODO: add sanity checks

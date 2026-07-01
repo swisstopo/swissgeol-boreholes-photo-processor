@@ -5,11 +5,13 @@ description = "Python project that generates composite images from photos of bor
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "imagecodecs",
     "matplotlib==3.10.9",
     "mlflow==3.13.0",
     "Pillow==12.2.0",
     "PyYAML==6.0.3",
     "scikit-image>=0.26.0",
+    "tifffile>=2026.3.3",
     "tqdm==4.67.1",
 ]
 
