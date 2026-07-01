@@ -23,9 +23,30 @@ class SegmentationError(Exception):
     """Raised when segmentation fails for a single image."""
 
 
+def _first_below_threshold(values: np.ndarray, threshold: float, reverse: bool = False) -> int:
+    """Find the first index in the array where the value is below the threshold.
+
+    Args:
+        values (np.ndarray): 1D array of values to search.
+        threshold (float): Threshold value to compare against.
+        reverse (bool): If True, search from the end of the array.
+
+    Returns:
+        int: The index of the first value below the threshold. If no such value is found, returns 0 if reverse is
+        False, or len(values) - 1 if reverse is True.
+    """
+    indices = range(len(values) - 1, -1, -1) if reverse else range(len(values))
+    for i in indices:
+        if values[i] < threshold:
+            return i
+    return 0 if not reverse else len(values) - 1
+
+
 def _load_image(image_path: Path) -> np.ndarray:
     """Load a TIF image and normalize it to an RGB float array in [0, 1].
 
+    Grayscale (2D) images are converted to 3-channel by stacking. Images with
+    channel counts other than 1 or 3 are passed through unmodified.
     Uses tifffile instead of PIL since raw borehole scans may be 16-bit, which
     PIL does not handle as reliably for downstream processing.
 
@@ -37,7 +58,7 @@ def _load_image(image_path: Path) -> np.ndarray:
     """
     img = tifffile.imread(str(image_path))
 
-    # grayscale → RGB
+    # grayscale to RGB
     if img.ndim == 2:
         img = np.stack([img] * 3, axis=-1)
 
@@ -74,7 +95,7 @@ def _apply_threshold_and_clean(
     # morphology: remove small objects and fill holes
     cleaned = opening(binary_mask, footprint=disk(opening_disk))
     cleaned = closing(cleaned, footprint=disk(closing_disk))
-    cleaned = remove_small_objects(cleaned, min_size=min_object_size)
+    cleaned = remove_small_objects(cleaned, max_size=min_object_size - 1)
 
     return cleaned, grey
 
@@ -92,7 +113,7 @@ def _select_bbox(
     Assumptions:
     - The core region is the largest region that does not touch the top edge of the image
     - The core region may touch the bottom edge of the image if it is large enough
-    - The core region has a ceratin minimum height
+    - The core region has a certain minimum height
     - Union of all candidate bboxes is used to handle fragmented cores
 
     Fallback:
@@ -121,17 +142,13 @@ def _select_bbox(
     ]
     if not candidates:
         # fallback: just pick the largest region
-        core_region = max(props, key=lambda r: r.area)
-        min_row_s = core_region.bbox[0]
-        min_col_s = core_region.bbox[1]
-        max_row_s = core_region.bbox[2]
-        max_col_s = core_region.bbox[3]
-    else:
-        # union of all candidate bboxes to handles fragmented cores
-        min_row_s = min(r.bbox[0] for r in candidates)
-        min_col_s = min(r.bbox[1] for r in candidates)
-        max_row_s = max(r.bbox[2] for r in candidates)
-        max_col_s = max(r.bbox[3] for r in candidates)
+        candidates = [max(props, key=lambda r: r.area)]
+
+    # union of all candidate bboxes to handle fragmented cores
+    min_row_s = min(r.bbox[0] for r in candidates)
+    min_col_s = min(r.bbox[1] for r in candidates)
+    max_row_s = max(r.bbox[2] for r in candidates)
+    max_col_s = max(r.bbox[3] for r in candidates)
 
     return (min_row_s, min_col_s, max_row_s, max_col_s)
 
@@ -149,51 +166,27 @@ def _tray_trim(
         tray_sat_threshold (float): Saturation above this value is treated as wooden tray (not rock).
 
     Returns:
-        tuple[int, int, int, int]: Trimmed bounding box coordinates in the format (
-        min_col, min_row, max_col, max_row).
+        tuple[int, int, int, int]: Trimmed bounding box as (left, top, right, bottom),
+        matching CoreSegmentResult.bounding_box convention.
     """
-    min_row_s, min_col_s, max_row_s, max_col_s = bbox
-    cropped = img[min_row_s:max_row_s, min_col_s:max_col_s]
+    min_row, min_col, max_row, max_col = bbox
+    cropped = img[min_row:max_row, min_col:max_col]
 
     hsv = rgb2hsv(cropped)
     saturation = hsv[:, :, 1]  # 0 = grey, 1 = vivid colour
     row_saturation = np.mean(saturation, axis=1)
-
-    # trim bottom: scan from bottom upward, find first row below threshold
-    bottom_trim = len(row_saturation) - 1
-    for i in range(len(row_saturation) - 1, -1, -1):
-        if row_saturation[i] < tray_sat_threshold:
-            bottom_trim = i
-            break
-
-    # trim top: first row below threshold from top
-    top_trim = 0
-    for i in range(len(row_saturation)):
-        if row_saturation[i] < tray_sat_threshold:
-            top_trim = i
-            break
-
-    # trim right and left: scan inward from each side
     col_saturation = np.mean(saturation, axis=0)  # mean per column instead of per row
 
-    left_trim = 0
-    right_trim = len(col_saturation) - 1
-
-    for i in range(len(col_saturation)):
-        if col_saturation[i] < tray_sat_threshold:
-            left_trim = i
-            break
-
-    for i in range(len(col_saturation) - 1, -1, -1):
-        if col_saturation[i] < tray_sat_threshold:
-            right_trim = i
-            break
+    top_trim = _first_below_threshold(row_saturation, tray_sat_threshold)
+    bottom_trim = _first_below_threshold(row_saturation, tray_sat_threshold, reverse=True)
+    left_trim = _first_below_threshold(col_saturation, tray_sat_threshold)
+    right_trim = _first_below_threshold(col_saturation, tray_sat_threshold, reverse=True)
 
     return (
-        min_col_s + left_trim,  # left
-        min_row_s + top_trim,  # top
-        min_col_s + right_trim,  # right
-        min_row_s + bottom_trim,  # bottom
+        min_col + left_trim,  # left
+        min_row + top_trim,  # top
+        min_col + right_trim,  # right
+        min_row + bottom_trim,  # bottom
     )
 
 
