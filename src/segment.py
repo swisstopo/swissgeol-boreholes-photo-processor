@@ -29,6 +29,14 @@ TRAY_SAT_THRESHOLD = 0.28  # saturation above this = wooden tray (not rock)
 
 
 def _apply_threshold_and_clean(img: Image.Image) -> tuple[np.ndarray, np.ndarray]:
+    """Apply thresholding to the input image and return a binary mask and grayscale image.
+
+    Args:
+        img (Image.Image): Input image to be thresholded.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: A tuple containing the binary mask and the grayscale image.
+    """
     grey = rgb2gray(img)
     thresh = threshold_triangle(grey)
     binary_mask = grey > thresh
@@ -37,6 +45,25 @@ def _apply_threshold_and_clean(img: Image.Image) -> tuple[np.ndarray, np.ndarray
 
 
 def _select_bbox(props: list, img_height: int) -> tuple[int, int, int, int]:
+    """Select the bounding box of the core region from the list of region properties.
+
+    Assumptions:
+    - The core region is the largest region that does not touch the top edge of the image
+    - The core region may touch the bottom edge of the image if it is large enough
+    - The core region has a ceratin minimum height
+    - Union of all candidate bboxes is used to handle fragmented cores
+
+    Fallback:
+    - If no candidate regions are found, the largest region is selected as the core region.
+
+    Args:
+        props (list): List of region properties obtained from skimage.measure.regionprops.
+        img_height (int): Height of the input image.
+
+    Returns:
+        tuple[int, int, int, int]: A tuple containing the coordinates of the bounding box
+        in the format (min_row, min_col, max_row, max_col).
+    """
     candidates = [
         r
         for r in props
@@ -62,6 +89,16 @@ def _select_bbox(props: list, img_height: int) -> tuple[int, int, int, int]:
 
 
 def _tray_trim(img: Image.Image, bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """Trim the bounding box to exclude the wooden tray based on saturation.
+
+    Args:
+        img (Image.Image): Input image to be trimmed.
+        bbox (tuple[int, int, int, int]): Bounding box coordinates in the format (min_row, min_col, max_row, max_col).
+
+    Returns:
+        tuple[int, int, int, int]: Trimmed bounding box coordinates in the format (
+        min_col, min_row, max_col, max_row).
+    """
     min_row_s, min_col_s, max_row_s, max_col_s = bbox
     img_array = np.array(img)
     cropped = img_array[min_row_s:max_row_s, min_col_s:max_col_s]
@@ -109,7 +146,7 @@ def _tray_trim(img: Image.Image, bbox: tuple[int, int, int, int]) -> tuple[int, 
 
 
 def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> list[ImageMetadataProcessed]:
-    """Segment the input images and return a list of detections.
+    """Segment the input images and return a list of processed image metadata objects.
 
     Args:
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
@@ -152,5 +189,5 @@ def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> li
     return detections
 
 
-# TODO: add docstring and comments
 # TODO: add tests
+# TODO: add sanity checks
