@@ -211,5 +211,4 @@ def segment(
     return detections
 
 
-# TODO: add tests
 # TODO: add sanity checks
