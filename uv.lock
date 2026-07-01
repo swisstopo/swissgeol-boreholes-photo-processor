@@ -2901,6 +2901,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "mlflow" },
     { name = "pillow" },
+    { name = "pyyaml" },
     { name = "scikit-image" },
     { name = "tqdm" },
 ]
@@ -2927,6 +2928,7 @@ requires-dist = [
     { name = "pillow", specifier = "==12.2.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = "==8.4.1" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = "==6.2.1" },
+    { name = "pyyaml", specifier = "==6.0.3" },
     { name = "scikit-image", specifier = ">=0.26.0" },
     { name = "tqdm", specifier = "==4.67.1" },
 ]

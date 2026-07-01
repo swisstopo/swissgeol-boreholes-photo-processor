@@ -9,6 +9,7 @@ from skimage.filters import threshold_triangle
 from skimage.measure import label, regionprops
 from tqdm import tqdm
 
+from src.config import SegmentationConfig
 from src.mlflow_utils import log_artifact_with_mlflow
 from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
 
@@ -17,15 +18,6 @@ logger = logging.getLogger(__name__)
 
 class SegmentationError(Exception):
     """Raised when segmentation fails for a single image."""
-
-
-OPENING_DISK = 20  # radius for binary_opening (removes noise)
-CLOSING_DISK = 20  # radius for binary_closing (fills gaps)
-MIN_OBJECT_SIZE = 500  # minimum blob size in pixels
-EDGE_MARGIN_TOP = 100  # ignore top edge of image (ruler)
-EDGE_MARGIN_BOTTOM = 5  # ignore bottom edge of image (ruler)
-MIN_BBOX_HEIGHT = 500
-TRAY_SAT_THRESHOLD = 0.28  # saturation above this = wooden tray (not rock)
 
 
 def _apply_threshold_and_clean(img: Image.Image) -> tuple[np.ndarray, np.ndarray]:
@@ -44,7 +36,13 @@ def _apply_threshold_and_clean(img: Image.Image) -> tuple[np.ndarray, np.ndarray
     return binary_mask, grey
 
 
-def _select_bbox(props: list, img_height: int) -> tuple[int, int, int, int]:
+def _select_bbox(
+    props: list,
+    img_height: int,
+    min_bbox_height: int,
+    edge_margin_top: int,
+    edge_margin_bottom: int,
+) -> tuple[int, int, int, int]:
     """Select the bounding box of the core region from the list of region properties.
 
     Assumptions:
@@ -59,6 +57,9 @@ def _select_bbox(props: list, img_height: int) -> tuple[int, int, int, int]:
     Args:
         props (list): List of region properties obtained from skimage.measure.regionprops.
         img_height (int): Height of the input image.
+        min_bbox_height (int): Minimum height for a candidate core bounding box.
+        edge_margin_top (int): Ignore top edge of image (ruler).
+        edge_margin_bottom (int): Ignore bottom edge of image (ruler).
 
     Returns:
         tuple[int, int, int, int]: A tuple containing the coordinates of the bounding box
@@ -67,9 +68,9 @@ def _select_bbox(props: list, img_height: int) -> tuple[int, int, int, int]:
     candidates = [
         r
         for r in props
-        if (r.bbox[2] - r.bbox[0]) > MIN_BBOX_HEIGHT  # exclude ruler
-        and r.bbox[0] > EDGE_MARGIN_TOP  # doesn't touch top edge
-        and (r.bbox[2] <= img_height - EDGE_MARGIN_BOTTOM or r.area > 500_000)  # only large regions can touch bottom
+        if (r.bbox[2] - r.bbox[0]) > min_bbox_height  # exclude ruler
+        and r.bbox[0] > edge_margin_top  # doesn't touch top edge
+        and (r.bbox[2] <= img_height - edge_margin_bottom or r.area > 500_000)  # only large regions can touch bottom
     ]
     if not candidates:
         # fallback: just pick the largest region
@@ -88,12 +89,17 @@ def _select_bbox(props: list, img_height: int) -> tuple[int, int, int, int]:
     return (min_row_s, min_col_s, max_row_s, max_col_s)
 
 
-def _tray_trim(img: Image.Image, bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+def _tray_trim(
+    img: Image.Image,
+    bbox: tuple[int, int, int, int],
+    tray_sat_threshold: float,
+) -> tuple[int, int, int, int]:
     """Trim the bounding box to exclude the wooden tray based on saturation.
 
     Args:
         img (Image.Image): Input image to be trimmed.
         bbox (tuple[int, int, int, int]): Bounding box coordinates in the format (min_row, min_col, max_row, max_col).
+        tray_sat_threshold (float): Saturation above this value is treated as wooden tray (not rock).
 
     Returns:
         tuple[int, int, int, int]: Trimmed bounding box coordinates in the format (
@@ -110,14 +116,14 @@ def _tray_trim(img: Image.Image, bbox: tuple[int, int, int, int]) -> tuple[int, 
     # trim bottom: scan from bottom upward, find first row below threshold
     bottom_trim = len(row_saturation) - 1
     for i in range(len(row_saturation) - 1, -1, -1):
-        if row_saturation[i] < TRAY_SAT_THRESHOLD:
+        if row_saturation[i] < tray_sat_threshold:
             bottom_trim = i
             break
 
     # trim top: first row below threshold from top
     top_trim = 0
     for i in range(len(row_saturation)):
-        if row_saturation[i] < TRAY_SAT_THRESHOLD:
+        if row_saturation[i] < tray_sat_threshold:
             top_trim = i
             break
 
@@ -128,12 +134,12 @@ def _tray_trim(img: Image.Image, bbox: tuple[int, int, int, int]) -> tuple[int, 
     right_trim = len(col_saturation) - 1
 
     for i in range(len(col_saturation)):
-        if col_saturation[i] < TRAY_SAT_THRESHOLD:
+        if col_saturation[i] < tray_sat_threshold:
             left_trim = i
             break
 
     for i in range(len(col_saturation) - 1, -1, -1):
-        if col_saturation[i] < TRAY_SAT_THRESHOLD:
+        if col_saturation[i] < tray_sat_threshold:
             right_trim = i
             break
 
@@ -145,16 +151,22 @@ def _tray_trim(img: Image.Image, bbox: tuple[int, int, int, int]) -> tuple[int, 
     )
 
 
-def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> list[ImageMetadataProcessed]:
+def segment(
+    imgs_metadata: list[ImageMetadata],
+    config: SegmentationConfig | None = None,
+    with_mlflow: bool = False,
+) -> list[ImageMetadataProcessed]:
     """Segment the input images and return a list of processed image metadata objects.
 
     Args:
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
+        config (SegmentationConfig | None): Tunable segmentation parameters. Defaults to SegmentationConfig().
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
     Returns:
         list[ImageMetadataProcessed]: A list of processed image metadata objects, one per input image.
     """
+    config = config or SegmentationConfig()
     detections: list[ImageMetadataProcessed] = []
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
@@ -166,9 +178,19 @@ def segment(imgs_metadata: list[ImageMetadata], with_mlflow: bool = False) -> li
                 if not props:
                     raise SegmentationError(f"No regions found in image {img_metadata.image_path}")
 
-                min_row, min_col, max_row, max_col = _select_bbox(props, img.height)
+                min_row, min_col, max_row, max_col = _select_bbox(
+                    props,
+                    img.height,
+                    min_bbox_height=config.min_bbox_height,
+                    edge_margin_top=config.edge_margin_top,
+                    edge_margin_bottom=config.edge_margin_bottom,
+                )
 
-                bounding_box = _tray_trim(img, (min_row, min_col, max_row, max_col))
+                bounding_box = _tray_trim(
+                    img,
+                    (min_row, min_col, max_row, max_col),
+                    tray_sat_threshold=config.tray_sat_threshold,
+                )
 
                 if with_mlflow:
                     log_artifact_with_mlflow(

@@ -1,0 +1,19 @@
+# Configuration for the borehole photo processing pipeline.
+# All keys are optional; omitted keys fall back to the defaults in src/config.py.
+
+segmentation:
+  opening_disk: 20 # radius for binary_opening (removes noise)
+  closing_disk: 20 # radius for binary_closing (fills gaps)
+  min_object_size: 500 # minimum blob size in pixels
+  edge_margin_top: 100 # ignore top edge of image (ruler)
+  edge_margin_bottom: 5 # ignore bottom edge of image (ruler)
+  min_bbox_height: 500 # minimum height for a candidate core bounding box
+  tray_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
+
+stitching:
+  num_cores_per_image: 6 # cores placed side by side per output sheet
+  padding_vertical: 95 # top/bottom border height in pixels
+  padding_horizontal: 110 # left/right border width in pixels
+  output_width: 1144 # output canvas width in pixels
+  output_height: 1260 # output canvas height in pixels
+  max_core_length_m: 1.0 # maximum core length in metres (fills the strip height exactly)
