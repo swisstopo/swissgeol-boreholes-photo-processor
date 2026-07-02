@@ -178,6 +178,8 @@ def _tray_trim(
     row_saturation = np.mean(saturation, axis=1)
     col_saturation = np.mean(saturation, axis=0)  # mean per column instead of per row
 
+    # forward/reverse are intentionally asymmetric: the reverse trim stops on the last tray-free
+    # pixel rather than one past it, so a tray-coloured pixel can never survive into the crop,
     top_trim = _first_below_threshold(row_saturation, tray_sat_threshold)
     bottom_trim = _first_below_threshold(row_saturation, tray_sat_threshold, reverse=True)
     left_trim = _first_below_threshold(col_saturation, tray_sat_threshold)
@@ -207,7 +209,8 @@ def segment(
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
     Returns:
-        list[ImageMetadataProcessed]: A list of processed image metadata objects, one per input image.
+        list[ImageMetadataProcessed]: A list of processed image metadata objects. May be shorter than
+        imgs_metadata if any images failed to segment.
     """
     config = config or SegmentationConfig()
     factor = config.downscale_factor
