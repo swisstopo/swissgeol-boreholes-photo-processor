@@ -33,7 +33,7 @@ def _resize_core(
     depth_start: float,
     depth_end: float,
     core_strip_height: int,
-    max_core_length_m: float = 2.0,
+    max_core_length_m: float = 1.0,
 ) -> Image.Image:
     """Resize a core crop so its height is proportional to its depth extent.
 
@@ -58,6 +58,69 @@ def _resize_core(
     aspect = crop.width / crop.height
     target_width = max(1, round(target_height * aspect))
     return crop.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+
+def _resize_core_to_width(crop: Image.Image, target_width: int) -> Image.Image:
+    """Resize a core crop to a fixed width, preserving aspect ratio.
+
+    Used for outlier cores whose labeled length exceeds max_core_length_m —
+    those cores have partial content, so we anchor on width (constant borehole
+    diameter) rather than on the unreliable depth label.
+
+    Args:
+        crop (Image.Image): The raw cropped core image.
+        target_width (int): The desired output width in pixels.
+
+    Returns:
+        Image.Image: Aspect-ratio-preserved resized core image.
+    """
+    aspect = crop.width / crop.height
+    target_height = max(1, round(target_width / aspect))
+    return crop.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+
+def _resize_crops(
+    raw: list[tuple[ImageMetadataProcessed, Image.Image]],
+    core_strip_height: int,
+    max_core_length_m: float,
+) -> list[Image.Image]:
+    """Resize each crop in a chunk, keeping the original order.
+
+    Normal cores are scaled proportionally to their depth extent. Outliers
+    (depth extent exceeding max_core_length_m) are instead width-matched to
+    the average width of the normal cores in the chunk, since their depth
+    label is unreliable.
+
+    Args:
+        raw (list[tuple[ImageMetadataProcessed, Image.Image]]): Metadata/crop pairs for one chunk.
+        core_strip_height (int): The pixel budget available for a 1 m core.
+        max_core_length_m (float): Maximum core length in metres (fills core_strip_height exactly).
+
+    Returns:
+        list[Image.Image]: Resized crops in the same order as raw.
+    """
+    is_outlier = [(meta.depth_end - meta.depth_start) > max_core_length_m for meta, _ in raw]
+
+    # Resize normal cores first so we can derive the target width for outliers
+    normal_crops = [
+        _resize_core(crop, meta.depth_start, meta.depth_end, core_strip_height, max_core_length_m)
+        for (meta, crop), outlier in zip(raw, is_outlier, strict=True)
+        if not outlier
+    ]
+    avg_normal_width = (
+        round(sum(c.width for c in normal_crops) / len(normal_crops)) if normal_crops else core_strip_height // 8
+    )
+
+    # Build the final crops list in original order; outliers are width-matched
+    crops: list[Image.Image] = []
+    normal_iter = iter(normal_crops)
+    for (_, crop), outlier in zip(raw, is_outlier, strict=True):
+        if outlier:
+            crops.append(_resize_core_to_width(crop, avg_normal_width))
+        else:
+            crops.append(next(normal_iter))
+
+    return crops
 
 
 def _content_x_start(crops: list[Image.Image], gap: int, canvas_width: int) -> int:
@@ -205,12 +268,17 @@ def stitching(
     padding_horizontal: int = 110,
     output_width: int = 1144,
     output_height: int = 1260,
-    max_core_length_m: float = 2.0,
+    max_core_length_m: float = 1.0,
 ) -> Generator[Image.Image, None, None]:
     """Stitch core segments together, yielding one output image at a time.
 
     Each core is resized preserving its aspect ratio, with height proportional
     to its depth extent (depth_end - depth_start) relative to max_core_length_m.
+    Cores whose depth extent exceeds max_core_length_m are treated as outliers
+    (partial recovery in an oversized box) and are instead width-matched to the
+    average width of the normal cores in the same chunk, keeping pixel density
+    consistent across all cores.
+
     The gap between cores is derived from the remaining horizontal space after
     placing all cores and side padding:
 
@@ -231,6 +299,7 @@ def stitching(
         output_width (int): The canvas width. The gap between cores is derived from the remaining space.
         output_height (int): The canvas height.
         max_core_length_m (float): Maximum core length in metres (fills the strip height exactly).
+            Cores exceeding this are width-matched to normal cores in the same chunk.
 
     Yields:
         Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
@@ -243,13 +312,14 @@ def stitching(
         # Process a chunk of up to num_cores_per_image cores
         chunk = imgs[i : i + num_cores_per_image]
 
-        # Cut and resize each real core, preserving aspect ratio
-        crops: list[Image.Image] = []
+        # Cut all raw crops up front so we can identify outliers before resizing
+        raw: list[tuple[ImageMetadataProcessed, Image.Image]] = []
         for meta in chunk:
             with Image.open(meta.image_path) as src:
-                crop = _cut_core(src, meta.result)
-            crop = _resize_core(crop, meta.depth_start, meta.depth_end, core_strip_height, max_core_length_m)
-            crops.append(crop)
+                raw.append((meta, _cut_core(src, meta.result)))
+
+        # resize all crops to preserve aspect ratio
+        crops = _resize_crops(raw, core_strip_height, max_core_length_m)
 
         # Pad with black placeholders so every output image has the same layout.
         # Width is the average of the real crops so the layout stays consistent.

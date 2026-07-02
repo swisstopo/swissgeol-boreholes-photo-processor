@@ -120,6 +120,12 @@ For **batch processing** across multiple boreholes, the input directory should c
 
 The pipeline detects the mode automatically: if the input directory contains subdirectories it runs in batch mode, otherwise it processes the directory as a single borehole. The input folder structure is mirrored in the output directory.
 
+## Configuration
+
+Segmentation and stitching parameters (padding, canvas size, cores per sheet, thresholds, etc.) are set via a YAML config file, not CLI flags. A default [config.yaml](config.yaml) is provided at the repository root; any omitted key falls back to its default (see `src/config.py`).
+
+To use a different config file, pass `--config <path>` (see below).
+
 ## CLI Usage
 
 Run the borehole photo processing pipeline:
@@ -132,6 +138,7 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 
 - `--input`: Path to the directory containing raw borehole photos (`.tif` only), or nested folders containing them
 - `--output`: Path to the directory where processed images will be written
+- `--config`: Path to the YAML config file for segmentation and stitching parameters (default: `config.yaml`)
 
 **With MLflow tracking**
 
