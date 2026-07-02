@@ -23,7 +23,19 @@ def make_metadata(tmp_path):
         draw_fn: Callable[[ImageDraw.ImageDraw], None] = lambda draw: None,
         size: tuple[int, int] = _IMG_SIZE,
     ) -> ImageMetadata:
-        """Creates an ImageMetadata pointing to a synthetic TIF image built by draw_fn."""
+        """Creates an ImageMetadata pointing to a synthetic TIF image built by draw_fn.
+
+        Args:
+            depth_start (float): Top-of-core depth in metres, encoded into the filename.
+            depth_end (float): Bottom-of-core depth in metres, encoded into the filename.
+            draw_fn (Callable[[ImageDraw.ImageDraw], None]): Callback that draws onto the
+                background image (e.g. to add a core or tray rectangle). Defaults to a no-op,
+                producing a flat background image.
+            size (tuple[int, int]): Size of the synthetic image in pixels. Defaults to _IMG_SIZE.
+
+        Returns:
+            ImageMetadata: Metadata pointing at the saved synthetic TIF image.
+        """
         filename = f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
         image_path = tmp_path / filename
         img = Image.new("RGB", size, color=_BACKGROUND_COLOR)

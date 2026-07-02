@@ -79,6 +79,50 @@ def _resize_core_to_width(crop: Image.Image, target_width: int) -> Image.Image:
     return crop.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
 
+def _resize_crops(
+    raw: list[tuple[ImageMetadataProcessed, Image.Image]],
+    core_strip_height: int,
+    max_core_length_m: float,
+) -> list[Image.Image]:
+    """Resize each crop in a chunk, keeping the original order.
+
+    Normal cores are scaled proportionally to their depth extent. Outliers
+    (depth extent exceeding max_core_length_m) are instead width-matched to
+    the average width of the normal cores in the chunk, since their depth
+    label is unreliable.
+
+    Args:
+        raw (list[tuple[ImageMetadataProcessed, Image.Image]]): Metadata/crop pairs for one chunk.
+        core_strip_height (int): The pixel budget available for a 1 m core.
+        max_core_length_m (float): Maximum core length in metres (fills core_strip_height exactly).
+
+    Returns:
+        list[Image.Image]: Resized crops in the same order as raw.
+    """
+    is_outlier = [(meta.depth_end - meta.depth_start) > max_core_length_m for meta, _ in raw]
+
+    # Resize normal cores first so we can derive the target width for outliers
+    normal_crops = [
+        _resize_core(crop, meta.depth_start, meta.depth_end, core_strip_height, max_core_length_m)
+        for (meta, crop), outlier in zip(raw, is_outlier, strict=True)
+        if not outlier
+    ]
+    avg_normal_width = (
+        round(sum(c.width for c in normal_crops) / len(normal_crops)) if normal_crops else core_strip_height // 8
+    )
+
+    # Build the final crops list in original order; outliers are width-matched
+    crops: list[Image.Image] = []
+    normal_iter = iter(normal_crops)
+    for (_, crop), outlier in zip(raw, is_outlier, strict=True):
+        if outlier:
+            crops.append(_resize_core_to_width(crop, avg_normal_width))
+        else:
+            crops.append(next(normal_iter))
+
+    return crops
+
+
 def _content_x_start(crops: list[Image.Image], gap: int, canvas_width: int) -> int:
     """Return the x-coordinate where the centred group of crops begins on the canvas.
 
@@ -274,26 +318,8 @@ def stitching(
             with Image.open(meta.image_path) as src:
                 raw.append((meta, _cut_core(src, meta.result)))
 
-        is_outlier = [(meta.depth_end - meta.depth_start) > max_core_length_m for meta, _ in raw]
-
-        # Resize normal cores first so we can derive the target width for outliers
-        normal_crops = [
-            _resize_core(crop, meta.depth_start, meta.depth_end, core_strip_height, max_core_length_m)
-            for (meta, crop), outlier in zip(raw, is_outlier, strict=True)
-            if not outlier
-        ]
-        avg_normal_width = (
-            round(sum(c.width for c in normal_crops) / len(normal_crops)) if normal_crops else core_strip_height // 8
-        )
-
-        # Build the final crops list in original order; outliers are width-matched
-        crops: list[Image.Image] = []
-        normal_iter = iter(normal_crops)
-        for (_, crop), outlier in zip(raw, is_outlier, strict=True):
-            if outlier:
-                crops.append(_resize_core_to_width(crop, avg_normal_width))
-            else:
-                crops.append(next(normal_iter))
+        # resize all crops to preserve aspect ratio
+        crops = _resize_crops(raw, core_strip_height, max_core_length_m)
 
         # Pad with black placeholders so every output image has the same layout.
         # Width is the average of the real crops so the layout stays consistent.
