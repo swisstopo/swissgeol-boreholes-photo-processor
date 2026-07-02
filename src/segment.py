@@ -146,12 +146,12 @@ def _select_bbox(
         candidates = [max(props, key=lambda r: r.area)]
 
     # union of all candidate bboxes to handle fragmented cores
-    min_row_s = min(r.bbox[0] for r in candidates)
-    min_col_s = min(r.bbox[1] for r in candidates)
-    max_row_s = max(r.bbox[2] for r in candidates)
-    max_col_s = max(r.bbox[3] for r in candidates)
+    min_row = min(r.bbox[0] for r in candidates)
+    min_col = min(r.bbox[1] for r in candidates)
+    max_row = max(r.bbox[2] for r in candidates)
+    max_col = max(r.bbox[3] for r in candidates)
 
-    return (min_row_s, min_col_s, max_row_s, max_col_s)
+    return (min_row, min_col, max_row, max_col)
 
 
 def _tray_trim(
@@ -197,6 +197,9 @@ def segment(
     with_mlflow: bool = False,
 ) -> list[ImageMetadataProcessed]:
     """Segment the input images and return a list of processed image metadata objects.
+
+    If the segmentation fails for a single image, it is skipped and a warning is logged.
+    Therefore the output list may be shorter than the input list.
 
     Args:
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
