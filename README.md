@@ -123,6 +123,7 @@ The pipeline detects the mode automatically: if the input directory contains sub
 ## Configuration
 
 Segmentation and stitching parameters (padding, canvas size, cores per sheet, thresholds, etc.) are set via a YAML config file, not CLI flags. A default [config.yaml](config.yaml) is provided at the repository root; any omitted key falls back to its default (see `src/config.py`).
+To speed up segmentation, images are downscaled by `downscale_factor` (0.5 in the default config.yaml) before detecting the core, and the resulting bounding box is scaled back up to the original resolution for stitching.
 
 To use a different config file, pass `--config <path>` (see below).
 

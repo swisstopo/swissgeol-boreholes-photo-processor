@@ -10,6 +10,7 @@ segmentation:
   min_bbox_height: 500 # minimum height for a candidate core bounding box
   tray_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
   min_size_for_bottom: 500000 # minimum area for a candidate core to touch the bottom edge of the image
+  downscale_factor: 0.5 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
 
 stitching:
   num_cores_per_image: 6 # cores placed side by side per output sheet

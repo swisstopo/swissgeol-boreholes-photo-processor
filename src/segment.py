@@ -10,6 +10,7 @@ from skimage.color import rgb2gray, rgb2hsv
 from skimage.filters import threshold_triangle
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening, remove_small_objects
+from skimage.transform import rescale
 from tqdm import tqdm
 
 from src.config import SegmentationConfig
@@ -145,12 +146,12 @@ def _select_bbox(
         candidates = [max(props, key=lambda r: r.area)]
 
     # union of all candidate bboxes to handle fragmented cores
-    min_row_s = min(r.bbox[0] for r in candidates)
-    min_col_s = min(r.bbox[1] for r in candidates)
-    max_row_s = max(r.bbox[2] for r in candidates)
-    max_col_s = max(r.bbox[3] for r in candidates)
+    min_row = min(r.bbox[0] for r in candidates)
+    min_col = min(r.bbox[1] for r in candidates)
+    max_row = max(r.bbox[2] for r in candidates)
+    max_col = max(r.bbox[3] for r in candidates)
 
-    return (min_row_s, min_col_s, max_row_s, max_col_s)
+    return (min_row, min_col, max_row, max_col)
 
 
 def _tray_trim(
@@ -177,6 +178,8 @@ def _tray_trim(
     row_saturation = np.mean(saturation, axis=1)
     col_saturation = np.mean(saturation, axis=0)  # mean per column instead of per row
 
+    # forward/reverse are intentionally asymmetric: the reverse trim stops on the last tray-free
+    # pixel rather than one past it, so a tray-coloured pixel can never survive into the crop,
     top_trim = _first_below_threshold(row_saturation, tray_sat_threshold)
     bottom_trim = _first_below_threshold(row_saturation, tray_sat_threshold, reverse=True)
     left_trim = _first_below_threshold(col_saturation, tray_sat_threshold)
@@ -197,25 +200,32 @@ def segment(
 ) -> list[ImageMetadataProcessed]:
     """Segment the input images and return a list of processed image metadata objects.
 
+    If the segmentation fails for a single image, it is skipped and a warning is logged.
+    Therefore the output list may be shorter than the input list.
+
     Args:
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
         config (SegmentationConfig | None): Tunable segmentation parameters. Defaults to SegmentationConfig().
         with_mlflow (bool): Whether to log artifacts to MLflow.
 
     Returns:
-        list[ImageMetadataProcessed]: A list of processed image metadata objects, one per input image.
+        list[ImageMetadataProcessed]: A list of processed image metadata objects. May be shorter than
+        imgs_metadata if any images failed to segment.
     """
     config = config or SegmentationConfig()
+    factor = config.downscale_factor
     detections: list[ImageMetadataProcessed] = []
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
             img = _load_image(img_metadata.image_path)
+            detect_img = rescale(img, factor, channel_axis=-1, anti_aliasing=True) if factor != 1.0 else img
+
             binary, grey = _apply_threshold_and_clean(
-                img,
-                min_object_size=config.min_object_size,
-                opening_disk=config.opening_disk,
-                closing_disk=config.closing_disk,
+                detect_img,
+                min_object_size=max(1, round(config.min_object_size * factor**2)),  # factor**2 for area-based configs
+                opening_disk=max(1, round(config.opening_disk * factor)),
+                closing_disk=max(1, round(config.closing_disk * factor)),
             )
             props = regionprops(label(binary), intensity_image=grey)
 
@@ -224,17 +234,25 @@ def segment(
 
             min_row, min_col, max_row, max_col = _select_bbox(
                 props,
-                img.shape[0],
-                min_bbox_height=config.min_bbox_height,
-                edge_margin_top=config.edge_margin_top,
-                edge_margin_bottom=config.edge_margin_bottom,
-                min_size_for_bottom=config.min_size_for_bottom,
+                detect_img.shape[0],
+                min_bbox_height=max(1, round(config.min_bbox_height * factor)),
+                edge_margin_top=round(config.edge_margin_top * factor),
+                edge_margin_bottom=round(config.edge_margin_bottom * factor),
+                min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
             )
 
-            bounding_box = _tray_trim(
-                img,
+            detect_bounding_box = _tray_trim(
+                detect_img,
                 (min_row, min_col, max_row, max_col),
                 tray_sat_threshold=config.tray_sat_threshold,
+            )
+
+            # bounding box was computed on the downscaled image; rescale it back to the original resolution
+            left, top, right, bottom = detect_bounding_box
+            bounding_box = (
+                detect_bounding_box
+                if factor == 1.0
+                else (round(left / factor), round(top / factor), round(right / factor), round(bottom / factor))
             )
 
             if with_mlflow:
