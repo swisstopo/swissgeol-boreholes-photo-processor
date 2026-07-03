@@ -201,6 +201,31 @@ def test_outlier_core_width_matches_normal_cores(make_processed):
     assert img.getpixel((x0 + normal_w + gap, 95)) == BLUE  # outlier core — blue
 
 
+def test_outlier_extreme_aspect_ratio_height_is_clamped(make_processed):
+    """An outlier whose width-matched height would exceed core_strip_height is clamped, not left unbounded."""
+    normal = make_processed(0.0, 1.0, color=RED)
+    # Narrow/tall crop: width-matching to normal_w without clamping would produce a height
+    # many times core_strip_height. This must not raise and must be capped instead.
+    outlier = make_processed(1.0, 3.0, size=(4, 200), color=BLUE)
+    img = next(stitching([normal, outlier], num_cores_per_image=6))
+
+    normal_w = _resized_width(*_STD_CROP_SIZE, 0.0, 1.0)
+    outlier_aspect = 4 / 200
+    clamped_h = _CORE_STRIP_HEIGHT
+    clamped_w = max(1, round(clamped_h * outlier_aspect))
+    placeholder_w = round((normal_w + clamped_w) / 2)
+    all_widths = [normal_w, clamped_w] + [placeholder_w] * 4
+
+    gap = _derived_gap(all_widths, 6)
+    x0 = _x_start(all_widths, gap)
+    outlier_x = x0 + normal_w + gap
+
+    assert img.getpixel((x0, 95)) == RED  # normal core unaffected
+    assert img.getpixel((outlier_x, 95)) == BLUE  # outlier top pixel
+    assert img.getpixel((outlier_x, 95 + clamped_h - 1)) == BLUE  # outlier fills the clamped height
+    assert img.getpixel((outlier_x, 95 + clamped_h)) == (0, 0, 0)  # nothing beyond the clamped height
+
+
 OUTPUT_DIR = Path(__file__).parent / "output" / "stitching"
 
 _CORE_COLORS = [
