@@ -1,4 +1,4 @@
-"""Module for image segmentation."""
+"""Entry point for segmenting a batch of borehole core images."""
 
 import logging
 

@@ -1,4 +1,4 @@
-"""Module for image segmentation."""
+"""Helper functions for image segmentation."""
 
 import logging
 from pathlib import Path
@@ -67,6 +67,10 @@ def _estimate_foreground(imgs: list[ImageMetadata], factor: float = 0.125, sigma
     Returns:
         np.ndarray | None: Foreground weight map normalized to [0, 1], or None if the images
         don't share a common shape after downscaling.
+
+    Raises:
+        IndexError: If every image in `imgs` fails to load (e.g. all blank), leaving nothing
+        to compare shapes against.
     """
     imgs_stack: list[np.ndarray] = []
     for img_metadata in tqdm(imgs, desc="Load images"):
@@ -127,7 +131,7 @@ def _apply_threshold_and_clean(
     thresh = threshold_triangle(img)
     binary_mask = img > thresh
 
-    # morphology: remove small objects and fill holes
+    # morphology: smooth region boundaries and remove small objects
     cleaned = opening(binary_mask, footprint=disk(opening_disk))
     cleaned = closing(cleaned, footprint=disk(closing_disk))
     cleaned = remove_small_objects(cleaned, max_size=min_object_size - 1)
@@ -179,7 +183,7 @@ def _tray_trim(
     col_saturation = np.mean(saturation, axis=0)  # mean per column instead of per row
 
     # forward/reverse are intentionally asymmetric: the reverse trim stops on the last tray-free
-    # pixel rather than one past it, so a tray-coloured pixel can never survive into the crop,
+    # pixel rather than one past it, so a tray-coloured pixel can never survive into the crop.
     top_trim = _first_below_threshold(row_saturation, tray_sat_threshold)
     bottom_trim = _first_below_threshold(row_saturation, tray_sat_threshold, reverse=True)
     left_trim = _first_below_threshold(col_saturation, tray_sat_threshold)
