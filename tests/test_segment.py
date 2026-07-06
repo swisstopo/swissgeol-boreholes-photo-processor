@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
 from src.models import ImageMetadata
-from src.segment import segment
+from src.segment.segment import segment
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
