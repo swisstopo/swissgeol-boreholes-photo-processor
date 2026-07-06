@@ -12,6 +12,7 @@ def log_artifact_with_mlflow(
     filename: str,
     bounding_box: tuple[float, float, float, float] | None = None,
     suffix: str = ".jpg",
+    subfolder: str | None = None,
 ) -> None:
     """Log an artifact to MLflow.
 
@@ -20,6 +21,7 @@ def log_artifact_with_mlflow(
         filename (str): The filename for the artifact.
         bounding_box (tuple[float, float, float, float] | None): The bounding box coordinates, if applicable.
         suffix (str): Image suffix.
+        subfolder (str): Optional subfolder for image loging.
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         artifact_path = Path(tmp_dir) / f"{filename}{suffix}"
@@ -30,4 +32,7 @@ def log_artifact_with_mlflow(
             draw.rectangle(bounding_box, outline="red", width=2)
 
         img.save(artifact_path)
-        mlflow.log_artifact(str(artifact_path))
+        mlflow.log_artifact(
+            local_path=str(artifact_path),
+            artifact_path=subfolder,
+        )

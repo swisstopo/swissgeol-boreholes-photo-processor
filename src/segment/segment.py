@@ -52,6 +52,7 @@ def segment(
         log_artifact_with_mlflow(
             img=Image.fromarray((foreground * 255).astype(np.uint8)),
             filename=f"{imgs_metadata[0].borehole_id}-foreground",
+            subfolder="debug",
         )
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
@@ -75,7 +76,7 @@ def segment(
             )
 
             # Step 4: Detect core based on thresholded image
-            min_row, min_col, max_row, max_col = _select_bbox(
+            bounding_box = _select_bbox(
                 img_mask,
                 img_features,
                 detect_img.shape[0],
@@ -85,34 +86,26 @@ def segment(
                 min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
             )
 
-            # detect_bounding_box = _tray_trim(
-            #     detect_img,
-            #     (min_row, min_col, max_row, max_col),
-            #     tray_sat_threshold=config.tray_sat_threshold,
-            # )
-            detect_bounding_box = min_col, min_row, max_col, max_row
-
             # bounding box was computed on the downscaled image; rescale it back to the original resolution
-            left, top, right, bottom = detect_bounding_box
-            bounding_box = (
-                detect_bounding_box
-                if factor == 1.0
-                else (round(left / factor), round(top / factor), round(right / factor), round(bottom / factor))
-            )
+            if factor != 1.0:
+                bounding_box = (np.array(bounding_box) / factor).round().astype(int).tolist()
 
             if with_mlflow:
                 log_artifact_with_mlflow(
                     img=Image.fromarray((img * 255).astype(np.uint8)),
                     filename=f"{img_metadata.image_path.stem}",
                     bounding_box=bounding_box,
+                    subfolder="debug",
                 )
                 log_artifact_with_mlflow(
                     img=Image.fromarray((img_features * 255).astype(np.uint8)),
                     filename=f"{img_metadata.image_path.stem}-feature",
+                    subfolder="debug",
                 )
                 log_artifact_with_mlflow(
                     img=Image.fromarray((img_mask * 255).astype(np.uint8)),
                     filename=f"{img_metadata.image_path.stem}-mask",
+                    subfolder="debug",
                 )
 
             detections.append(

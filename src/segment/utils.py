@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import tifffile
-from skimage.color import rgb2gray, rgb2hsv
+from skimage.color import rgb2gray
 from skimage.filters import gaussian, threshold_triangle
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening, remove_small_objects
@@ -106,6 +106,7 @@ def _compute_core_features(
     Returns:
         np.ndarray: Grayscale feature map, optionally weighted by the foreground estimate.
     """
+    # TODO reduce wood importance
     img_gray = rgb2gray(img)
     return img_gray * foreground if foreground is not None else img_gray
 
@@ -137,64 +138,6 @@ def _apply_threshold_and_clean(
     cleaned = remove_small_objects(cleaned, max_size=min_object_size - 1)
 
     return cleaned
-
-
-def _first_below_threshold(values: np.ndarray, threshold: float, reverse: bool = False) -> int:
-    """Find the first index in the array where the value is below the threshold.
-
-    Args:
-        values (np.ndarray): 1D array of values to search.
-        threshold (float): Threshold value to compare against.
-        reverse (bool): If True, search from the end of the array.
-
-    Returns:
-        int: The index of the first value below the threshold. If no such value is found, returns 0 if reverse is
-        False, or len(values) - 1 if reverse is True.
-    """
-    indices = range(len(values) - 1, -1, -1) if reverse else range(len(values))
-    for i in indices:
-        if values[i] < threshold:
-            return i
-    return 0 if not reverse else len(values) - 1
-
-
-def _tray_trim(
-    img: np.ndarray,
-    bbox: tuple[int, int, int, int],
-    tray_sat_threshold: float,
-) -> tuple[int, int, int, int]:
-    """Trim the bounding box to exclude the wooden tray based on saturation.
-
-    Args:
-        img (np.ndarray): RGB image array (float, [0, 1]) to be trimmed.
-        bbox (tuple[int, int, int, int]): Bounding box coordinates in the format (min_row, min_col, max_row, max_col).
-        tray_sat_threshold (float): Saturation above this value is treated as wooden tray (not rock).
-
-    Returns:
-        tuple[int, int, int, int]: Trimmed bounding box as (left, top, right, bottom),
-        matching CoreSegmentResult.bounding_box convention.
-    """
-    min_row, min_col, max_row, max_col = bbox
-    cropped = img[min_row:max_row, min_col:max_col]
-
-    hsv = rgb2hsv(cropped)
-    saturation = hsv[:, :, 1]  # 0 = grey, 1 = vivid colour
-    row_saturation = np.mean(saturation, axis=1)
-    col_saturation = np.mean(saturation, axis=0)  # mean per column instead of per row
-
-    # forward/reverse are intentionally asymmetric: the reverse trim stops on the last tray-free
-    # pixel rather than one past it, so a tray-coloured pixel can never survive into the crop.
-    top_trim = _first_below_threshold(row_saturation, tray_sat_threshold)
-    bottom_trim = _first_below_threshold(row_saturation, tray_sat_threshold, reverse=True)
-    left_trim = _first_below_threshold(col_saturation, tray_sat_threshold)
-    right_trim = _first_below_threshold(col_saturation, tray_sat_threshold, reverse=True)
-
-    return (
-        min_col + left_trim,  # left
-        min_row + top_trim,  # top
-        min_col + right_trim,  # right
-        min_row + bottom_trim,  # bottom
-    )
 
 
 def _select_bbox(
@@ -253,4 +196,4 @@ def _select_bbox(
     max_row = max(r.bbox[2] for r in candidates)
     max_col = max(r.bbox[3] for r in candidates)
 
-    return (min_row, min_col, max_row, max_col)
+    return (min_col, min_row, max_col, max_row)
