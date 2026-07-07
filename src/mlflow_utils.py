@@ -29,3 +29,22 @@ def log_artifact_with_mlflow(
 
         img.save(artifact_path)
         mlflow.log_artifact(str(artifact_path))
+
+
+def log_evaluation_results_with_mlflow(
+    results: list,
+    filename: str,
+) -> None:
+    """Log evaluation results to MLflow.
+
+    Args:
+        results (list): The evaluation results to log.
+        filename (str): The filename for the artifact.
+    """
+    if results:
+        score = sum(r.passed for r in results) / len(results)
+        mlflow.log_metric(f"{filename}_score", score)
+
+        failed_cores = {r.filename: r.deviation for r in results if not r.passed}
+        if failed_cores:
+            mlflow.log_dict(failed_cores, f"{filename}_failed_cores.json")

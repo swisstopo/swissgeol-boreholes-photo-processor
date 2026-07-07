@@ -8,8 +8,10 @@ from pathlib import Path
 import mlflow
 from tqdm import tqdm
 
+from evaluations.core_length import check_core_length
+from evaluations.core_width import check_core_width
 from src.config import PipelineConfig
-from src.mlflow_utils import log_artifact_with_mlflow
+from src.mlflow_utils import log_artifact_with_mlflow, log_evaluation_results_with_mlflow
 from src.models import ImageMetadata, ImageMetadataProcessed
 from src.segment import segment
 from src.stitching import stitching
@@ -63,6 +65,17 @@ def run(
         detections: list[ImageMetadataProcessed] = segment(
             imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow
         )
+
+        # evaluation of detection
+        if with_mlflow:
+            log_evaluation_results_with_mlflow(
+                results=check_core_width(detections, config.evaluation.core_width),
+                filename="core_width",
+            )
+            log_evaluation_results_with_mlflow(
+                results=check_core_length(detections, config.evaluation.core_length),
+                filename="core_length",
+            )
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
