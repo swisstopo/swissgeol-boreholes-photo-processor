@@ -13,13 +13,44 @@ from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
 from src.segment.utils import (
     SegmentationError,
     _apply_threshold_and_clean,
-    _compute_core_features,
     _estimate_foreground,
+    _estimate_foreground_bbox,
     _load_image,
     _select_bbox,
+    _tray_trim,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _segment_single_fallback(img, config: SegmentationConfig) -> tuple[int, int, int, int]:
+    """Segment a single image via thresholding when no shared foreground bbox is available.
+
+    Args:
+        img (np.ndarray): RGB image array (float, [0, 1]), already downscaled by `config.downscale_factor`.
+        config (SegmentationConfig): Tunable segmentation parameters.
+
+    Returns:
+        tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), in the
+        downscaled image's coordinate space.
+    """
+    factor = config.downscale_factor
+    binary, grey = _apply_threshold_and_clean(
+        img,
+        min_object_size=max(1, round(config.min_object_size * factor**2)),  # factor**2 for area-based configs
+        opening_disk=max(1, round(config.opening_disk * factor)),
+        closing_disk=max(1, round(config.closing_disk * factor)),
+    )
+
+    return _select_bbox(
+        img_mask=binary,
+        img_intensity=grey,
+        img_height=binary.shape[0],
+        min_bbox_height=max(1, round(config.min_bbox_height * factor)),
+        edge_margin_top=round(config.edge_margin_top * factor),
+        edge_margin_bottom=round(config.edge_margin_bottom * factor),
+        min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
+    )
 
 
 def segment(
@@ -29,8 +60,8 @@ def segment(
 ) -> list[ImageMetadataProcessed]:
     """Segment the input images and return a list of processed image metadata objects.
 
-    If the segmentation fails for a single image, it is skipped and a warning is logged.
-    Therefore the output list may be shorter than the input list.
+    A bounding box is derived from the batch's shared foreground estimate (falling back
+    to per-image thresholding if unavailable).
 
     Args:
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
@@ -46,12 +77,14 @@ def segment(
     detections: list[ImageMetadataProcessed] = []
 
     # Step 0: Try to estimate image foreground (moving part)
-    foreground = _estimate_foreground(imgs=imgs_metadata, factor=factor)
+    foreground = _estimate_foreground(imgs=imgs_metadata, factor=factor, sigma=config.foreground_sigma)
+    foreground_bbox = _estimate_foreground_bbox(foreground)
 
-    if with_mlflow and foreground is not None:
+    if with_mlflow and foreground is not None and foreground_bbox is not None:
         log_artifact_with_mlflow(
-            img=Image.fromarray((foreground * 255).astype(np.uint8)),
+            img=Image.fromarray((foreground / foreground.max() * 255).astype(np.uint8)).convert("RGB"),
             filename=f"{imgs_metadata[0].borehole_id}-foreground",
+            bounding_box=foreground_bbox,
             subfolder="debug",
         )
 
@@ -61,29 +94,15 @@ def segment(
             img = _load_image(img_metadata.image_path)
             detect_img = rescale(img, factor, channel_axis=-1, anti_aliasing=True) if factor != 1.0 else img
 
-            # Step 2: Compute core feature
-            img_features = _compute_core_features(
+            # Step 2: Define bbox as foreground detection, fallback single segmentation
+            bounding_box = foreground_bbox if foreground_bbox else _segment_single_fallback(detect_img, config)
+
+            # Step 3: Remove wooden tray (up/down)
+            bounding_box = _tray_trim(
                 detect_img,
-                foreground=foreground,
-            )
-
-            # Step 3: Apply threshold and morphology
-            img_mask = _apply_threshold_and_clean(
-                img_features,
-                min_object_size=max(1, round(config.min_object_size * factor**2)),  # factor**2 for area-based configs
-                opening_disk=max(1, round(config.opening_disk * factor)),
-                closing_disk=max(1, round(config.closing_disk * factor)),
-            )
-
-            # Step 4: Detect core based on thresholded image
-            bounding_box = _select_bbox(
-                img_mask,
-                img_features,
-                detect_img.shape[0],
-                min_bbox_height=max(1, round(config.min_bbox_height * factor)),
-                edge_margin_top=round(config.edge_margin_top * factor),
-                edge_margin_bottom=round(config.edge_margin_bottom * factor),
-                min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
+                bounding_box,
+                tray_sat_threshold=config.tray_sat_threshold,
+                tray_sat_ratio=config.tray_sat_ratio,
             )
 
             # bounding box was computed on the downscaled image; rescale it back to the original resolution
@@ -95,16 +114,6 @@ def segment(
                     img=Image.fromarray((img * 255).astype(np.uint8)),
                     filename=f"{img_metadata.image_path.stem}",
                     bounding_box=bounding_box,
-                    subfolder="debug",
-                )
-                log_artifact_with_mlflow(
-                    img=Image.fromarray((img_features * 255).astype(np.uint8)),
-                    filename=f"{img_metadata.image_path.stem}-feature",
-                    subfolder="debug",
-                )
-                log_artifact_with_mlflow(
-                    img=Image.fromarray((img_mask * 255).astype(np.uint8)),
-                    filename=f"{img_metadata.image_path.stem}-mask",
                     subfolder="debug",
                 )
 

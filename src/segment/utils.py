@@ -5,11 +5,12 @@ from pathlib import Path
 
 import numpy as np
 import tifffile
-from skimage.color import rgb2gray
+from skimage.color import rgb2gray, rgb2hsv
 from skimage.filters import gaussian, threshold_triangle
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening, remove_small_objects
 from skimage.transform import rescale
+from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
 
 from src.models import ImageMetadata
@@ -52,7 +53,12 @@ def _load_image(image_path: Path) -> np.ndarray:
         return img.astype(float) / img.max()
 
 
-def _estimate_foreground(imgs: list[ImageMetadata], factor: float = 0.125, sigma: float = 5) -> np.ndarray | None:
+def _estimate_foreground(
+    imgs: list[ImageMetadata],
+    factor: float = 0.125,
+    sigma: float = 5,
+    n_min: int = 10,
+) -> np.ndarray | None:
     """Estimate the foreground mask shared by a batch of images taken from a static camera position.
 
     Loads and downscales every image, then computes the per-pixel standard deviation across the
@@ -62,53 +68,74 @@ def _estimate_foreground(imgs: list[ImageMetadata], factor: float = 0.125, sigma
     Args:
         imgs (list[ImageMetadata]): Batch of images assumed to share the same camera position.
         factor (float): Downscale factor applied to each image before comparison.
-        sigma (float): Standard deviation of the Gaussian blur applied to each image beforehand.
+        sigma (float): Gaussian blur applied to each image beforehand.
+        n_min (int): Minimum number of successfully loaded images required to estimate a
+            foreground. Below this, there isn't enough data for a reliable per-pixel std.
 
     Returns:
-        np.ndarray | None: Foreground weight map normalized to [0, 1], or None if the images
-        don't share a common shape after downscaling.
-
-    Raises:
-        IndexError: If every image in `imgs` fails to load (e.g. all blank), leaving nothing
-        to compare shapes against.
+        np.ndarray | None: Foreground weight map normalized to [0, 1], or None.
     """
     imgs_stack: list[np.ndarray] = []
+    img_shape: tuple[int, ...] | None = None
     for img_metadata in tqdm(imgs, desc="Load images"):
         try:
             img_ = _load_image(img_metadata.image_path)
             img_scale = rescale(img_, factor, channel_axis=-1, anti_aliasing=True) if factor != 1.0 else img_
-            img_gray_ = rgb2gray(img_scale)
-            img_blur_ = gaussian(img_gray_, sigma=sigma)
-            imgs_stack.append(img_blur_)
         except SegmentationError as e:
             logger.warning("%s. Skipping.", e)
 
-    if not all(im.shape == imgs_stack[0].shape for im in imgs_stack[1:]):
-        logger.warning("Disrcapencies in image shapes")
+        if img_shape is None:
+            img_shape = img_scale.shape
+        elif img_shape != img_scale.shape:
+            logger.warning("Inconsistent image sizes")
+            return None
+
+        img_gray_ = rgb2gray(img_scale)
+        img_blur_ = gaussian(img_gray_, sigma=sigma)
+        imgs_stack.append(img_blur_)
+
+    # At least n_min images for statistics
+    if len(imgs_stack) <= n_min:
         return None
 
     # Compute STD between images to highlight changes in background
-    img_stack = np.stack(imgs_stack).std(axis=0)
-    return img_stack / (img_stack.max() + 1e-16)
+    return np.stack(imgs_stack).std(axis=0)
 
 
-def _compute_core_features(
-    img: np.ndarray,
-    foreground: np.ndarray | None,
-) -> np.ndarray:
-    """Compute a grayscale feature map used for thresholding, weighted by the foreground estimate.
+def _estimate_foreground_bbox(foreground: np.ndarray | None) -> tuple[int, int, int, int] | None:
+    """Fit the foreground distribution and derive a bounding box for the core region.
+
+    Assumes the foreground shows the highest variance. Fits a 2-component GMM over the
+    per-pixel values and selects the component with the highest mean as foreground. The
+    foreground mask threshold is set to mu - std of that component, and the largest
+    connected region in the resulting mask is taken as the core.
 
     Args:
-        img (np.ndarray): RGB image array (float, [0, 1]).
-        foreground (np.ndarray | None): Foreground weight map from `_estimate_foreground`, or None
-        if unavailable, in which case the plain grayscale image is used.
+        foreground (np.ndarray | None): Foreground distribution map or None if unavailable.
 
     Returns:
-        np.ndarray: Grayscale feature map, optionally weighted by the foreground estimate.
+        tuple[int, int, int, int] | None: Bounding box as (x_min, y_min, x_max, y_max), or None.
     """
-    # TODO reduce wood importance
-    img_gray = rgb2gray(img)
-    return img_gray * foreground if foreground is not None else img_gray
+    if foreground is None:
+        return None
+
+    # Fit GMM to get background and foreground distributions
+    gmm = GaussianMixture(n_components=2)
+    gmm.fit(foreground.flatten().reshape(-1, 1))
+    means = np.asarray(gmm.means_)
+    covariances = np.asarray(gmm.covariances_)
+    id_foreground = np.argmax(means)
+    foreground_map = foreground > means[id_foreground] - np.sqrt(covariances[id_foreground])
+
+    # Foreground is defined as the largest connected region (area)
+    props = regionprops(label(foreground_map), intensity_image=foreground)
+
+    if not props:
+        return None
+
+    props = sorted(props, key=lambda x: x.area, reverse=True)
+    bbox = props[0].bbox
+    return (bbox[1], bbox[0], bbox[3], bbox[2])
 
 
 def _apply_threshold_and_clean(
@@ -116,28 +143,29 @@ def _apply_threshold_and_clean(
     min_object_size: int,
     opening_disk: int,
     closing_disk: int,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """Apply thresholding to the input image and return a cleaned binary mask.
 
     Args:
-        img (np.ndarray): Grayscale feature map (float, [0, 1]) to be thresholded.
+        img (np.ndarray): RGB image array (float, [0, 1]) to be thresholded.
         min_object_size (int): Minimum size of objects to be retained.
         opening_disk (int): Size of the disk for binary opening.
         closing_disk (int): Size of the disk for binary closing.
 
     Returns:
-        np.ndarray: The cleaned binary mask.
+        tuple[np.ndarray, np.ndarray]: The cleaned binary mask, and the grayscale image it
+        was derived from.
     """
     # Look for optimal threshold
-    thresh = threshold_triangle(img)
-    binary_mask = img > thresh
+    img_gray = rgb2gray(img)
+    thresh = threshold_triangle(img_gray)
 
     # morphology: smooth region boundaries and remove small objects
-    cleaned = opening(binary_mask, footprint=disk(opening_disk))
+    cleaned = opening(img_gray > thresh, footprint=disk(opening_disk))
     cleaned = closing(cleaned, footprint=disk(closing_disk))
     cleaned = remove_small_objects(cleaned, max_size=min_object_size - 1)
 
-    return cleaned
+    return cleaned, img_gray
 
 
 def _select_bbox(
@@ -197,3 +225,63 @@ def _select_bbox(
     max_col = max(r.bbox[3] for r in candidates)
 
     return (min_col, min_row, max_col, max_row)
+
+
+def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) -> tuple[int, int]:
+    """Find the largest contiguous row interval that is not tray, based on a per-pixel value map.
+
+    A row is classified as tray if the fraction of its pixels above `threshold` reaches
+    `ratio`. The largest run of consecutive non-tray rows is returned.
+
+    Args:
+        values (np.ndarray): 2D per-pixel value map (e.g. saturation channel) to threshold.
+        threshold (float): Value above which a pixel is considered tray.
+        ratio (float): Fraction of tray pixels in a row required to classify the row as tray.
+
+    Returns:
+        tuple[int, int]: Start and end row indices (exclusive of tray) of the largest
+            non-tray interval.
+    """
+    confs_row = (values > threshold).mean(axis=1)
+
+    # Detect transition in sequence 1: True to False, -1 : False to True
+    d = np.diff(np.concatenate(([0], confs_row < ratio, [0])))
+    starts = np.where(d == 1)[0]
+    ends = np.where(d == -1)[0] - 1
+
+    # Best interval as largest interval
+    id_best = np.argmax(ends - starts)
+
+    return starts[id_best], ends[id_best]
+
+
+def _tray_trim(
+    img: np.ndarray,
+    bbox: tuple[int, int, int, int],
+    tray_sat_threshold: float,
+    tray_sat_ratio: float,
+) -> tuple[int, int, int, int]:
+    """Trim the bounding box to exclude the wooden tray based on saturation.
+
+    Args:
+        img (np.ndarray): RGB image array (float, [0, 1]) to be trimmed.
+        bbox (tuple[int, int, int, int]): Bounding box coordinates in the format (min_row, min_col, max_row, max_col).
+        tray_sat_threshold (float): Saturation above this value is treated as wooden tray (not rock).
+        tray_sat_ratio (float): Fraction of tray-saturation pixels in a row required to
+            classify the row as tray.
+
+    Returns:
+        tuple[int, int, int, int]: Trimmed bounding box as (left, top, right, bottom),
+        matching CoreSegmentResult.bounding_box convention.
+    """
+    x_min, y_min, x_max, y_max = bbox
+
+    hsv = rgb2hsv(img[y_min:y_max, x_min:x_max])
+    top_trim, bottom_trim = _find_non_tray_interval(hsv[:, :, 1], tray_sat_threshold, tray_sat_ratio)
+
+    return (
+        x_min,  # left
+        y_min + top_trim,  # top
+        x_max,  # right
+        y_min + bottom_trim,  # bottom
+    )
