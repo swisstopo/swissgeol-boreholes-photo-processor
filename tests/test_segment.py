@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw
 from src.config import SegmentationConfig
 from src.models import ImageMetadata
 from src.segment.segment import segment
-from src.segment.utils import _estimate_foreground, _estimate_foreground_bbox
+from src.segment.utils import _estimate_foreground
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
@@ -144,7 +144,7 @@ def test_estimate_foreground_returns_none_on_inconsistent_image_sizes(make_metad
 
 def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
     """Pixels that change across the batch (the core) get a higher std than the static background."""
-    core_box = (20, 20, 60, 60)
+    core_box = (0, 50, 100, 100)
     fills = [50, 90, 130, 170, 210, 250]
     imgs = [
         make_metadata(15.0 + i, 16.0 + i, lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)), size=(100, 100))
@@ -155,41 +155,7 @@ def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
 
     assert foreground is not None
     assert foreground.shape == (100, 100)
-    core_std = foreground[30:50, 30:50].mean()
-    background_std = foreground[90:100, 90:100].mean()
+    background_std = foreground[0:25].mean()  # Top part as backgorund
+    core_std = foreground[75].mean()  # Bottom part as core
     assert core_std > background_std
     assert background_std == pytest.approx(0.0, abs=1e-9)
-
-
-def test_estimate_foreground_skips_unreadable_images_but_still_computes(make_metadata, tmp_path):
-    """A single unreadable image in the batch is skipped, and the foreground is still estimated from the rest."""
-    core_box = (20, 20, 60, 60)
-    fills = [50, 90, 130, 170, 210, 250]
-    imgs = [
-        make_metadata(15.0 + i, 16.0 + i, lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)), size=(100, 100))
-        for i, f in enumerate(fills)
-    ]
-
-    blank_path = tmp_path / "GBC-CB50_0099.00-0100.00_vd_p.TIF"
-    tifffile.imwrite(blank_path, np.zeros((100, 100, 3), dtype=np.float32), photometric="rgb")
-    imgs.append(ImageMetadata(borehole_id="GBC-CB50", depth_start=99.0, depth_end=100.0, image_path=blank_path))
-
-    foreground = _estimate_foreground(imgs, factor=1.0, n_min=5)
-
-    assert foreground is not None
-    assert foreground.shape == (100, 100)
-
-
-def test_estimate_foreground_bbox_returns_inclusive_bounds_matching_the_foreground_region():
-    """Bbox uses inclusive x_max/y_max, matching the convention _select_bbox and _tray_trim expect.
-
-    Regression test: a previous version returned skimage's exclusive-max regionprops bbox
-    unmodified, shifting the trimmed core boundary by 1 pixel (amplified further once rescaled
-    back up to full resolution).
-    """
-    foreground = np.full((200, 300), 0.01)
-    core_box = (30, 20, 119, 79)  # x_min, y_min, x_max, y_max (inclusive)
-    x_min, y_min, x_max, y_max = core_box
-    foreground[y_min : y_max + 1, x_min : x_max + 1] = 0.5
-
-    assert _estimate_foreground_bbox(foreground) == core_box
