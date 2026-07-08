@@ -18,7 +18,7 @@ class SegmentationConfig:
     edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
     min_bbox_height: int = 500  # minimum height for a candidate core bounding box
     tray_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
-    tray_sat_ratio: float = 0.95  # ratio of wood in a single line to consider line as tray
+    tray_sat_ratio: float = 0.75  # ratio of wood in a single line to consider line as tray
     min_size_for_bottom: int = 500_000  # minimum area for a candidate core to touch the bottom edge of the image
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
 
