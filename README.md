@@ -123,7 +123,10 @@ The pipeline detects the mode automatically: if the input directory contains sub
 ## Configuration
 
 Segmentation and stitching parameters (padding, canvas size, cores per sheet, thresholds, etc.) are set via a YAML config file, not CLI flags. A default [config.yaml](config.yaml) is provided at the repository root; any omitted key falls back to its default (see `src/config.py`).
+
 To speed up segmentation, images are downscaled by `downscale_factor` before detecting the core, and the resulting bounding box is scaled back up to the original resolution for stitching.
+
+The pipeline first tries to derive a single bounding box shared across the whole batch, by comparing all images from the (assumed static) camera position and locating the region that changes between shots (the core). This requires at least `10` successfully loaded images in the batch. Smaller batches, or images with inconsistent size, fall back to per-image thresholding instead.
 
 To use a different config file, pass `--config <path>` (see below).
 
@@ -147,7 +150,8 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlflow
 ```
 
-- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server.
+- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server. Segmentation debug images (per-image bounding-box overlays and the batch's shared foreground estimate are logged under a `debug` subfolder of each run's artifacts.
+
 
 To view logged artifacts, start the MLflow UI:
 ```bash

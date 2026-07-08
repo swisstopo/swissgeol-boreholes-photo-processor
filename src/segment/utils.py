@@ -105,7 +105,7 @@ def _estimate_foreground(
     return np.stack(imgs_stack).std(axis=0)
 
 
-def _estimate_foreground_bbox(foreground: np.ndarray | None) -> tuple[int, int, int, int] | None:
+def _estimate_foreground_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] | None:
     """Fit the foreground distribution and derive a bounding box for the core region.
 
     Assumes the foreground shows the highest variance. Fits a 2-component GMM over the
@@ -114,24 +114,24 @@ def _estimate_foreground_bbox(foreground: np.ndarray | None) -> tuple[int, int, 
     connected region in the resulting mask is taken as the core.
 
     Args:
-        foreground (np.ndarray | None): Foreground distribution map or None if unavailable.
+        fg_img (np.ndarray | None): Foreground distribution map or None if unavailable.
 
     Returns:
         tuple[int, int, int, int] | None: Bounding box as (x_min, y_min, x_max, y_max), or None.
     """
-    if foreground is None:
+    if fg_img is None:
         return None
 
     # Fit GMM to get background and foreground distributions
-    gmm = GaussianMixture(n_components=2)
-    gmm.fit(foreground.flatten().reshape(-1, 1))
+    gmm = GaussianMixture(n_components=2, random_state=0)
+    gmm.fit(fg_img.flatten().reshape(-1, 1))
     means = np.asarray(gmm.means_)
     covariances = np.asarray(gmm.covariances_)
-    id_foreground = np.argmax(means)
-    foreground_map = foreground > means[id_foreground] - np.sqrt(covariances[id_foreground])
+    fg_id = np.argmax(means)
+    fg_mask = fg_img > means[fg_id] - np.sqrt(covariances[fg_id])
 
     # Foreground is defined as the largest connected region (area)
-    props = regionprops(label(foreground_map), intensity_image=foreground)
+    props = regionprops(label(fg_mask), intensity_image=fg_img)
 
     if not props:
         return None
@@ -203,6 +203,9 @@ def _select_bbox(
     Returns:
         tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
             as inclusive coordinates.
+
+    Raises:
+        SegmentationError: If no regions are found.
     """
     props = regionprops(label(img_mask), intensity_image=img_intensity)
     if not props:
@@ -244,6 +247,9 @@ def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) 
     Returns:
         tuple[int, int]: Start and end row indices (exclusive of tray) of the largest
             non-tray interval.
+
+    Raises:
+        SegmentationError: If every row is classified as tray (no non-tray interval found).
     """
     confs_row = (values > threshold).mean(axis=1)
     detections = np.nonzero(confs_row < ratio)[0]
@@ -264,7 +270,7 @@ def _tray_trim(
     tray_sat_threshold: float,
     tray_sat_ratio: float,
 ) -> tuple[int, int, int, int]:
-    """Trim the bounding box to exclude the wooden tray based on saturation.
+    """Vertical trim the bounding box to exclude the wooden tray based on saturation.
 
     Args:
         img (np.ndarray): RGB image array (float, [0, 1]) to be trimmed.
@@ -276,6 +282,9 @@ def _tray_trim(
     Returns:
         tuple[int, int, int, int]: Trimmed bounding box as (left, top, right, bottom),
             matching CoreSegmentResult.bounding_box convention.
+
+    Raises:
+        SegmentationError: If every row is classified as tray (no non-tray interval found).
     """
     x_min, y_min, x_max, y_max = bbox
 

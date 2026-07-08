@@ -20,7 +20,7 @@ def log_artifact_with_mlflow(
         img (Image.Image): The image to log.
         filename (str): The filename for the artifact.
         bounding_box (tuple[float, float, float, float] | None): The bounding box coordinates, if applicable.
-        suffix (str): Image suffix.
+        suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
     """
     with tempfile.TemporaryDirectory() as tmp_dir:

@@ -23,7 +23,7 @@ from src.segment.utils import (
 logger = logging.getLogger(__name__)
 
 
-def _segment_single_fallback(img, config: SegmentationConfig) -> tuple[int, int, int, int]:
+def _segment_single_fallback(img: np.ndarray, config: SegmentationConfig) -> tuple[int, int, int, int]:
     """Segment a single image via thresholding when no shared foreground bbox is available.
 
     Args:
@@ -77,14 +77,14 @@ def segment(
     detections: list[ImageMetadataProcessed] = []
 
     # Step 0: Try to estimate image foreground (moving part)
-    foreground = _estimate_foreground(imgs=imgs_metadata, factor=factor, sigma=config.foreground_blur_sigma)
-    foreground_bbox = _estimate_foreground_bbox(foreground)
+    fg_img = _estimate_foreground(imgs=imgs_metadata, factor=factor, sigma=config.foreground_blur_sigma)
+    fg_bbox = _estimate_foreground_bbox(fg_img)
 
-    if with_mlflow and foreground is not None and foreground_bbox is not None:
+    if with_mlflow and fg_img is not None and fg_bbox is not None:
         log_artifact_with_mlflow(
-            img=Image.fromarray((foreground / foreground.max() * 255).astype(np.uint8)).convert("RGB"),
+            img=Image.fromarray((fg_img / fg_img.max() * 255).astype(np.uint8)).convert("RGB"),
             filename=f"{imgs_metadata[0].borehole_id}-foreground",
-            bounding_box=foreground_bbox,
+            bounding_box=fg_bbox,
             subfolder="debug",
         )
 
@@ -95,32 +95,32 @@ def segment(
             detect_img = rescale(img, factor, channel_axis=-1, anti_aliasing=True) if factor != 1.0 else img
 
             # Step 2: Define bbox as foreground detection, fallback single segmentation
-            bounding_box = foreground_bbox if foreground_bbox else _segment_single_fallback(detect_img, config)
+            core_bbox = fg_bbox if fg_bbox is not None else _segment_single_fallback(detect_img, config)
 
             # Step 3: Remove wooden tray (up/down)
-            bounding_box = _tray_trim(
+            core_bbox = _tray_trim(
                 detect_img,
-                bounding_box,
+                core_bbox,
                 tray_sat_threshold=config.tray_sat_threshold,
                 tray_sat_ratio=config.tray_sat_ratio,
             )
 
             # bounding box was computed on the downscaled image; rescale it back to the original resolution
             if factor != 1.0:
-                bounding_box = (np.array(bounding_box) / factor).round().astype(int).tolist()
+                core_bbox = tuple((np.array(core_bbox) / factor).round().astype(int).tolist())
 
             if with_mlflow:
                 log_artifact_with_mlflow(
                     img=Image.fromarray((img * 255).astype(np.uint8)),
                     filename=f"{img_metadata.image_path.stem}",
-                    bounding_box=bounding_box,
+                    bounding_box=core_bbox,
                     subfolder="debug",
                 )
 
             detections.append(
                 ImageMetadataProcessed.from_metadata(
                     metadata=img_metadata,
-                    result=CoreSegmentResult(bounding_box=bounding_box),
+                    result=CoreSegmentResult(bounding_box=core_bbox),
                 )
             )
         except SegmentationError as e:
