@@ -1,6 +1,7 @@
 """Helper functions for image segmentation."""
 
 import logging
+from itertools import groupby
 from pathlib import Path
 
 import numpy as np
@@ -83,6 +84,7 @@ def _estimate_foreground(
             img_scale = rescale(img_, factor, channel_axis=-1, anti_aliasing=True) if factor != 1.0 else img_
         except SegmentationError as e:
             logger.warning("%s. Skipping.", e)
+            continue
 
         if img_shape is None:
             img_shape = img_scale.shape
@@ -224,7 +226,7 @@ def _select_bbox(
     max_row = max(r.bbox[2] for r in candidates)
     max_col = max(r.bbox[3] for r in candidates)
 
-    return (min_col, min_row, max_col, max_row)
+    return (min_col, min_row, max_col - 1, max_row - 1)
 
 
 def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) -> tuple[int, int]:
@@ -245,14 +247,15 @@ def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) 
     confs_row = (values > threshold).mean(axis=1)
 
     # Detect transition in sequence 1: True to False, -1 : False to True
-    d = np.diff(np.concatenate(([0], confs_row < ratio, [0])))
-    starts = np.where(d == 1)[0]
-    ends = np.where(d == -1)[0] - 1
+    detections = np.nonzero(confs_row < ratio)[0]
+
+    groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
+    result = np.array([[g[0], g[-1]] for g in groups])
 
     # Best interval as largest interval
-    id_best = np.argmax(ends - starts)
+    id_best = np.argmax(result[:, 1] - result[:, 0])
 
-    return starts[id_best], ends[id_best]
+    return result[id_best, 0].item(), result[id_best, 1].item()
 
 
 def _tray_trim(
@@ -276,7 +279,7 @@ def _tray_trim(
     """
     x_min, y_min, x_max, y_max = bbox
 
-    hsv = rgb2hsv(img[y_min:y_max, x_min:x_max])
+    hsv = rgb2hsv(img[y_min : y_max + 1, x_min : x_max + 1])
     top_trim, bottom_trim = _find_non_tray_interval(hsv[:, :, 1], tray_sat_threshold, tray_sat_ratio)
 
     return (
