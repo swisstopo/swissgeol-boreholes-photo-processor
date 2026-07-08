@@ -77,7 +77,7 @@ def segment(
     detections: list[ImageMetadataProcessed] = []
 
     # Step 0: Try to estimate image foreground (moving part)
-    foreground = _estimate_foreground(imgs=imgs_metadata, factor=factor, sigma=config.foreground_sigma)
+    foreground = _estimate_foreground(imgs=imgs_metadata, factor=factor, sigma=config.foreground_blur_sigma)
     foreground_bbox = _estimate_foreground_bbox(foreground)
 
     if with_mlflow and foreground is not None and foreground_bbox is not None:

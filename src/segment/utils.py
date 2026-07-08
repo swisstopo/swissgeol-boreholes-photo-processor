@@ -74,7 +74,8 @@ def _estimate_foreground(
             foreground. Below this, there isn't enough data for a reliable per-pixel std.
 
     Returns:
-        np.ndarray | None: Foreground weight map normalized to [0, 1], or None.
+        np.ndarray | None: Per-pixel standard deviation map highlighting regions that change across the
+            image stack, or None if unavailable.
     """
     imgs_stack: list[np.ndarray] = []
     img_shape: tuple[int, ...] | None = None
@@ -97,7 +98,7 @@ def _estimate_foreground(
         imgs_stack.append(img_blur_)
 
     # At least n_min images for statistics
-    if len(imgs_stack) <= n_min:
+    if len(imgs_stack) < n_min:
         return None
 
     # Compute STD between images to highlight changes in background
@@ -137,7 +138,7 @@ def _estimate_foreground_bbox(foreground: np.ndarray | None) -> tuple[int, int, 
 
     props = sorted(props, key=lambda x: x.area, reverse=True)
     bbox = props[0].bbox
-    return (bbox[1], bbox[0], bbox[3], bbox[2])
+    return (bbox[1], bbox[0], bbox[3] - 1, bbox[2] - 1)
 
 
 def _apply_threshold_and_clean(
@@ -200,8 +201,8 @@ def _select_bbox(
         min_size_for_bottom (int): Minimum area for a candidate core to touch the bottom edge of the image.
 
     Returns:
-        tuple[int, int, int, int]: A tuple containing the coordinates of the bounding box
-        in the format (min_row, min_col, max_row, max_col).
+        tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
+            as inclusive coordinates.
     """
     props = regionprops(label(img_mask), intensity_image=img_intensity)
     if not props:
@@ -245,14 +246,13 @@ def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) 
             non-tray interval.
     """
     confs_row = (values > threshold).mean(axis=1)
-
-    # Detect transition in sequence 1: True to False, -1 : False to True
     detections = np.nonzero(confs_row < ratio)[0]
+
+    if detections.size == 0:
+        raise SegmentationError("Entire region classified as tray; no non-tray interval found")
 
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
     result = np.array([[g[0], g[-1]] for g in groups])
-
-    # Best interval as largest interval
     id_best = np.argmax(result[:, 1] - result[:, 0])
 
     return result[id_best, 0].item(), result[id_best, 1].item()
@@ -268,14 +268,14 @@ def _tray_trim(
 
     Args:
         img (np.ndarray): RGB image array (float, [0, 1]) to be trimmed.
-        bbox (tuple[int, int, int, int]): Bounding box coordinates in the format (min_row, min_col, max_row, max_col).
+        bbox (tuple[int, int, int, int]): Bounding box coordinates in the format (x_min, y_min, x_max, y_max).
         tray_sat_threshold (float): Saturation above this value is treated as wooden tray (not rock).
         tray_sat_ratio (float): Fraction of tray-saturation pixels in a row required to
             classify the row as tray.
 
     Returns:
         tuple[int, int, int, int]: Trimmed bounding box as (left, top, right, bottom),
-        matching CoreSegmentResult.bounding_box convention.
+            matching CoreSegmentResult.bounding_box convention.
     """
     x_min, y_min, x_max, y_max = bbox
 

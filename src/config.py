@@ -12,7 +12,7 @@ class SegmentationConfig:
 
     opening_disk: int = 20  # radius for binary_opening (removes noise)
     closing_disk: int = 20  # radius for binary_closing (fills gaps)
-    foreground_sigma: int = 5  # amount of blur to apply to image for foreground detection.
+    foreground_blur_sigma: float = 5.0  # Gaussian blur applied to each image for foreground detection.
     min_object_size: int = 500  # minimum blob size in pixels
     edge_margin_top: int = 100  # ignore top edge of image (ruler)
     edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)

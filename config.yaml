@@ -5,6 +5,7 @@ segmentation:
   opening_disk: 20 # radius for binary_opening (removes noise)
   closing_disk: 20 # radius for binary_closing (fills gaps)
   min_object_size: 500 # minimum blob size in pixels
+  foreground_blur_sigma: 5.0 # Gaussian blur applied to each image for foreground detection.
   edge_margin_top: 100 # ignore top edge of image (ruler)
   edge_margin_bottom: 5 # ignore bottom edge of image (ruler)
   min_bbox_height: 500 # minimum height for a candidate core bounding box
