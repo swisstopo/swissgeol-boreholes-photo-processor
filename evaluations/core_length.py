@@ -25,7 +25,7 @@ def check_core_length(
         return []
 
     # extract lengths and expected lengths per core
-    lengths = [d.result.bounding_box[3] - d.result.bounding_box[1] for d in detections]
+    lengths = [d.result.bounding_box[2] - d.result.bounding_box[0] for d in detections]
 
     # robustly fit a single px-per-metre ratio for the whole folder (line through the origin)
     depths_m = np.array([d.depth_end - d.depth_start for d in detections]).reshape(-1, 1)

@@ -24,7 +24,7 @@ def check_core_width(
         return []
 
     # extract width per core
-    widths = [d.result.bounding_box[2] - d.result.bounding_box[0] for d in detections]
+    widths = [d.result.bounding_box[3] - d.result.bounding_box[1] for d in detections]
 
     # folder median
     folder_median = np.median(widths)

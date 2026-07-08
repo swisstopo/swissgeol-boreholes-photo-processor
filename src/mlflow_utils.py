@@ -43,8 +43,25 @@ def log_evaluation_results_with_mlflow(
     """
     if results:
         score = sum(r.passed for r in results) / len(results)
+
         mlflow.log_metric(f"{filename}_score", score)
 
-        failed_cores = {r.filename: r.deviation for r in results if not r.passed}
-        if failed_cores:
-            mlflow.log_dict(failed_cores, f"{filename}_failed_cores.json")
+        if hasattr(results[0], "folder_median_width"):
+            mlflow.log_metric(f"{filename}_median", results[0].folder_median_width)
+            failed_cores = {r.filename: {"width": r.width, "deviation": r.deviation} for r in results if not r.passed}
+            if failed_cores:
+                mlflow.log_dict(failed_cores, f"failed_{filename}.json")
+
+        if hasattr(results[0], "folder_ratio_px_per_m"):
+            mlflow.log_metric(f"{filename}_folder_ratio_px_per_m", results[0].folder_ratio_px_per_m)
+            failed_cores = {
+                r.filename: {
+                    "length_px": r.length_px,
+                    "expected_length_px": r.expected_length_px,
+                    "deviation": r.deviation,
+                }
+                for r in results
+                if not r.passed
+            }
+            if failed_cores:
+                mlflow.log_dict(failed_cores, f"failed_{filename}.json")
