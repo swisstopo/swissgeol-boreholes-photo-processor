@@ -9,7 +9,8 @@ from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
 from src.models import ImageMetadata
-from src.segment import segment
+from src.segment.segment import segment
+from src.segment.utils import _estimate_foreground
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
@@ -124,3 +125,37 @@ def test_segment_skips_blank_non_integer_image_without_dividing_by_zero(tmp_path
     detections = segment([metadata])
 
     assert detections == []
+
+
+def test_estimate_foreground_returns_none_below_n_min(make_metadata):
+    """Fewer than n_min successfully loaded images isn't enough for a reliable per-pixel std."""
+    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(4)]
+
+    assert _estimate_foreground(imgs, factor=1.0, n_min=5) is None
+
+
+def test_estimate_foreground_returns_none_on_inconsistent_image_sizes(make_metadata):
+    """A batch with a mismatched image size can't be stacked into a single std map."""
+    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(100, 100)) for i in range(10)]
+    imgs.append(make_metadata(25.0, 26.0, size=(50, 50)))
+
+    assert _estimate_foreground(imgs, factor=1.0, n_min=5) is None
+
+
+def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
+    """Pixels that change across the batch (the core) get a higher std than the static background."""
+    core_box = (0, 50, 100, 100)
+    fills = [50, 90, 130, 170, 210, 250]
+    imgs = [
+        make_metadata(15.0 + i, 16.0 + i, lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)), size=(100, 100))
+        for i, f in enumerate(fills)
+    ]
+
+    foreground = _estimate_foreground(imgs, factor=1.0, n_min=5)
+
+    assert foreground is not None
+    assert foreground.shape == (100, 100)
+    background_std = foreground[0:25].mean()  # Top part as backgorund
+    core_std = foreground[75].mean()  # Bottom part as core
+    assert core_std > background_std
+    assert background_std == pytest.approx(0.0, abs=1e-9)
