@@ -60,7 +60,7 @@ def _resize_core(
     return crop.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
 
-def _resize_core_to_width(crop: Image.Image, target_width: int) -> Image.Image:
+def _resize_core_to_width(crop: Image.Image, target_width: int, core_strip_height: int) -> Image.Image:
     """Resize a core crop to a fixed width, preserving aspect ratio.
 
     Used for outlier cores whose labeled length exceeds max_core_length_m —
@@ -70,12 +70,19 @@ def _resize_core_to_width(crop: Image.Image, target_width: int) -> Image.Image:
     Args:
         crop (Image.Image): The raw cropped core image.
         target_width (int): The desired output width in pixels.
+        core_strip_height (int): The pixel budget available for a 1 m core; clamps the output height.
 
     Returns:
         Image.Image: Aspect-ratio-preserved resized core image.
     """
     aspect = crop.width / crop.height
     target_height = max(1, round(target_width / aspect))
+
+    # clamp max height at core_strip_height to avoid extreme outliers
+    if target_height > core_strip_height:
+        target_height = core_strip_height
+        target_width = max(1, round(target_height * aspect))
+
     return crop.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
 
@@ -116,7 +123,7 @@ def _resize_crops(
     normal_iter = iter(normal_crops)
     for (_, crop), outlier in zip(raw, is_outlier, strict=True):
         if outlier:
-            crops.append(_resize_core_to_width(crop, avg_normal_width))
+            crops.append(_resize_core_to_width(crop, avg_normal_width, core_strip_height))
         else:
             crops.append(next(normal_iter))
 
