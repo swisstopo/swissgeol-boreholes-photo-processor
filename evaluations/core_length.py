@@ -38,26 +38,18 @@ def check_core_length(
     # check deviation for each core
     results = []
     for length, expected_length, detection in zip(lengths, expected_lengths, detections, strict=True):
+        if expected_length == 0:
+            continue
         deviation = abs(length - expected_length) / expected_length
-        if deviation > config.relative_tolerance:
-            res = CoreLengthCheckResults(
-                filename=detection.image_path.name,
-                length_px=length,
-                expected_length_px=expected_length,
-                folder_ratio_px_per_m=folder_ratio_px_per_m,
-                deviation=deviation,
-                passed=False,
-            )
-            results.append(res)
-        else:
-            res = CoreLengthCheckResults(
-                filename=detection.image_path.name,
-                length_px=length,
-                expected_length_px=expected_length,
-                folder_ratio_px_per_m=folder_ratio_px_per_m,
-                deviation=deviation,
-                passed=True,
-            )
-            results.append(res)
+        passed = bool(deviation <= config.relative_tolerance)
+        res = CoreLengthCheckResults(
+            filename=detection.image_path.name,
+            length_px=length,
+            expected_length_px=expected_length,
+            folder_ratio_px_per_m=folder_ratio_px_per_m,
+            deviation=deviation,
+            passed=passed,
+        )
+        results.append(res)
 
     return results

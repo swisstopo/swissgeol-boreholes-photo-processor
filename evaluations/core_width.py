@@ -28,28 +28,21 @@ def check_core_width(
 
     # folder median
     folder_median = np.median(widths)
+    if folder_median == 0:
+        return []
 
     # check deviation for each core
     results = []
     for width, detection in zip(widths, detections, strict=True):
         deviation = abs(width - folder_median) / folder_median
-        if deviation > config.relative_tolerance:
-            res = CoreWidthCheckResults(
-                filename=detection.image_path.name,
-                width=width,
-                folder_median_width=folder_median,
-                deviation=deviation,
-                passed=False,
-            )
-            results.append(res)
-        else:
-            res = CoreWidthCheckResults(
-                filename=detection.image_path.name,
-                width=width,
-                folder_median_width=folder_median,
-                deviation=deviation,
-                passed=True,
-            )
-            results.append(res)
+        passed = bool(deviation <= config.relative_tolerance)
+        res = CoreWidthCheckResults(
+            filename=detection.image_path.name,
+            width=width,
+            folder_median_width=folder_median,
+            deviation=deviation,
+            passed=passed,
+        )
+        results.append(res)
 
     return results
