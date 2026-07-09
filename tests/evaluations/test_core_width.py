@@ -8,15 +8,18 @@ from src.models import CoreSegmentResult, ImageMetadataProcessed
 
 
 def _make_detection(width: float, depth_start: float) -> ImageMetadataProcessed:
-    """Creates an ImageMetadataProcessed whose bounding box has the given width in pixels."""
-    left = 100.0
+    """Creates an ImageMetadataProcessed whose bounding box has the given width in pixels.
+
+    Width is the box's vertical (y) extent: raw TIF photos are landscape, with the depth
+    axis running horizontally (x) and the core's physical width running vertically (y).
+    """
     depth_end = depth_start + 1.0
     return ImageMetadataProcessed(
         borehole_id="GBC-CB50",
         depth_start=depth_start,
         depth_end=depth_end,
         image_path=Path(f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"),
-        result=CoreSegmentResult(bounding_box=(left, 0.0, left + width, 1000.0)),
+        result=CoreSegmentResult(bounding_box=(100.0, 0.0, 1000.0, width)),
     )
 
 

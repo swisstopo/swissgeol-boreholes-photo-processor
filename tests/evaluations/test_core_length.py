@@ -15,15 +15,19 @@ _RATIO_PX_PER_M = 800.0
 
 
 def _make_detection(length: float, depth_start: float, interval: float) -> ImageMetadataProcessed:
-    """Creates an ImageMetadataProcessed whose bounding box has the given length in pixels."""
-    top = 0.0
+    """Creates an ImageMetadataProcessed whose bounding box has the given length in pixels.
+
+    Length is the box's horizontal (x) extent: raw TIF photos are landscape, with the depth
+    axis running horizontally (x) and the core's physical width running vertically (y).
+    """
+    left = 100.0
     depth_end = depth_start + interval
     return ImageMetadataProcessed(
         borehole_id="GBC-CB50",
         depth_start=depth_start,
         depth_end=depth_end,
         image_path=Path(f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"),
-        result=CoreSegmentResult(bounding_box=(100.0, top, 900.0, top + length)),
+        result=CoreSegmentResult(bounding_box=(left, 0.0, left + length, 900.0)),
     )
 
 
