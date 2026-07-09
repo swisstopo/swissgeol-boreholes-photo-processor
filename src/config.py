@@ -12,13 +12,15 @@ class SegmentationConfig:
 
     opening_disk: int = 20  # radius for binary_opening (removes noise)
     closing_disk: int = 20  # radius for binary_closing (fills gaps)
+    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
     min_object_size: int = 500  # minimum blob size in pixels
     edge_margin_top: int = 100  # ignore top edge of image (ruler)
     edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
     min_bbox_height: int = 500  # minimum height for a candidate core bounding box
     tray_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
+    tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
     min_size_for_bottom: int = 500_000  # minimum area for a candidate core to touch the bottom edge of the image
-    downscale_factor: float = 0.5  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
 
 
 @dataclass

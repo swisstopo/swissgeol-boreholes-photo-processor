@@ -18,7 +18,8 @@ output/
 tests/output/
 
 # development
-launch.json
+.vscode/launch.json
+.vscode/settings.json
 
 # mlflow
 mlruns/

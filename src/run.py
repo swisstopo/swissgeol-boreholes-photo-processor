@@ -13,7 +13,7 @@ from evaluations.core_width import check_core_width
 from src.config import PipelineConfig
 from src.mlflow_utils import log_artifact_with_mlflow, log_evaluation_results_with_mlflow
 from src.models import ImageMetadata, ImageMetadataProcessed
-from src.segment import segment
+from src.segment.segment import segment
 from src.stitching import stitching
 
 
