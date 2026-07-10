@@ -3,23 +3,6 @@
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from src.models import ImageMetadataProcessed
-
-
-def _content_x_start(crops: list[Image.Image], gap: int, canvas_width: int) -> int:
-    """Return the x-coordinate where the centred group of crops begins on the canvas.
-
-    Args:
-        crops (list[Image.Image]): The list of core crops to be stitched together.
-        gap (int): The gap in pixels between adjacent core crops.
-        canvas_width (int): The width of the output stitched image.
-
-    Returns:
-        int: The x-coordinate where the first core crop should be placed to centre the group.
-    """
-    total = sum(c.width for c in crops) + gap * max(0, len(crops) - 1)
-    return (canvas_width - total) // 2
-
 
 def _draw_cores(
     canvas: Image.Image,
@@ -99,51 +82,6 @@ def _draw_borehole_label(
         anchor="lm",
     )
     return canvas
-
-
-def _draw_depth_labels(
-    img: Image.Image,
-    chunk: list[ImageMetadataProcessed],
-    crops: list[Image.Image],
-    padding_vertical: int,
-    gap: int,
-) -> Image.Image:
-    """Draw depth_start above and depth_end below each individual core strip.
-
-    Args:
-        img (Image.Image): The stitched image on which to draw the labels.
-        chunk (list[ImageMetadataProcessed]): The list of processed image metadata objects for the cores.
-        crops (list[Image.Image]): The list of cropped core images. Includes placeholders for missing cores, but zip
-        stops after the real cores are exhausted.
-        padding_vertical (int): The vertical padding around the entire image (outside the cores).
-        gap (int): The gap between cores in the stitched image.
-
-    Returns:
-        Image.Image: The image with depth labels drawn on it.
-    """
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.load_default(size=max(12, padding_vertical // 3))
-
-    x = _content_x_start(crops, gap, img.width)
-
-    for meta, crop in zip(chunk, crops, strict=False):
-        cx = x + crop.width // 2
-        draw.text(
-            (cx, padding_vertical * 3 // 4),
-            f"{meta.depth_start:.2f} m",
-            fill=(255, 255, 255),
-            font=font,
-            anchor="mm",
-        )
-        draw.text(
-            (cx, img.height - padding_vertical // 2),
-            f"{meta.depth_end:.2f} m",
-            fill=(255, 255, 255),
-            font=font,
-            anchor="mm",
-        )
-        x += crop.width + gap
-    return img
 
 
 def _draw_ruler(

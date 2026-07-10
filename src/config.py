@@ -33,7 +33,7 @@ class StitchingConfig:
     ruler_width: int = 300  # width in pixels of each of the two depth rulers (left/right of the cores)
     core_height_px: int = 10000  # pixel budget for a core spanning core_height_m metres
     core_height_m: float = 1.0  # depth extent, in metres, that core_height_px pixels represents
-    core_width_rerror: float = 1.5
+    core_width_rerror: float = 1.5  # max allowed width ratio vs. the reference core before treated as an outlier
     font_size: int = 100  # font size (px) used for borehole ID, depth labels, and ruler tick labels
 
 

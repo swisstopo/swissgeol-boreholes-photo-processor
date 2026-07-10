@@ -13,8 +13,8 @@ RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 
 # Kept small so tests run fast. FONT_SIZE is well under PADDING_VERTICAL so the
-# (currently hard-coded, see _draw_cores) size-100 depth-label font still fits inside
-# the padding band instead of being clipped against the canvas edge.
+# depth-label text still fits inside the padding band instead of being clipped
+# against the canvas edge.
 PADDING_VERTICAL = 150
 PADDING_HORIZONTAL = 60
 RULER_WIDTH = 80
@@ -87,9 +87,9 @@ def _predict_resized_sizes(
     """Mirrors _resize_cores' scale-selection/outlier-clamping formula, for use as a test oracle."""
     widths = np.array([w for w, _ in sizes], dtype=float)
     heights = np.array([h for _, h in sizes], dtype=float)
-    error_width = np.abs(widths) / np.median(widths)
-    error_height = np.abs(heights) / np.median(heights)
-    id_ref = int(np.argmin(1 - error_width * error_height))
+    error_width = np.abs(1 - widths / np.median(widths))
+    error_height = np.abs(1 - heights / np.median(heights))
+    id_ref = int(np.argmin(error_width + error_height))
     ref_fx = heights[id_ref] / (core_height_px * core_height_m)
 
     result = []
@@ -155,16 +155,17 @@ def test_resize_cores_outlier_is_rescaled_using_the_reference_core():
 
     The rescale uses the reference core's factor, which also changes its height.
     """
-    # core0: (20, 100), normal aspect. core1: (20, 300), much taller at the same width,
-    # so its error_height dominates and it becomes the reference core.
-    sizes = [(20, 100), (20, 300)]
+    # core0: (20, 100), closest to the median in both width and height, so it becomes
+    # the reference core. core1: (50, 150) is wider than its own height-based scale
+    # would justify relative to the reference, so it is pulled onto the reference's scale.
+    sizes = [(20, 100), (50, 150)]
     cores = [Image.new("RGB", size) for size in sizes]
     resized = _resize_cores(cores, core_height_px=60, core_height_m=1.0, core_width_rerror=1.2)
     expected = _predict_resized_sizes(sizes, core_height_px=60, core_height_m=1.0, core_width_rerror=1.2)
     assert [(c.width, c.height) for c in resized] == expected
-    # core0's own scale would give it height 60 (like STD_RESIZED_SIZE); confirm it was
-    # actually pulled onto the reference's scale instead, i.e. the outlier path fired.
-    assert resized[0].height != 60
+    # core1's own scale would give it height 150/(150/60)=60; confirm it was actually
+    # pulled onto the reference's scale instead, i.e. the outlier path fired.
+    assert resized[1].height != 60
 
 
 # ---- stitching / stitching_batch ----------------------------------------------------
@@ -263,12 +264,12 @@ def test_rulers_are_drawn_on_both_sides(make_processed):
 def test_outlier_core_width_matches_the_reference_core(make_processed):
     """An outlier core (see _resize_cores) is placed and sized consistently with the resize step."""
     normal = make_processed(0.0, 1.0, size=(20, 100), color=RED)
-    outlier = make_processed(1.0, 4.0, size=(20, 300), color=BLUE)
+    outlier = make_processed(1.0, 4.0, size=(50, 150), color=BLUE)
     core_width_rerror = 1.2
     img = next(_stitch([normal, outlier], num_cores_per_image=6, core_width_rerror=core_width_rerror))
 
     resized = _predict_resized_sizes(
-        [(20, 100), (20, 300)],
+        [(20, 100), (50, 150)],
         core_height_px=CORE_HEIGHT_PX,
         core_height_m=CORE_HEIGHT_M,
         core_width_rerror=core_width_rerror,
