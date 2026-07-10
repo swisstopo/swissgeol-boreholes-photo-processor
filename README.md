@@ -120,6 +120,10 @@ For **batch processing** across multiple boreholes, the input directory should c
 
 The pipeline detects the mode automatically: if the input directory contains subdirectories it runs in batch mode, otherwise it processes the directory as a single borehole. The input folder structure is mirrored in the output directory.
 
+### Output
+
+Each output sheet places up to `num_cores_per_image` cores side by side, top-aligned on a black background, with a depth ruler (major, intermediate, and minor ticks) drawn along both the left and right edges and the borehole ID printed in the top-left corner. The depth interval (`depth_start`/`depth_end`, in metres) is printed above and below each core strip. Cores whose depth extent is unusually large relative to the rest of the batch are treated as outliers and width-matched to the other cores in the sheet instead of being scaled to their labelled depth.
+
 ## Configuration
 
 Segmentation and stitching parameters (padding, canvas size, cores per sheet, thresholds, etc.) are set via a YAML config file, not CLI flags. A default [config.yaml](config.yaml) is provided at the repository root; any omitted key falls back to its default (see `src/config.py`).

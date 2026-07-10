@@ -16,8 +16,10 @@ segmentation:
 
 stitching:
   num_cores_per_image: 6 # cores placed side by side per output sheet
-  padding_vertical: 95 # top/bottom border height in pixels
-  padding_horizontal: 110 # left/right border width in pixels
-  output_width: 1144 # output canvas width in pixels
-  output_height: 1260 # output canvas height in pixels
-  max_core_length_m: 1.0 # maximum core length in metres (fills the strip height exactly)
+  padding_vertical: 200 # top/bottom border height in pixels
+  padding_horizontal: 150 # left/right border width in pixels
+  ruler_width: 300 # width in pixels of each of the two depth rulers (left/right of the cores)
+  core_height_px: 10000 # pixel budget for a core spanning core_height_m metres
+  core_height_m: 1.0 # depth extent, in metres, that core_height_px pixels represents
+  core_width_rerror: 1.5
+  font_size: 100 # font size (px) used for borehole ID, depth labels, and ruler tick labels

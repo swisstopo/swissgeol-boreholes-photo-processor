@@ -2,20 +2,31 @@
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
 from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
-from src.stitching import stitching
-
-_CORE_STRIP_HEIGHT = 1260 - 2 * 95
-
-# Standard test-crop size. With depth extent 1.0 it resizes to (136, 1070)
-# — aspect-preserving at _CORE_STRIP_HEIGHT=1070.
-_STD_CROP_SIZE = (14, 110)
+from src.stitching.stitching import _resize_cores, stitching
 
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
+
+# Kept small so tests run fast. FONT_SIZE is well under PADDING_VERTICAL so the
+# (currently hard-coded, see _draw_cores) size-100 depth-label font still fits inside
+# the padding band instead of being clipped against the canvas edge.
+PADDING_VERTICAL = 150
+PADDING_HORIZONTAL = 60
+RULER_WIDTH = 80
+CORE_HEIGHT_PX = 60
+CORE_HEIGHT_M = 1.0
+CORE_WIDTH_RERROR = 1.5
+FONT_SIZE = 40
+
+# A (20, 100) raw crop resizes to exactly (12, 60) under the constants above:
+# fx = 100 / 60 = 5/3, so width -> round(20 / (5/3)) = 12, height -> round(100 / (5/3)) = 60.
+STD_RAW_SIZE = (20, 100)
+STD_RESIZED_SIZE = (12, 60)
 
 
 @pytest.fixture
@@ -23,7 +34,7 @@ def make_processed(tmp_path):
     def _factory(
         depth_start: float,
         depth_end: float,
-        size: tuple[int, int] = _STD_CROP_SIZE,
+        size: tuple[int, int] = STD_RAW_SIZE,
         color: tuple[int, int, int] = (128, 128, 128),
     ) -> ImageMetadataProcessed:
         """Creates a simple ImageMetadataProcessed with a single solid-color crop of the specified size."""
@@ -42,188 +53,232 @@ def make_processed(tmp_path):
     return _factory
 
 
-def _resized_width(orig_w: int, orig_h: int, depth_start: float, depth_end: float) -> int:
-    """Expected crop width after _resize_core (mirrors its logic)."""
-    target_h = max(1, round((depth_end - depth_start) / 1.0 * _CORE_STRIP_HEIGHT))
-    return max(1, round(target_h * orig_w / orig_h))
+def _stitch(
+    imgs: list[ImageMetadataProcessed],
+    num_cores_per_image: int = 6,
+    padding_vertical: int = PADDING_VERTICAL,
+    padding_horizontal: int = PADDING_HORIZONTAL,
+    ruler_width: int = RULER_WIDTH,
+    core_height_px: int = CORE_HEIGHT_PX,
+    core_height_m: float = CORE_HEIGHT_M,
+    core_width_rerror: float = CORE_WIDTH_RERROR,
+    font_size: int = FONT_SIZE,
+):
+    """Calls stitching() with this module's small, fast test defaults, allowing per-test overrides."""
+    return stitching(
+        imgs,
+        num_cores_per_image=num_cores_per_image,
+        padding_vertical=padding_vertical,
+        padding_horizontal=padding_horizontal,
+        ruler_width=ruler_width,
+        core_height_px=core_height_px,
+        core_height_m=core_height_m,
+        core_width_rerror=core_width_rerror,
+        font_size=font_size,
+    )
 
 
-def _resized_height(depth_start: float, depth_end: float) -> int:
-    """Expected crop height after _resize_core."""
-    return max(1, round((depth_end - depth_start) / 1.0 * _CORE_STRIP_HEIGHT))
+def _predict_resized_sizes(
+    sizes: list[tuple[int, int]],
+    core_height_px: float,
+    core_height_m: float = 1.0,
+    core_width_rerror: float = 1.5,
+) -> list[tuple[int, int]]:
+    """Mirrors _resize_cores' scale-selection/outlier-clamping formula, for use as a test oracle."""
+    widths = np.array([w for w, _ in sizes], dtype=float)
+    heights = np.array([h for _, h in sizes], dtype=float)
+    error_width = np.abs(widths) / np.median(widths)
+    error_height = np.abs(heights) / np.median(heights)
+    id_ref = int(np.argmin(1 - error_width * error_height))
+    ref_fx = heights[id_ref] / (core_height_px * core_height_m)
+
+    result = []
+    for w, h in sizes:
+        fx = h / (core_height_px * core_height_m)
+        if w / fx > core_width_rerror * widths[id_ref] / ref_fx:
+            fx = ref_fx
+        result.append((round(w / fx), round(h / fx)))
+    return result
 
 
-def _derived_gap(crop_widths: list[int], num_cores: int, output_width: int = 1144) -> int:
-    """Derived gap between crops, calculated from the output width and crop widths."""
-    if num_cores <= 1:
-        return 0
-    return max(0, (output_width - 2 * 110 - sum(crop_widths)) // (num_cores - 1))
+def _predict_canvas_size(
+    resized_sizes: list[tuple[int, int]],
+    padding_horizontal: int,
+    padding_vertical: int,
+    ruler_width: int,
+    core_height_px: int,
+) -> tuple[int, int]:
+    """Mirrors stitching_batch's canvas-size formula."""
+    n = len(resized_sizes)
+    cores_width = sum(w for w, _ in resized_sizes)
+    canvas_width = (3 + n) * padding_horizontal + 2 * ruler_width + cores_width
+    canvas_height = 5 * padding_vertical + core_height_px
+    return canvas_width, canvas_height
 
 
-def _x_start(crop_widths: list[int], gap: int, output_width: int = 1144) -> int:
-    """X coordinate where the first crop should be placed, after the left padding."""
-    total_content_width = sum(crop_widths) + gap * max(0, len(crop_widths) - 1)
-    return (output_width - total_content_width) // 2
+def _predict_core_x_positions(
+    resized_sizes: list[tuple[int, int]], padding_horizontal: int, ruler_width: int
+) -> list[int]:
+    """Mirrors stitching_batch's core placement formula (left-aligned, in order, spaced by padding_horizontal)."""
+    x = 2 * padding_horizontal + ruler_width
+    xs = []
+    for w, _ in resized_sizes:
+        xs.append(x)
+        x += w + padding_horizontal
+    return xs
 
 
-def _std_crop_widths(n: int, depth_extent: float = 1.0) -> list[int]:
-    """Widths of n standard crops after resize (all the same when depth_extent is uniform)."""
-    w = _resized_width(_STD_CROP_SIZE[0], _STD_CROP_SIZE[1], 0.0, depth_extent)
-    return [w] * n
+# ---- _resize_cores -----------------------------------------------------------------
+# Note: _resize_cores scales purely from each crop's raw pixel size vs. a reference
+# core in the same batch. It does NOT use depth_start/depth_end, so core height is
+# currently independent of the core's physical depth extent.
 
 
-@pytest.mark.parametrize(
-    "num_cores, expected_count",
-    [
-        # num_cores = total input cores; chunk size is always NUM_CORES_PER_IMAGE=6
-        (1, 1),
-        (3, 1),
-        (6, 1),
-        (7, 2),  # 7 cores split into chunks of 6 → 2 output images
-    ],
-)
-def test_output_count_and_dimensions(make_processed, num_cores, expected_count):
-    """Stitching produces the expected number of output images, each at the expected dimensions."""
-    cores = [make_processed(float(i), float(i + 1)) for i in range(num_cores)]
-    result = list(stitching(cores, num_cores_per_image=6))
-    assert len(result) == expected_count
-    assert all(img.size == (1144, 1260) for img in result)
+def test_resize_cores_normalizes_same_aspect_cores_to_a_common_height():
+    """Cores that share an aspect ratio are all resized to the same target height."""
+    cores = [Image.new("RGB", STD_RAW_SIZE) for _ in range(3)]
+    resized = _resize_cores(cores, core_height_px=60, core_height_m=1.0, core_width_rerror=1.5)
+    assert [(c.width, c.height) for c in resized] == [STD_RESIZED_SIZE] * 3
+
+
+def test_resize_cores_matches_predicted_sizes_for_a_mixed_batch():
+    """_resize_cores' output matches an independent replica of its scale/outlier formula."""
+    sizes = [(20, 100), (20, 300), (40, 120)]
+    cores = [Image.new("RGB", size) for size in sizes]
+    resized = _resize_cores(cores, core_height_px=60, core_height_m=1.0, core_width_rerror=1.2)
+    expected = _predict_resized_sizes(sizes, core_height_px=60, core_height_m=1.0, core_width_rerror=1.2)
+    assert [(c.width, c.height) for c in resized] == expected
+
+
+def test_resize_cores_outlier_is_rescaled_using_the_reference_core():
+    """A core whose own scale factor would make it disproportionately wide is instead rescaled.
+
+    The rescale uses the reference core's factor, which also changes its height.
+    """
+    # core0: (20, 100), normal aspect. core1: (20, 300), much taller at the same width,
+    # so its error_height dominates and it becomes the reference core.
+    sizes = [(20, 100), (20, 300)]
+    cores = [Image.new("RGB", size) for size in sizes]
+    resized = _resize_cores(cores, core_height_px=60, core_height_m=1.0, core_width_rerror=1.2)
+    expected = _predict_resized_sizes(sizes, core_height_px=60, core_height_m=1.0, core_width_rerror=1.2)
+    assert [(c.width, c.height) for c in resized] == expected
+    # core0's own scale would give it height 60 (like STD_RESIZED_SIZE); confirm it was
+    # actually pulled onto the reference's scale instead, i.e. the outlier path fired.
+    assert resized[0].height != 60
+
+
+# ---- stitching / stitching_batch ----------------------------------------------------
+
+
+def test_output_count_and_canvas_dimensions(make_processed):
+    """Stitching chunks by num_cores_per_image, and each chunk's canvas is sized from its own core count."""
+    cores = [make_processed(float(i), float(i + 1)) for i in range(7)]
+    results = list(_stitch(cores, num_cores_per_image=6))
+
+    assert len(results) == 2
+    assert results[0].size == _predict_canvas_size(
+        [STD_RESIZED_SIZE] * 6, PADDING_HORIZONTAL, PADDING_VERTICAL, RULER_WIDTH, CORE_HEIGHT_PX
+    )
+    assert results[1].size == _predict_canvas_size(
+        [STD_RESIZED_SIZE] * 1, PADDING_HORIZONTAL, PADDING_VERTICAL, RULER_WIDTH, CORE_HEIGHT_PX
+    )
 
 
 def test_padding_pixels_are_black(make_processed):
-    """Padding pixels around and between cores are black, not white or some other color."""
+    """Padding pixels around the image are black, not white or some other color."""
     core = make_processed(0.0, 1.0, color=RED)
-    img = next(stitching([core], num_cores_per_image=6))
+    img = next(_stitch([core], num_cores_per_image=6))
     assert img.getpixel((0, 0)) == (0, 0, 0)  # top-left corner
     assert img.getpixel((img.width - 1, img.height - 1)) == (0, 0, 0)  # bottom-right corner
-    assert img.getpixel((0, img.height // 2)) == (0, 0, 0)  # left edge mid
-
-
-def test_gap_pixels_are_black(make_processed):
-    """Gap pixels between cores are black, not white or some other color."""
-    red = make_processed(0.0, 1.0, color=RED)
-    blue = make_processed(1.0, 2.0, color=BLUE)
-    img = next(stitching([red, blue], num_cores_per_image=6))
-    all_widths = _std_crop_widths(6)
-    gap = _derived_gap(all_widths, 6)
-    assert gap > 0, "gap must be positive for this test to be meaningful"
-    x0 = _x_start(all_widths, gap)
-    gap_x = x0 + all_widths[0]  # first pixel after the first crop slot
-    assert img.getpixel((gap_x, 95)) == (0, 0, 0)
+    assert img.getpixel((0, img.height // 2)) == (0, 0, 0)  # left margin, before the ruler
 
 
 def test_cores_appear_in_order_left_to_right(make_processed):
     """Cores appear in the output in the same order as the input list, from left to right."""
     red = make_processed(0.0, 1.0, color=RED)
     blue = make_processed(1.0, 2.0, color=BLUE)
-    img = next(stitching([red, blue], num_cores_per_image=6))
-    all_widths = _std_crop_widths(6)
-    gap = _derived_gap(all_widths, 6)
-    x0 = _x_start(all_widths, gap)
-    assert img.getpixel((x0, 95)) == RED  # first core
-    assert img.getpixel((x0 + all_widths[0] + gap, 95)) == BLUE  # second core
+    img = next(_stitch([red, blue], num_cores_per_image=6))
+    xs = _predict_core_x_positions([STD_RESIZED_SIZE, STD_RESIZED_SIZE], PADDING_HORIZONTAL, RULER_WIDTH)
+    y = 3 * PADDING_VERTICAL + 5
+    assert img.getpixel((xs[0] + 2, y)) == RED
+    assert img.getpixel((xs[1] + 2, y)) == BLUE
 
 
-def test_first_core_starts_after_left_padding(make_processed):
-    """First core starts after the left padding, not flush against the edge."""
+def test_gap_between_cores_is_black(make_processed):
+    """The padding_horizontal-wide gap between adjacent cores is black."""
     red = make_processed(0.0, 1.0, color=RED)
-    img = next(stitching([red], num_cores_per_image=6))
-    all_widths = _std_crop_widths(6)
-    gap = _derived_gap(all_widths, 6)
-    x0 = _x_start(all_widths, gap)
-    assert img.getpixel((x0 - 1, 95)) == (0, 0, 0)  # pixel before first core is black
-    assert img.getpixel((x0, 95)) == RED  # first core pixel is red
+    blue = make_processed(1.0, 2.0, color=BLUE)
+    img = next(_stitch([red, blue], num_cores_per_image=6))
+    xs = _predict_core_x_positions([STD_RESIZED_SIZE, STD_RESIZED_SIZE], PADDING_HORIZONTAL, RULER_WIDTH)
+    gap_x = xs[0] + STD_RESIZED_SIZE[0] + PADDING_HORIZONTAL // 2
+    y = 3 * PADDING_VERTICAL + 5
+    assert img.getpixel((gap_x, y)) == (0, 0, 0)
 
 
-def test_custom_output_dimensions_create_canvas_at_that_size(make_processed):
-    """Output canvas is created at the specified dimensions, ignoring core crop sizes."""
+def test_cores_are_top_aligned(make_processed):
+    """Cores are pasted starting at the top of the content band, not centred within it."""
+    core = make_processed(0.0, 1.0, color=RED)
+    img = next(_stitch([core], num_cores_per_image=6))
+    x = _predict_core_x_positions([STD_RESIZED_SIZE], PADDING_HORIZONTAL, RULER_WIDTH)[0]
+    y_top = 3 * PADDING_VERTICAL
+    assert img.getpixel((x + 2, y_top)) == RED
+    assert img.getpixel((x + 2, y_top - 1)) != RED
+
+
+def test_depth_labels_are_drawn_above_and_below_each_core(make_processed):
+    """Depth labels are drawn in the padding bands above and below the core content."""
+    core = make_processed(15.0, 16.0, color=RED)
+    img = next(_stitch([core], num_cores_per_image=6))
+    y_min = 3 * PADDING_VERTICAL
+    above_y = y_min - PADDING_VERTICAL
+    below_y = y_min + STD_RESIZED_SIZE[1] + PADDING_VERTICAL
+    above_row = [img.getpixel((x, above_y)) for x in range(img.width)]
+    below_row = [img.getpixel((x, below_y)) for x in range(img.width)]
+    assert any(p != (0, 0, 0) for p in above_row), "expected a depth label above the core"
+    assert any(p != (0, 0, 0) for p in below_row), "expected a depth label below the core"
+
+
+def test_borehole_label_is_drawn(make_processed):
+    """The borehole ID is drawn somewhere in the top label row, left of the core content."""
     core = make_processed(0.0, 1.0)
-    img = next(stitching([core], num_cores_per_image=6, output_width=800, output_height=400))
-    assert img.size == (800, 400)
+    img = next(_stitch([core], num_cores_per_image=6))
+    row = [img.getpixel((x, PADDING_VERTICAL)) for x in range(img.width)]
+    assert any(p != (0, 0, 0) for p in row)
 
 
-def test_depth_labels_write_into_padding_band(make_processed):
-    """Depth labels are written in the vertical padding bands, not on top of the core crops."""
-    core = make_processed(15.0, 16.0)
-    img = next(stitching([core], num_cores_per_image=6))
-    all_widths = _std_crop_widths(6)
-    gap = _derived_gap(all_widths, 6)
-    x0 = _x_start(all_widths, gap)
-    cx = x0 + all_widths[0] // 2  # center of the first core strip
-    top_band_pixels = [img.getpixel((cx + dx, 95 * 3 // 4)) for dx in range(-20, 20)]
-    bottom_band_pixels = [img.getpixel((cx + dx, img.height - 95 // 2)) for dx in range(-20, 20)]
-    assert any(p != (0, 0, 0) for p in top_band_pixels), "expected depth label in top padding"
-    assert any(p != (0, 0, 0) for p in bottom_band_pixels), "expected depth label in bottom padding"
+def test_rulers_are_drawn_on_both_sides(make_processed):
+    """Both the left and right depth rulers draw at least one tick."""
+    core = make_processed(0.0, 1.0)
+    img = next(_stitch([core], num_cores_per_image=6))
+    y_first_tick = 3 * PADDING_VERTICAL
+
+    left_row = [img.getpixel((x, y_first_tick)) for x in range(PADDING_HORIZONTAL, PADDING_HORIZONTAL + RULER_WIDTH)]
+    assert any(p != (0, 0, 0) for p in left_row), "expected a tick on the left ruler"
+
+    right_ruler_x0 = 3 * PADDING_HORIZONTAL + RULER_WIDTH + STD_RESIZED_SIZE[0]
+    right_row = [img.getpixel((x, y_first_tick)) for x in range(right_ruler_x0, right_ruler_x0 + RULER_WIDTH)]
+    assert any(p != (0, 0, 0) for p in right_row), "expected a tick on the right ruler"
 
 
-def test_cores_of_different_heights_are_top_aligned(make_processed):
-    """Cores of different heights are top-aligned, not vertically centered."""
-    # Height is controlled by depth extent: 1.0 m → full height, 0.5 m → half height.
-    tall = make_processed(0.0, 1.0, color=RED)
-    short = make_processed(1.0, 1.5, color=BLUE)
-    img = next(stitching([tall, short], num_cores_per_image=6))
-    w_tall = _resized_width(*_STD_CROP_SIZE, 0.0, 1.0)
-    w_short = _resized_width(*_STD_CROP_SIZE, 1.0, 1.5)
-    h_short = _resized_height(1.0, 1.5)
-    avg_placeholder_w = round((w_tall + w_short) / 2)
-    all_widths = [w_tall, w_short] + [avg_placeholder_w] * (6 - 2)
-    gap = _derived_gap(all_widths, 6)
-    x0 = _x_start(all_widths, gap)
-    short_x = x0 + w_tall + gap
-    assert img.getpixel((short_x, 95)) == BLUE  # short core top is blue
-    assert img.getpixel((short_x, 95 + h_short + 1)) == (0, 0, 0)  # below short core is black
+def test_outlier_core_width_matches_the_reference_core(make_processed):
+    """An outlier core (see _resize_cores) is placed and sized consistently with the resize step."""
+    normal = make_processed(0.0, 1.0, size=(20, 100), color=RED)
+    outlier = make_processed(1.0, 4.0, size=(20, 300), color=BLUE)
+    core_width_rerror = 1.2
+    img = next(_stitch([normal, outlier], num_cores_per_image=6, core_width_rerror=core_width_rerror))
 
+    resized = _predict_resized_sizes(
+        [(20, 100), (20, 300)],
+        core_height_px=CORE_HEIGHT_PX,
+        core_height_m=CORE_HEIGHT_M,
+        core_width_rerror=core_width_rerror,
+    )
+    xs = _predict_core_x_positions(resized, PADDING_HORIZONTAL, RULER_WIDTH)
+    y = 3 * PADDING_VERTICAL + 2
 
-def test_partial_chunk_padded_with_black_placeholders(make_processed):
-    """A partial last chunk fills empty slots with black boxes so layout matches a full chunk."""
-    red = make_processed(0.0, 1.0, color=RED)
-    img = next(stitching([red], num_cores_per_image=2))
-    w = _resized_width(*_STD_CROP_SIZE, 0.0, 1.0)
-    all_widths = [w, w]  # 1 real + 1 placeholder (same avg width)
-    gap = _derived_gap(all_widths, num_cores=2)
-    x0 = _x_start(all_widths, gap)
-    assert img.getpixel((x0, 95)) == RED  # real core is red
-    placeholder_cx = x0 + w + gap + w // 2
-    assert img.getpixel((placeholder_cx, 95)) == (0, 0, 0)  # placeholder is black
-
-
-def test_outlier_core_width_matches_normal_cores(make_processed):
-    """A core with depth extent > max_core_length_m is width-matched to the normal cores in the chunk."""
-    normal = make_processed(0.0, 1.0, color=RED)
-    outlier = make_processed(1.0, 3.0, color=BLUE)  # 2 m extent — exceeds max_core_length_m=1.0
-    img = next(stitching([normal, outlier], num_cores_per_image=6))
-    normal_w = _resized_width(*_STD_CROP_SIZE, 0.0, 1.0)
-    # Outlier is width-matched to normal_w, so both slots have the same width
-    all_widths = [normal_w, normal_w] + [normal_w] * 4
-    gap = _derived_gap(all_widths, 6)
-    x0 = _x_start(all_widths, gap)
-    assert img.getpixel((x0, 95)) == RED  # normal core — red
-    assert img.getpixel((x0 + normal_w + gap, 95)) == BLUE  # outlier core — blue
-
-
-def test_outlier_extreme_aspect_ratio_height_is_clamped(make_processed):
-    """An outlier whose width-matched height would exceed core_strip_height is clamped, not left unbounded."""
-    normal = make_processed(0.0, 1.0, color=RED)
-    # Narrow/tall crop: width-matching to normal_w without clamping would produce a height
-    # many times core_strip_height. This must not raise and must be capped instead.
-    outlier = make_processed(1.0, 3.0, size=(4, 200), color=BLUE)
-    img = next(stitching([normal, outlier], num_cores_per_image=6))
-
-    normal_w = _resized_width(*_STD_CROP_SIZE, 0.0, 1.0)
-    outlier_aspect = 4 / 200
-    clamped_h = _CORE_STRIP_HEIGHT
-    clamped_w = max(1, round(clamped_h * outlier_aspect))
-    placeholder_w = round((normal_w + clamped_w) / 2)
-    all_widths = [normal_w, clamped_w] + [placeholder_w] * 4
-
-    gap = _derived_gap(all_widths, 6)
-    x0 = _x_start(all_widths, gap)
-    outlier_x = x0 + normal_w + gap
-
-    assert img.getpixel((x0, 95)) == RED  # normal core unaffected
-    assert img.getpixel((outlier_x, 95)) == BLUE  # outlier top pixel
-    assert img.getpixel((outlier_x, 95 + clamped_h - 1)) == BLUE  # outlier fills the clamped height
-    assert img.getpixel((outlier_x, 95 + clamped_h)) == (0, 0, 0)  # nothing beyond the clamped height
+    assert img.getpixel((xs[0] + 1, y)) == RED
+    assert img.getpixel((xs[1] + 1, y)) == BLUE
+    assert img.size == _predict_canvas_size(resized, PADDING_HORIZONTAL, PADDING_VERTICAL, RULER_WIDTH, CORE_HEIGHT_PX)
 
 
 OUTPUT_DIR = Path(__file__).parent / "output" / "stitching"
@@ -244,7 +299,7 @@ def test_save_two_output_images(make_processed):
     """Creates two output images with 6 cores in the first and 1 core in the second, for visual inspection."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     cores = [make_processed(float(i), float(i + 1), color=_CORE_COLORS[i]) for i in range(7)]
-    results = stitching(cores, num_cores_per_image=6)
+    results = _stitch(cores, num_cores_per_image=6)
     for idx, img in enumerate(results):
         out_path = OUTPUT_DIR / f"stitched_{idx + 1}.png"
         img.save(out_path)
