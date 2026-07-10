@@ -19,7 +19,7 @@ def stitching_batch(
     core_width_rerror: float = 1.5,
     font_size: int = 100,
 ) -> Image.Image:
-    """Stitch core segments together, yielding one output image at a time.
+    """Stitch one batch (chunk) of core segments into a single output image.
 
     Each core crop is resized preserving its aspect ratio, scaling its own pixel
     height to match core_height_px * core_height_m (see _resize_cores). Cores whose
@@ -31,7 +31,7 @@ def stitching_batch(
     depth interval (depth_end - depth_start) — core height is not yet depth-accurate.
 
     The values are padding_horizontal (A), padding_vertical (B),
-    core_height_px (C), and num_cores_per_image (N).
+    core_height_px (C), and ruler_width (D), and num_cores_per_image (N).
 
     <-------------- (3 + N) * A + 2 * D + sum (core widths) --------------->
     ------------------------------------------------------------------------  ʌ
@@ -64,7 +64,7 @@ def stitching_batch(
     Returns:
         Image.Image: The stitched image for this batch of cores.
     """
-    # Laod all cores crops up front so we can identify outliers before resizing
+    # Load all core crops up front so we can identify outliers before resizing
     cores_img = [core.as_image() for core in cores]
 
     # resize all crops to preserve aspect ratio

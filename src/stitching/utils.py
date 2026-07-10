@@ -1,4 +1,4 @@
-"""Helper functions for stitching (currently unused, reserved for shared utilities)."""
+"""Helper functions for stitching."""
 
 import numpy as np
 from PIL import Image
@@ -6,9 +6,9 @@ from PIL import Image
 
 def _resize_cores(
     cores: list[Image.Image],
-    core_height_px: float,
-    core_height_m: float = 1.0,
-    core_width_rerror: float = 1.5,
+    core_height_px: int,
+    core_height_m: float,
+    core_width_rerror: float,
 ) -> list[Image.Image]:
     """Resize cores to a common pixel scale, clamping outlier widths to the reference core.
 

@@ -53,6 +53,7 @@ def make_processed(tmp_path):
     return _factory
 
 
+# TODO check test
 def _stitch(
     imgs: list[ImageMetadataProcessed],
     num_cores_per_image: int = 6,
@@ -78,6 +79,7 @@ def _stitch(
     )
 
 
+# TODO check test
 def _predict_resized_sizes(
     sizes: list[tuple[int, int]],
     core_height_px: float,
@@ -101,6 +103,7 @@ def _predict_resized_sizes(
     return result
 
 
+# TODO check test
 def _predict_canvas_size(
     resized_sizes: list[tuple[int, int]],
     padding_horizontal: int,
@@ -116,6 +119,7 @@ def _predict_canvas_size(
     return canvas_width, canvas_height
 
 
+# TODO check test
 def _predict_core_x_positions(
     resized_sizes: list[tuple[int, int]], padding_horizontal: int, ruler_width: int
 ) -> list[int]:
@@ -134,6 +138,7 @@ def _predict_core_x_positions(
 # currently independent of the core's physical depth extent.
 
 
+# TODO check test
 def test_resize_cores_normalizes_same_aspect_cores_to_a_common_height():
     """Cores that share an aspect ratio are all resized to the same target height."""
     cores = [Image.new("RGB", STD_RAW_SIZE) for _ in range(3)]
@@ -141,6 +146,7 @@ def test_resize_cores_normalizes_same_aspect_cores_to_a_common_height():
     assert [(c.width, c.height) for c in resized] == [STD_RESIZED_SIZE] * 3
 
 
+# TODO check test
 def test_resize_cores_matches_predicted_sizes_for_a_mixed_batch():
     """_resize_cores' output matches an independent replica of its scale/outlier formula."""
     sizes = [(20, 100), (20, 300), (40, 120)]
@@ -150,6 +156,7 @@ def test_resize_cores_matches_predicted_sizes_for_a_mixed_batch():
     assert [(c.width, c.height) for c in resized] == expected
 
 
+# TODO check test
 def test_resize_cores_outlier_is_rescaled_using_the_reference_core():
     """A core whose own scale factor would make it disproportionately wide is instead rescaled.
 
@@ -171,6 +178,7 @@ def test_resize_cores_outlier_is_rescaled_using_the_reference_core():
 # ---- stitching / stitching_batch ----------------------------------------------------
 
 
+# TODO check test
 def test_output_count_and_canvas_dimensions(make_processed):
     """Stitching chunks by num_cores_per_image, and each chunk's canvas is sized from its own core count."""
     cores = [make_processed(float(i), float(i + 1)) for i in range(7)]
@@ -185,6 +193,7 @@ def test_output_count_and_canvas_dimensions(make_processed):
     )
 
 
+# TODO check test
 def test_padding_pixels_are_black(make_processed):
     """Padding pixels around the image are black, not white or some other color."""
     core = make_processed(0.0, 1.0, color=RED)
@@ -194,6 +203,7 @@ def test_padding_pixels_are_black(make_processed):
     assert img.getpixel((0, img.height // 2)) == (0, 0, 0)  # left margin, before the ruler
 
 
+# TODO check test
 def test_cores_appear_in_order_left_to_right(make_processed):
     """Cores appear in the output in the same order as the input list, from left to right."""
     red = make_processed(0.0, 1.0, color=RED)
@@ -205,6 +215,7 @@ def test_cores_appear_in_order_left_to_right(make_processed):
     assert img.getpixel((xs[1] + 2, y)) == BLUE
 
 
+# TODO check test
 def test_gap_between_cores_is_black(make_processed):
     """The padding_horizontal-wide gap between adjacent cores is black."""
     red = make_processed(0.0, 1.0, color=RED)
@@ -216,6 +227,7 @@ def test_gap_between_cores_is_black(make_processed):
     assert img.getpixel((gap_x, y)) == (0, 0, 0)
 
 
+# TODO check test
 def test_cores_are_top_aligned(make_processed):
     """Cores are pasted starting at the top of the content band, not centred within it."""
     core = make_processed(0.0, 1.0, color=RED)
@@ -226,6 +238,7 @@ def test_cores_are_top_aligned(make_processed):
     assert img.getpixel((x + 2, y_top - 1)) != RED
 
 
+# TODO check test
 def test_depth_labels_are_drawn_above_and_below_each_core(make_processed):
     """Depth labels are drawn in the padding bands above and below the core content."""
     core = make_processed(15.0, 16.0, color=RED)
@@ -239,6 +252,7 @@ def test_depth_labels_are_drawn_above_and_below_each_core(make_processed):
     assert any(p != (0, 0, 0) for p in below_row), "expected a depth label below the core"
 
 
+# TODO check test
 def test_borehole_label_is_drawn(make_processed):
     """The borehole ID is drawn somewhere in the top label row, left of the core content."""
     core = make_processed(0.0, 1.0)
@@ -247,6 +261,7 @@ def test_borehole_label_is_drawn(make_processed):
     assert any(p != (0, 0, 0) for p in row)
 
 
+# TODO check test
 def test_rulers_are_drawn_on_both_sides(make_processed):
     """Both the left and right depth rulers draw at least one tick."""
     core = make_processed(0.0, 1.0)
@@ -261,6 +276,7 @@ def test_rulers_are_drawn_on_both_sides(make_processed):
     assert any(p != (0, 0, 0) for p in right_row), "expected a tick on the right ruler"
 
 
+# TODO check test
 def test_outlier_core_width_matches_the_reference_core(make_processed):
     """An outlier core (see _resize_cores) is placed and sized consistently with the resize step."""
     normal = make_processed(0.0, 1.0, size=(20, 100), color=RED)
