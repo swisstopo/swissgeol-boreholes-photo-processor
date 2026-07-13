@@ -122,7 +122,14 @@ The pipeline detects the mode automatically: if the input directory contains sub
 
 ### Output
 
-Each output sheet places up to `num_cores_per_image` cores side by side, top-aligned on a black background, with a depth ruler (major, intermediate, and minor ticks) drawn along both the left and right edges and the borehole ID printed in the top-left corner. The depth interval (`depth_start`/`depth_end`, in metres) is printed above and below each core strip. Cores whose raw pixel dimensions are disproportionately larger than the rest of the batch are treated as outliers and width-matched to a representative core in the sheet instead of being scaled at their own natural size.
+Each output sheet places up to `num_cores_per_image` cores side by side, top-aligned on a black
+background, with a ruler (major, intermediate, and minor ticks) drawn along both the left and right
+edges and the borehole ID printed in the top-left corner. The ruler ticks are a relative 0–100 scale
+across the sheet's pixel height, not an absolute depth readout — depth values are shown separately as
+`depth_start`/`depth_end` labels (in metres) above and below each core strip. Cores whose raw pixel
+dimensions are disproportionately larger than the rest of the batch are treated as outliers and
+width-matched to a representative core in the sheet instead of being scaled at their own natural size.
+
 
 ## Configuration
 

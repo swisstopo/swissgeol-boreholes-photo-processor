@@ -120,7 +120,7 @@ def stitching_batch(
 
     canvas = _draw_ruler(
         canvas,
-        loc=((2 + len(cores)) * padding_horizontal + ruler_width + sum(cores_widths), 3 * padding_vertical),
+        loc=((2 + num_cores_per_image) * padding_horizontal + ruler_width + sum(cores_widths), 3 * padding_vertical),
         size=(ruler_width, core_height_px),
         n_major=100,
         font_size=round(font_size / 2),
