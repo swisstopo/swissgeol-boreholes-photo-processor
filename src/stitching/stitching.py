@@ -11,6 +11,7 @@ from src.stitching.utils import _resize_cores
 
 def stitching_batch(
     cores: list[ImageMetadataProcessed],
+    num_cores_per_image: int = 6,
     padding_vertical: int = 200,
     padding_horizontal: int = 150,
     ruler_width: int = 300,
@@ -52,6 +53,7 @@ def stitching_batch(
 
     Args:
         cores (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
+        num_cores_per_image (int): Expected number of cores on image. Pad with mean width if not enough cores.
         padding_vertical (int): Top/bottom border height in pixels.
         padding_horizontal (int): Left/right border width in pixels.
         ruler_width (int): Width in pixels of each of the two depth rulers.
@@ -76,11 +78,16 @@ def stitching_batch(
     )
 
     # Derive gap from remaining horizontal space after placing all cores
-    cores_width = sum([core_img.width for core_img in cores_img])
+    cores_widths = [core_img.width for core_img in cores_img]
+
+    # Pad widths if not enough cores on image
+    if len(cores) < num_cores_per_image:
+        cores_widths = cores_widths + [int(sum(cores_widths) / len(cores))] * (num_cores_per_image - len(cores))
+
     canvas_width = (
-        (3 + len(cores_img)) * padding_horizontal  # Paddings
+        (3 + num_cores_per_image) * padding_horizontal  # Paddings
         + 2 * ruler_width  # Ruler
-        + cores_width  # Cores
+        + sum(cores_widths)  # Cores
     )
     canvas_height = 5 * padding_vertical + core_height_px
     canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
@@ -113,7 +120,7 @@ def stitching_batch(
 
     canvas = _draw_ruler(
         canvas,
-        loc=((2 + len(cores)) * padding_horizontal + ruler_width + cores_width, 3 * padding_vertical),
+        loc=((2 + len(cores)) * padding_horizontal + ruler_width + sum(cores_widths), 3 * padding_vertical),
         size=(ruler_width, core_height_px),
         n_major=100,
         font_size=round(font_size / 2),
@@ -154,6 +161,7 @@ def stitching(
     for i in range(0, len(imgs), num_cores_per_image):
         yield stitching_batch(
             cores=imgs[i : i + num_cores_per_image],
+            num_cores_per_image=num_cores_per_image,
             padding_vertical=padding_vertical,
             padding_horizontal=padding_horizontal,
             ruler_width=ruler_width,
