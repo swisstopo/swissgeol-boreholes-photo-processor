@@ -77,22 +77,6 @@ class ImageMetadataProcessed(ImageMetadata):
 
     result: CoreSegmentResult
 
-    def as_image(self) -> Image.Image:
-        """Cut a core segment from the source image, rotating to portrait if needed.
-
-        Cores are stored vertically in the output, so landscape crops (width > height)
-        are rotated 90° clockwise so the left edge (shallow end) becomes the top.
-
-        Returns:
-            Image.Image: The cropped core segment image in portrait orientation.
-        """
-        with Image.open(self.image_path) as src:
-            left, upper, right, lower = (round(v) for v in self.result.bounding_box)
-            crop = src.crop((left, upper, right, lower))
-            if crop.width > crop.height:
-                crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
-        return crop
-
     @classmethod
     def from_metadata(
         cls,
@@ -115,3 +99,19 @@ class ImageMetadataProcessed(ImageMetadata):
             image_path=metadata.image_path,
             result=result,
         )
+
+    def as_image(self) -> Image.Image:
+        """Cut a core segment from the source image, rotating to portrait if needed.
+
+        Cores are stored vertically in the output, so landscape crops (width > height)
+        are rotated 90° clockwise so the left edge (shallow end) becomes the top.
+
+        Returns:
+            Image.Image: The cropped core segment image in portrait orientation.
+        """
+        with Image.open(self.image_path) as src:
+            left, upper, right, lower = (round(v) for v in self.result.bounding_box)
+            crop = src.crop((left, upper, right, lower))
+            if crop.width > crop.height:
+                crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
+        return crop
