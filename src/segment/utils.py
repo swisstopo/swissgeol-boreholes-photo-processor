@@ -2,19 +2,18 @@
 
 import logging
 from itertools import groupby
-from pathlib import Path
 
 import numpy as np
-import tifffile
 from skimage.color import rgb2gray, rgb2hsv
 from skimage.filters import gaussian, threshold_triangle
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening, remove_small_objects
-from skimage.transform import rescale
 from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
 
-from src.models import ImageMetadata
+from src.config import SegmentationConfig
+from src.models import ImageMetadata, ImageSegmentResult
+from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
 
@@ -23,43 +22,42 @@ class SegmentationError(Exception):
     """Raised when segmentation fails for a single image."""
 
 
-def _load_image(image_path: Path) -> np.ndarray:
-    """Load a TIF image and normalize it to an RGB float array in [0, 1].
-
-    Grayscale (2D) images are converted to 3-channel by stacking. Images with
-    channel counts other than 1 or 3 are passed through unmodified.
-    Uses tifffile instead of PIL since raw borehole scans may be 16-bit, which
-    PIL does not handle as reliably for downstream processing.
+def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationConfig) -> ImageSegmentResult:
+    """Segment a single image via thresholding when no shared foreground bbox is available.
 
     Args:
-        image_path (Path): Path to the TIF image to load.
+        img_metadata (ImageMetadata): Metadata of the image to load and segment.
+        config (SegmentationConfig): Tunable segmentation parameters.
 
     Returns:
-        np.ndarray: RGB image array with float values in [0, 1].
+        ImageSegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the
+            original image's coordinate space.
     """
-    img = tifffile.imread(str(image_path))
+    factor = config.downscale_factor
+    binary, grey = _apply_threshold_and_clean(
+        img_metadata.load_image(factor=factor),
+        min_object_size=max(1, round(config.min_object_size * factor**2)),  # factor**2 for area-based configs
+        opening_disk=max(1, round(config.opening_disk * factor)),
+        closing_disk=max(1, round(config.closing_disk * factor)),
+    )
 
-    # grayscale to RGB
-    if img.ndim == 2:
-        img = np.stack([img] * 3, axis=-1)
+    bbox = _select_bbox(
+        img_mask=binary,
+        img_intensity=grey,
+        img_height=binary.shape[0],
+        min_bbox_height=max(1, round(config.min_bbox_height * factor)),
+        edge_margin_top=round(config.edge_margin_top * factor),
+        edge_margin_bottom=round(config.edge_margin_bottom * factor),
+        min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
+    )
 
-    # normalize to [0, 1]
-    if img.dtype == np.uint8:
-        return img.astype(float) / 255.0
-    elif img.dtype == np.uint16:
-        return img.astype(float) / 65535.0
-    else:
-        if img.max() == 0:
-            raise SegmentationError(f"Image is blank (all-zero pixels): {image_path}")
-        return img.astype(float) / img.max()
+    return ImageSegmentResult(bounding_box=scale_bbox(bbox, factor=1 / factor))
 
 
-def _estimate_foreground(
-    imgs: list[ImageMetadata],
-    factor: float = 0.125,
-    sigma: float = 5,
-    n_min: int = 10,
-) -> np.ndarray | None:
+def segment_tray_multiple(
+    imgs_metadata: list[ImageMetadata],
+    config: SegmentationConfig,
+) -> ImageSegmentResult | None:
     """Estimate the foreground mask shared by a batch of images taken from a static camera position.
 
     Loads and downscales every image, then computes the per-pixel standard deviation across the
@@ -67,45 +65,45 @@ def _estimate_foreground(
     background (tray, backdrop) stays low.
 
     Args:
-        imgs (list[ImageMetadata]): Batch of images assumed to share the same camera position.
-        factor (float): Downscale factor applied to each image before comparison.
-        sigma (float): Gaussian blur applied to each image beforehand.
-        n_min (int): Minimum number of successfully loaded images required to estimate a
-            foreground. Below this, there isn't enough data for a reliable per-pixel std.
+        imgs_metadata (list[ImageMetadata]): Batch of images assumed to share the same camera position.
+        config (SegmentationConfig): Tunable segmentation parameters.
 
     Returns:
-        np.ndarray | None: Per-pixel standard deviation map highlighting regions that change across the
-            image stack, or None if unavailable.
+        ImageSegmentResult | None: Estimated tray bounding box, or None if unavailable.
     """
     imgs_stack: list[np.ndarray] = []
     img_shape: tuple[int, ...] | None = None
-    for img_metadata in tqdm(imgs, desc="Load images"):
+    for img_metadata in tqdm(imgs_metadata, desc="Load images"):
         try:
-            img_ = _load_image(img_metadata.image_path)
-            img_scale = rescale(img_, factor, channel_axis=-1, anti_aliasing=True) if factor != 1.0 else img_
+            img = img_metadata.load_image(factor=config.downscale_factor)
         except SegmentationError as e:
             logger.warning("%s. Skipping.", e)
             continue
 
         if img_shape is None:
-            img_shape = img_scale.shape
-        elif img_shape != img_scale.shape:
+            img_shape = img.shape
+        elif img_shape != img.shape:
             logger.warning("Inconsistent image sizes")
             return None
 
-        img_gray_ = rgb2gray(img_scale)
-        img_blur_ = gaussian(img_gray_, sigma=sigma)
+        img_gray_ = rgb2gray(img)
+        img_blur_ = gaussian(img_gray_, sigma=config.foreground_blur_sigma)
         imgs_stack.append(img_blur_)
 
     # At least n_min images for statistics
-    if len(imgs_stack) < n_min:
+    if len(imgs_stack) < config.n_min_foreground:
         return None
 
     # Compute STD between images to highlight changes in background
-    return np.stack(imgs_stack).std(axis=0)
+    fg_img = np.stack(imgs_stack).std(axis=0)
+    fg_bbox = _estimate_tray_bbox(fg_img)
+    if fg_bbox is None:
+        return None
+
+    return ImageSegmentResult(bounding_box=scale_bbox(fg_bbox, factor=1 / config.downscale_factor))
 
 
-def _estimate_foreground_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] | None:
+def _estimate_tray_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] | None:
     """Fit the foreground distribution and derive a bounding box for the core region.
 
     Assumes the foreground shows the highest variance. Fits a 2-component GMM over the
@@ -264,36 +262,29 @@ def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) 
     return result[id_best, 0].item(), result[id_best, 1].item()
 
 
-def _tray_trim(
-    img: np.ndarray,
-    bbox: tuple[int, int, int, int],
-    tray_sat_threshold: float,
-    tray_sat_ratio: float,
-) -> tuple[int, int, int, int]:
+def segment_core_from_tray(
+    img_metadata: ImageMetadata, bbox: ImageSegmentResult, config: SegmentationConfig
+) -> ImageSegmentResult:
     """Vertical trim the bounding box to exclude the wooden tray based on saturation.
 
     Args:
-        img (np.ndarray): RGB image array (float, [0, 1]) to be trimmed.
-        bbox (tuple[int, int, int, int]): Bounding box coordinates in the format (x_min, y_min, x_max, y_max).
-        tray_sat_threshold (float): Saturation above this value is treated as wooden tray (not rock).
-        tray_sat_ratio (float): Fraction of tray-saturation pixels in a row required to
-            classify the row as tray.
+        img_metadata (ImageMetadata): Metadata of the image to load and trim.
+        bbox (ImageSegmentResult): Bounding box to trim, in the original image's coordinate space.
+        config (SegmentationConfig): Tunable segmentation parameters (uses `tray_sat_threshold`,
+            `tray_sat_ratio`, and `downscale_factor`).
 
     Returns:
-        tuple[int, int, int, int]: Trimmed bounding box as (left, top, right, bottom),
-            matching CoreSegmentResult.bounding_box convention.
+        ImageSegmentResult: Trimmed bounding box as (left, top, right, bottom), in the
+            original image's coordinate space.
 
     Raises:
         SegmentationError: If every row is classified as tray (no non-tray interval found).
     """
-    x_min, y_min, x_max, y_max = bbox
+    img = img_metadata.load_image(factor=config.downscale_factor)
+    x_min, y_min, x_max, y_max = scale_bbox(bbox.bounding_box, factor=config.downscale_factor)
 
-    hsv = rgb2hsv(img[y_min : y_max + 1, x_min : x_max + 1])
-    top_trim, bottom_trim = _find_non_tray_interval(hsv[:, :, 1], tray_sat_threshold, tray_sat_ratio)
+    hsv = rgb2hsv(img[int(y_min) : int(y_max + 1), int(x_min) : int(x_max + 1)])
+    top_trim, bottom_trim = _find_non_tray_interval(hsv[:, :, 1], config.tray_sat_threshold, config.tray_sat_ratio)
 
-    return (
-        x_min,  # left
-        y_min + top_trim,  # top
-        x_max,  # right
-        y_min + bottom_trim,  # bottom
-    )
+    trimmed_bbox = (x_min, y_min + top_trim, x_max, y_min + bottom_trim)
+    return ImageSegmentResult(bounding_box=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))

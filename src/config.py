@@ -10,31 +10,32 @@ import yaml
 class SegmentationConfig:
     """Tunable parameters for the segmentation step."""
 
-    opening_disk: int = 20  # radius for binary_opening (removes noise)
     closing_disk: int = 20  # radius for binary_closing (fills gaps)
-    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
-    min_object_size: int = 500  # minimum blob size in pixels
-    edge_margin_top: int = 100  # ignore top edge of image (ruler)
-    edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
-    min_bbox_height: int = 500  # minimum height for a candidate core bounding box
-    tray_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
-    tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
-    min_size_for_bottom: int = 500_000  # minimum area for a candidate core to touch the bottom edge of the image
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
+    edge_margin_top: int = 100  # ignore top edge of image (ruler)
+    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
+    min_bbox_height: int = 500  # minimum height for a candidate core bounding box
+    min_object_size: int = 500  # minimum blob size in pixels
+    min_size_for_bottom: int = 500_000  # minimum area for a candidate core to touch the bottom edge of the image
+    n_min_foreground: int = 10  # Minimum number images required to estimate a foreground
+    opening_disk: int = 20  # radius for binary_opening (removes noise)
+    tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
+    tray_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
 
 
 @dataclass
 class StitchingConfig:
     """Tunable parameters for the stitching step."""
 
-    num_cores_per_image: int = 6  # cores placed side by side per output sheet
-    padding_vertical: int = 200  # top/bottom border height in pixels
-    padding_horizontal: int = 150  # left/right border width in pixels
-    ruler_width: int = 300  # width in pixels of each of the two depth rulers (left/right of the cores)
-    core_height_px: int = 10000  # pixel budget for a core spanning core_height_m metres
     core_height_m: float = 1.0  # depth extent, in metres, that core_height_px pixels represents
+    core_height_px: int = 10000  # pixel budget for a core spanning core_height_m metres
     core_width_rerror: float = 1.5  # max allowed width ratio vs. the reference core before treated as an outlier
     font_size: int = 100  # font size (px) used for borehole ID, depth labels, and ruler tick labels
+    num_cores_per_image: int = 6  # cores placed side by side per output sheet
+    padding_horizontal: int = 150  # left/right border width in pixels
+    padding_vertical: int = 200  # top/bottom border height in pixels
+    ruler_width: int = 300  # width in pixels of each of the two depth rulers (left/right of the cores)
 
 
 @dataclass

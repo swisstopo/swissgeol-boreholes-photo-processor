@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
+from src.models import ImageMetadata, ImageMetadataProcessed, ImageSegmentResult
 from src.stitching.stitching import stitching
 
 RED = (255, 0, 0)
@@ -36,8 +36,8 @@ def make_processed(tmp_path):
             depth_end=depth_end,
             image_path=image_path,
         )
-        result = CoreSegmentResult(bounding_box=(0.0, 0.0, float(size[0]), float(size[1])))
-        return ImageMetadataProcessed.from_metadata(metadata=metadata, result=result)
+        core = ImageSegmentResult(bounding_box=(0.0, 0.0, float(size[0]), float(size[1])))
+        return ImageMetadataProcessed.from_metadata(metadata=metadata, core=core, tray=None, ruler=None)
 
     return _factory
 

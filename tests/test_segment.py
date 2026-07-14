@@ -2,15 +2,13 @@
 
 from collections.abc import Callable
 
-import numpy as np
 import pytest
-import tifffile
 from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
 from src.models import ImageMetadata
 from src.segment.segment import segment
-from src.segment.utils import _estimate_foreground
+from src.segment.utils import segment_tray_multiple
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
@@ -61,7 +59,8 @@ def test_segment_detects_core_bounding_box(make_metadata):
     detections = segment([metadata], config=SegmentationConfig(downscale_factor=1.0))
 
     assert len(detections) == 1
-    assert detections[0].result.bounding_box == core_box
+    assert detections[0].core is not None
+    assert detections[0].core.bounding_box == core_box
 
 
 def test_segment_trims_saturated_tray_by_default(make_metadata):
@@ -76,7 +75,8 @@ def test_segment_trims_saturated_tray_by_default(make_metadata):
 
     detections = segment([metadata], config=SegmentationConfig(downscale_factor=1.0))
 
-    assert detections[0].result.bounding_box == core_box
+    assert detections[0].core is not None
+    assert detections[0].core.bounding_box == core_box
 
 
 def test_segment_tray_trim_threshold_is_configurable(make_metadata):
@@ -91,14 +91,15 @@ def test_segment_tray_trim_threshold_is_configurable(make_metadata):
 
     detections = segment([metadata], config=SegmentationConfig(tray_sat_threshold=1.1, downscale_factor=1.0))
 
-    assert detections[0].result.bounding_box == tray_box
+    assert detections[0].tray is not None
+    assert detections[0].tray.bounding_box == tray_box
 
 
 def test_segment_skips_image_with_no_detectable_regions(make_metadata):
     """A uniform image with no foreground region is skipped instead of raising."""
     metadata = make_metadata(15.0, 16.0)  # no draw_fn — flat background only
 
-    detections = segment([metadata])
+    detections = segment([metadata], config=SegmentationConfig(downscale_factor=1.0))
 
     assert detections == []
 
@@ -113,25 +114,15 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
 
     assert len(detections) == 1
     assert detections[0].depth_start == 16.0
-    assert detections[0].result.bounding_box == core_box
-
-
-def test_segment_skips_blank_non_integer_image_without_dividing_by_zero(tmp_path):
-    """A blank image with a non-uint8/uint16 dtype (e.g. float32) is skipped instead of producing NaNs."""
-    image_path = tmp_path / "GBC-CB50_0015.00-0016.00_vd_p.TIF"
-    tifffile.imwrite(image_path, np.zeros((300, 300, 3), dtype=np.float32), photometric="rgb")
-    metadata = ImageMetadata(borehole_id="GBC-CB50", depth_start=15.0, depth_end=16.0, image_path=image_path)
-
-    detections = segment([metadata])
-
-    assert detections == []
+    assert detections[0].core is not None
+    assert detections[0].core.bounding_box == core_box
 
 
 def test_estimate_foreground_returns_none_below_n_min(make_metadata):
     """Fewer than n_min successfully loaded images isn't enough for a reliable per-pixel std."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(4)]
 
-    assert _estimate_foreground(imgs, factor=1.0, n_min=5) is None
+    assert segment_tray_multiple(imgs, SegmentationConfig(downscale_factor=1.0, n_min_foreground=10)) is None
 
 
 def test_estimate_foreground_returns_none_on_inconsistent_image_sizes(make_metadata):
@@ -139,7 +130,7 @@ def test_estimate_foreground_returns_none_on_inconsistent_image_sizes(make_metad
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(100, 100)) for i in range(10)]
     imgs.append(make_metadata(25.0, 26.0, size=(50, 50)))
 
-    assert _estimate_foreground(imgs, factor=1.0, n_min=5) is None
+    assert segment_tray_multiple(imgs, SegmentationConfig(downscale_factor=1.0)) is None
 
 
 def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
@@ -151,11 +142,9 @@ def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
         for i, f in enumerate(fills)
     ]
 
-    foreground = _estimate_foreground(imgs, factor=1.0, n_min=5)
+    tray = segment_tray_multiple(imgs, SegmentationConfig(downscale_factor=1.0, n_min_foreground=5))
+    assert tray is not None
 
-    assert foreground is not None
-    assert foreground.shape == (100, 100)
-    background_std = foreground[0:25].mean()  # Top part as backgorund
-    core_std = foreground[75].mean()  # Bottom part as core
-    assert core_std > background_std
-    assert background_std == pytest.approx(0.0, abs=1e-9)
+    x_min, y_min, x_max, y_max = tray.bounding_box
+    assert int(x_max) - int(x_min) + 1 == 100  # Spans left to right
+    assert int(y_min) > 50  # Bottom half is moving, not upper

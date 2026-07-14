@@ -67,7 +67,7 @@ def stitching_batch(
         Image.Image: The stitched image for this batch of cores.
     """
     # Load all core crops up front so we can identify outliers before resizing
-    cores_img = [core.as_image() for core in cores]
+    cores_img = [core.load_core() for core in cores]
 
     # resize all crops to preserve aspect ratio
     cores_img = _resize_cores(

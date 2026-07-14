@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
+import numpy as np
 from PIL import Image
+
+from src.utils import load_image
 
 
 @dataclass
@@ -36,7 +39,8 @@ class ImageMetadata:
                 ``Path(".../GBC/GBC-CB50/GBC-CB50_0015.00-0016.00_vd_p.TIF")``.
 
         Raises:
-            ValueError: If no depth range can be found in the filename.
+            ValueError: If no depth range can be found in the filename, or if the
+                parsed depth_end is not strictly greater than depth_start.
 
         Returns:
             ImageMetadata: An instance containing the parsed metadata.
@@ -63,10 +67,21 @@ class ImageMetadata:
         """Parent directory of the image file."""
         return self.image_path.parent
 
+    def load_image(self, factor: float = 1.0) -> np.ndarray:
+        """Load a TIF image and normalize it to an RGB float array in [0, 1].
+
+        Args:
+            factor (float): Downscale factor applied after loading; 1.0 leaves the image unscaled.
+
+        Returns:
+            np.ndarray: RGB image array with float values in [0, 1].
+        """
+        return load_image(str(self.image_path), factor)
+
 
 @dataclass
-class CoreSegmentResult:
-    """Class to represent the result of processing a core segment image."""
+class ImageSegmentResult:
+    """Class to represent the result of detecting a region in an image."""
 
     bounding_box: tuple[float, float, float, float]  # (left, upper, right, lower)
 
@@ -75,21 +90,27 @@ class CoreSegmentResult:
 class ImageMetadataProcessed(ImageMetadata):
     """Metadata for a processed image with detected regions."""
 
-    result: CoreSegmentResult
+    core: ImageSegmentResult | None
+    tray: ImageSegmentResult | None
+    ruler: ImageSegmentResult | None
 
     @classmethod
     def from_metadata(
         cls,
         metadata: ImageMetadata,
-        result: CoreSegmentResult,
+        core: ImageSegmentResult | None,
+        tray: ImageSegmentResult | None,
+        ruler: ImageSegmentResult | None,
     ) -> "ImageMetadataProcessed":
         """Construct an ImageMetadataProcessed from an existing ImageMetadata.
 
         Args:
             metadata (ImageMetadata): The original image metadata.
-            result (CoreSegmentResult): The result of processing the image, e.g. bounding box and segmentation mask.
+            core (ImageSegmentResult | None): Detected core bounding box, if any.
+            tray (ImageSegmentResult | None): Detected tray bounding box, if any.
+            ruler (ImageSegmentResult | None): Detected ruler bounding box, if any.
 
-        Return:
+        Returns:
             ImageMetadataProcessed: A new instance containing the original metadata and the processing result.
         """
         return cls(
@@ -97,10 +118,12 @@ class ImageMetadataProcessed(ImageMetadata):
             depth_start=metadata.depth_start,
             depth_end=metadata.depth_end,
             image_path=metadata.image_path,
-            result=result,
+            core=core,
+            tray=tray,
+            ruler=ruler,
         )
 
-    def as_image(self) -> Image.Image:
+    def load_core(self) -> Image.Image:
         """Cut a core segment from the source image, rotating to portrait if needed.
 
         Cores are stored vertically in the output, so landscape crops (width > height)
@@ -108,9 +131,15 @@ class ImageMetadataProcessed(ImageMetadata):
 
         Returns:
             Image.Image: The cropped core segment image in portrait orientation.
+
+        Raises:
+            ValueError: If no core region was detected for this image.
         """
+        if self.core is None:
+            raise ValueError(f"No core region detected for image: {self.image_path}")
+
         with Image.open(self.image_path) as src:
-            left, upper, right, lower = (round(v) for v in self.result.bounding_box)
+            left, upper, right, lower = (round(v) for v in self.core.bounding_box)
             crop = src.crop((left, upper, right, lower))
             if crop.width > crop.height:
                 crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
