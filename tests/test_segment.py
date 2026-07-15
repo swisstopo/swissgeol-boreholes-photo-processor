@@ -1,9 +1,11 @@
 """Tests for the segment module."""
 
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from PIL import Image, ImageDraw
+from pytest import approx
 
 from src.config import (
     SegmentationConfig,
@@ -53,6 +55,40 @@ def make_metadata(tmp_path):
         )
 
     return _factory
+
+
+@pytest.fixture
+def example(tmp_path) -> ImageMetadata:
+    """TODO."""
+    path_source_ = Path("examples/EX-EX_0001.00-002.00.jpg")
+    path_dest = tmp_path / (path_source_.stem + ".tif")
+    Image.open(path_source_).save(path_dest)
+    return ImageMetadata.from_path(path_dest)
+
+
+def test_segment_example(example):
+    """TODO."""
+    detections = segment([example], config=SegmentationConfig())
+
+    # Check metadata
+    assert len(detections) == 1
+    assert detections[0].borehole_id == "EX-EX"
+    assert detections[0].depth_start == 1.0
+    assert detections[0].depth_end == 2.0
+
+    # Check segmentation results
+    assert detections[0].core is not None
+    assert detections[0].tray is not None
+    assert detections[0].ruler is not None
+
+    # Check core is contained within tray and trimmed (y axis)
+    assert detections[0].core.bounding_box[0] >= detections[0].tray.bounding_box[0]
+    assert detections[0].core.bounding_box[1] > detections[0].tray.bounding_box[1]
+    assert detections[0].core.bounding_box[2] <= detections[0].tray.bounding_box[2]
+    assert detections[0].core.bounding_box[3] < detections[0].tray.bounding_box[3]
+
+    # Ruler detected with proper resoltuion (2% relative error)
+    assert approx(detections[0].ruler.px_per_unit, rel=0.02) == 100
 
 
 def test_segment_detects_core_bounding_box(make_metadata):
