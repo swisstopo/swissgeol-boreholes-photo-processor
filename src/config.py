@@ -8,7 +8,7 @@ import yaml
 
 @dataclass
 class SegmentationCoreConfig:
-    """TODO."""
+    """Tunable parameters for trimming the wooden tray off a detected core bounding box."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
@@ -17,7 +17,7 @@ class SegmentationCoreConfig:
 
 @dataclass
 class SegmentationRulerConfig:
-    """TODO."""
+    """Tunable parameters for detecting a depth ruler via OCR on its printed number ticks."""
 
     downscale_factor: float = 0.5  # Scale images by this factor before OCR
     text_min_value: int = 1  # Minimal visible number on ruler
@@ -27,7 +27,7 @@ class SegmentationRulerConfig:
 
 @dataclass
 class SegmentationTrayMultipleConfig:
-    """TODO."""
+    """Tunable parameters for estimating a shared tray/core bounding box across a batch of images."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
@@ -36,7 +36,7 @@ class SegmentationTrayMultipleConfig:
 
 @dataclass
 class SegmentationTraySingleConfig:
-    """TODO."""
+    """Tunable parameters for segmenting a single image via thresholding when no shared bbox is available."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     closing_disk: int = 20  # radius for binary_closing (fills gaps)

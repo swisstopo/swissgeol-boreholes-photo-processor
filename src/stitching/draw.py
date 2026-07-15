@@ -12,7 +12,7 @@ def _draw_cores(
     padding_horizontal: int,
     padding_vertical: int,
     font_size: int,
-):
+) -> Image.Image:
     """Paste core crops onto the canvas and draw their depth labels above/below.
 
     Args:

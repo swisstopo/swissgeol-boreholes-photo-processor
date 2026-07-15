@@ -14,7 +14,7 @@ def _resize_cores(
 
     Args:
         cores (list[Image.Image]): Raw core crops to resize.
-        core_height_px (float): Pixel budget for a core spanning core_height_m metres.
+        core_height_px (int): Pixel budget for a core spanning core_height_m metres.
         core_height_m (float): Depth extent, in metres, that core_height_px pixels represents.
         core_width_rerror (float): Maximum allowed width ratio vs. the reference core before
             a core is treated as an outlier and rescaled using the reference core's scale factor.

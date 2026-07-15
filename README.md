@@ -13,6 +13,8 @@ git clone https://github.com/swisstopo/swissgeol-boreholes-photo-processor.git
 
 ### OCR
 
+The pipeline uses OCR to read the printed tick numbers on the depth ruler in each photo.
+
 ```bash
 # Install Tesseract OCR engine (system-level)
 # On Ubuntu/Debian:
@@ -145,7 +147,6 @@ across the sheet's pixel height, not an absolute depth readout — depth values 
 `depth_start`/`depth_end` labels (in metres) above and below each core strip. Cores whose raw pixel
 dimensions are disproportionately larger than the rest of the batch are treated as outliers and
 width-matched to a representative core in the sheet instead of being scaled at their own natural size.
-
 
 ## Configuration
 
