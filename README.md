@@ -11,6 +11,22 @@ In a first step you need to clone the repository:
 git clone https://github.com/swisstopo/swissgeol-boreholes-photo-processor.git
 ```
 
+### OCR
+
+```bash
+# Install Tesseract OCR engine (system-level)
+# On Ubuntu/Debian:
+sudo apt install tesseract-ocr
+
+# On macOS:
+brew install tesseract
+
+# On Windows: download installer from
+# https://github.com/UB-Mannheim/tesseract/wiki
+```
+
+### Python
+
 We use [uv](https://docs.astral.sh/uv/) to manage package dependencies. Install uv first if you haven't already:
 
 ```bash

@@ -2,18 +2,31 @@
 # All keys are optional; omitted keys fall back to the defaults in src/config.py.
 
 segmentation:
-  closing_disk: 20 # radius for binary_closing (fills gaps)
-  downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-  edge_margin_bottom: 5 # ignore bottom edge of image (ruler)
-  edge_margin_top: 100 # ignore top edge of image (ruler)
-  foreground_blur_sigma: 5.0 # Gaussian blur applied to each image for foreground detection.
-  min_bbox_height: 500 # minimum height for a candidate core bounding box
-  min_object_size: 500 # minimum blob size in pixels
-  min_size_for_bottom: 500000 # minimum area for a candidate core to touch the bottom edge of the image
-  n_min_foreground: 10 # Minimum number images required to estimate a foreground
-  opening_disk: 20 # radius for binary_opening (removes noise)
-  tray_sat_ratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
-  tray_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
+  tray_multiple:
+    downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    foreground_blur_sigma: 5.0 # Gaussian blur applied to each image for foreground detection.
+    n_min_foreground: 10 # Minimum number images required to estimate a foreground
+
+  tray_single:
+    closing_disk: 20 # radius for binary_closing (fills gaps)
+    downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    edge_margin_bottom: 5 # ignore bottom edge of image (ruler)
+    edge_margin_top: 100 # ignore top edge of image (ruler)
+    min_bbox_height: 500 # minimum height for a candidate core bounding box
+    min_size_for_bottom: 500000 # minimum area for a candidate core to touch the bottom edge of the image
+    min_object_size: 500 # minimum blob size in pixels
+    opening_disk: 20 # radius for binary_opening (removes noise)
+
+  ruler:
+    downscale_factor: 0.5 # scale images by this factor before OCR
+    text_min_value: 1 # Minimal visible number on ruler
+    text_max_value: 99 # Maximal visible number on ruler
+    r_error_outliers: 0.1 # Allow 10% error for inliers detection
+
+  core:
+    downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    tray_sat_ratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
+    tray_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
 
 stitching:
   core_height_m: 1.0 # depth extent, in metres, that core_height_px pixels represents

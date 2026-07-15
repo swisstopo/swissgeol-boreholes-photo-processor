@@ -7,21 +7,55 @@ import yaml
 
 
 @dataclass
-class SegmentationConfig:
-    """Tunable parameters for the segmentation step."""
+class SegmentationCoreConfig:
+    """TODO."""
 
-    closing_disk: int = 20  # radius for binary_closing (fills gaps)
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
+    tray_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
+
+
+@dataclass
+class SegmentationRulerConfig:
+    """TODO."""
+
+    downscale_factor: float = 0.5  # Scale images by this factor before OCR
+    text_min_value: int = 1  # Minimal visible number on ruler
+    text_max_value: int = 99  # Maximal visible number on ruler
+    r_error_outliers: float = 0.1  # Allow 10% error for inliers detection
+
+
+@dataclass
+class SegmentationTrayMultipleConfig:
+    """TODO."""
+
+    downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
+    n_min_foreground: int = 10  # Minimum number images required to estimate a foreground
+
+
+@dataclass
+class SegmentationTraySingleConfig:
+    """TODO."""
+
+    downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    closing_disk: int = 20  # radius for binary_closing (fills gaps)
     edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
     edge_margin_top: int = 100  # ignore top edge of image (ruler)
-    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
     min_bbox_height: int = 500  # minimum height for a candidate core bounding box
     min_object_size: int = 500  # minimum blob size in pixels
     min_size_for_bottom: int = 500_000  # minimum area for a candidate core to touch the bottom edge of the image
-    n_min_foreground: int = 10  # Minimum number images required to estimate a foreground
     opening_disk: int = 20  # radius for binary_opening (removes noise)
-    tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
-    tray_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
+
+
+@dataclass
+class SegmentationConfig:
+    """Tunable parameters for the segmentation step."""
+
+    core: SegmentationCoreConfig = field(default_factory=SegmentationCoreConfig)
+    ruler: SegmentationRulerConfig = field(default_factory=SegmentationRulerConfig)
+    tray_multiple: SegmentationTrayMultipleConfig = field(default_factory=SegmentationTrayMultipleConfig)
+    tray_single: SegmentationTraySingleConfig = field(default_factory=SegmentationTraySingleConfig)
 
 
 @dataclass
@@ -59,7 +93,15 @@ class PipelineConfig:
             PipelineConfig: The loaded configuration.
         """
         raw = yaml.safe_load(path.read_text()) or {}
+        segmentation_raw = dict(raw.pop("segmentation", None) or {})
         return cls(
-            segmentation=SegmentationConfig(**(raw.get("segmentation") or {})),
-            stitching=StitchingConfig(**(raw.get("stitching") or {})),
+            segmentation=SegmentationConfig(
+                core=SegmentationCoreConfig(**(segmentation_raw.pop("core", None) or {})),
+                ruler=SegmentationRulerConfig(**(segmentation_raw.pop("ruler", None) or {})),
+                tray_multiple=SegmentationTrayMultipleConfig(**(segmentation_raw.pop("tray_multiple", None) or {})),
+                tray_single=SegmentationTraySingleConfig(**(segmentation_raw.pop("tray_single", None) or {})),
+                **segmentation_raw,
+            ),
+            stitching=StitchingConfig(**(raw.pop("stitching", None) or {})),
+            **raw,
         )

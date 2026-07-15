@@ -87,12 +87,20 @@ class ImageSegmentResult:
 
 
 @dataclass
+class RulerSegmentResult(ImageSegmentResult):
+    """Result of detecting a depth ruler in an image via OCR on its printed number ticks."""
+
+    px_per_unit: float  # pixel distance between two consecutive ruler unit ticks, at full image resolution
+    bounding_box_units: list[tuple[float, float, float, float]]  # one bbox per detected ruler number
+
+
+@dataclass
 class ImageMetadataProcessed(ImageMetadata):
     """Metadata for a processed image with detected regions."""
 
     core: ImageSegmentResult | None
     tray: ImageSegmentResult | None
-    ruler: ImageSegmentResult | None
+    ruler: RulerSegmentResult | None
 
     @classmethod
     def from_metadata(
@@ -100,7 +108,7 @@ class ImageMetadataProcessed(ImageMetadata):
         metadata: ImageMetadata,
         core: ImageSegmentResult | None,
         tray: ImageSegmentResult | None,
-        ruler: ImageSegmentResult | None,
+        ruler: RulerSegmentResult | None,
     ) -> "ImageMetadataProcessed":
         """Construct an ImageMetadataProcessed from an existing ImageMetadata.
 
@@ -108,7 +116,7 @@ class ImageMetadataProcessed(ImageMetadata):
             metadata (ImageMetadata): The original image metadata.
             core (ImageSegmentResult | None): Detected core bounding box, if any.
             tray (ImageSegmentResult | None): Detected tray bounding box, if any.
-            ruler (ImageSegmentResult | None): Detected ruler bounding box, if any.
+            ruler (RulerSegmentResult | None): Detected ruler bounding box, if any.
 
         Returns:
             ImageMetadataProcessed: A new instance containing the original metadata and the processing result.

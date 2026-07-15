@@ -5,7 +5,12 @@ from collections.abc import Callable
 import pytest
 from PIL import Image, ImageDraw
 
-from src.config import SegmentationConfig
+from src.config import (
+    SegmentationConfig,
+    SegmentationCoreConfig,
+    SegmentationTrayMultipleConfig,
+    SegmentationTraySingleConfig,
+)
 from src.models import ImageMetadata
 from src.segment.segment import segment
 from src.segment.utils import segment_tray_multiple
@@ -56,7 +61,13 @@ def test_segment_detects_core_bounding_box(make_metadata):
     metadata = make_metadata(15.0, 16.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
 
     # downscale_factor=1.0: detection precision is under test here, not the downscale speedup
-    detections = segment([metadata], config=SegmentationConfig(downscale_factor=1.0))
+    detections = segment(
+        [metadata],
+        config=SegmentationConfig(
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1),
+        ),
+    )
 
     assert len(detections) == 1
     assert detections[0].core is not None
@@ -73,7 +84,13 @@ def test_segment_trims_saturated_tray_by_default(make_metadata):
         lambda draw: (draw.rectangle(tray_box, fill=(180, 120, 60)), draw.rectangle(core_box, fill=(200, 200, 200))),
     )
 
-    detections = segment([metadata], config=SegmentationConfig(downscale_factor=1.0))
+    detections = segment(
+        [metadata],
+        config=SegmentationConfig(
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1),
+        ),
+    )
 
     assert detections[0].core is not None
     assert detections[0].core.bounding_box == core_box
@@ -89,7 +106,13 @@ def test_segment_tray_trim_threshold_is_configurable(make_metadata):
         lambda draw: (draw.rectangle(tray_box, fill=(180, 120, 60)), draw.rectangle(core_box, fill=(200, 200, 200))),
     )
 
-    detections = segment([metadata], config=SegmentationConfig(tray_sat_threshold=1.1, downscale_factor=1.0))
+    detections = segment(
+        [metadata],
+        config=SegmentationConfig(
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1, tray_sat_threshold=1.1),
+        ),
+    )
 
     assert detections[0].tray is not None
     assert detections[0].tray.bounding_box == tray_box
@@ -99,7 +122,13 @@ def test_segment_skips_image_with_no_detectable_regions(make_metadata):
     """A uniform image with no foreground region is skipped instead of raising."""
     metadata = make_metadata(15.0, 16.0)  # no draw_fn — flat background only
 
-    detections = segment([metadata], config=SegmentationConfig(downscale_factor=1.0))
+    detections = segment(
+        [metadata],
+        config=SegmentationConfig(
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1),
+        ),
+    )
 
     assert detections == []
 
@@ -110,7 +139,13 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     core_box = (200, 150, 600, 1100)
     good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
 
-    detections = segment([blank, good], config=SegmentationConfig(downscale_factor=1.0))
+    detections = segment(
+        [blank, good],
+        config=SegmentationConfig(
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1),
+        ),
+    )
 
     assert len(detections) == 1
     assert detections[0].depth_start == 16.0
@@ -122,7 +157,13 @@ def test_estimate_foreground_returns_none_below_n_min(make_metadata):
     """Fewer than n_min successfully loaded images isn't enough for a reliable per-pixel std."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(4)]
 
-    assert segment_tray_multiple(imgs, SegmentationConfig(downscale_factor=1.0, n_min_foreground=10)) is None
+    assert (
+        segment_tray_multiple(
+            imgs,
+            config=SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=10),
+        )
+        is None
+    )
 
 
 def test_estimate_foreground_returns_none_on_inconsistent_image_sizes(make_metadata):
@@ -130,7 +171,13 @@ def test_estimate_foreground_returns_none_on_inconsistent_image_sizes(make_metad
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(100, 100)) for i in range(10)]
     imgs.append(make_metadata(25.0, 26.0, size=(50, 50)))
 
-    assert segment_tray_multiple(imgs, SegmentationConfig(downscale_factor=1.0)) is None
+    assert (
+        segment_tray_multiple(
+            imgs,
+            config=SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=10),
+        )
+        is None
+    )
 
 
 def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
@@ -142,9 +189,12 @@ def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
         for i, f in enumerate(fills)
     ]
 
-    tray = segment_tray_multiple(imgs, SegmentationConfig(downscale_factor=1.0, n_min_foreground=5))
+    tray = segment_tray_multiple(
+        imgs,
+        config=SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=5),
+    )
     assert tray is not None
 
-    x_min, y_min, x_max, y_max = tray.bounding_box
+    x_min, y_min, x_max, _ = tray.bounding_box
     assert int(x_max) - int(x_min) + 1 == 100  # Spans left to right
     assert int(y_min) > 50  # Bottom half is moving, not upper

@@ -4,15 +4,22 @@ import logging
 from itertools import groupby
 
 import numpy as np
+import pytesseract
 from skimage.color import rgb2gray, rgb2hsv
-from skimage.filters import gaussian, threshold_triangle
+from skimage.filters import gaussian, threshold_otsu, threshold_triangle
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening, remove_small_objects
+from sklearn.metrics import pairwise_distances
 from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
 
-from src.config import SegmentationConfig
-from src.models import ImageMetadata, ImageSegmentResult
+from src.config import (
+    SegmentationCoreConfig,
+    SegmentationRulerConfig,
+    SegmentationTrayMultipleConfig,
+    SegmentationTraySingleConfig,
+)
+from src.models import ImageMetadata, ImageSegmentResult, RulerSegmentResult
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
@@ -22,12 +29,88 @@ class SegmentationError(Exception):
     """Raised when segmentation fails for a single image."""
 
 
-def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationConfig) -> ImageSegmentResult:
+def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) -> RulerSegmentResult | None:
+    """Detect a depth ruler by OCR'ing its printed number ticks and derive a pixel-to-unit scale.
+
+    Binarizes the image for more reliable OCR, keeps digit detections within
+    [text_min_value, text_max_value], and drops detections whose spacing deviates
+    from the median step between consecutive numbers (outliers).
+
+    Args:
+        img_metadata (ImageMetadata): Metadata of the image to load and segment.
+        config (SegmentationRulerConfig): Tunable segmentation parameters.
+
+    Returns:
+        RulerSegmentResult | None: Bounding box enclosing all detected ruler numbers, the
+            pixel-per-unit scale, and the per-number bounding boxes, or None if no ruler
+            numbers were detected.
+    """
+    # Full resolution for OCR
+    img = img_metadata.load_image(factor=config.downscale_factor)
+
+    # OCR performs better on binarized images
+    img_gray = rgb2gray(img)
+    local_thresh = threshold_otsu(img_gray)
+    img_bin = (img_gray > local_thresh).astype(np.uint8)
+
+    # Run OCR
+    img_data = pytesseract.image_to_data(255 * img_bin, output_type=pytesseract.Output.DICT)
+
+    # Only keep text from 0 to 100
+    data = np.array(
+        [
+            (int(text), left, top, width, height)
+            for text, left, top, width, height in zip(
+                img_data["text"], img_data["left"], img_data["top"], img_data["width"], img_data["height"], strict=True
+            )
+            if text.isdigit() and config.text_min_value <= int(text) <= config.text_max_value
+        ]
+    )
+
+    if data is None or data.size == 0:
+        return None
+
+    # Central point of detected number (left + width/2, top + height / 2)
+    X = data[:, [1, 2]] + data[:, [3, 4]] / 2
+    y = data[:, 0]
+
+    # Sort values in increasing order and compute steps / median step (robust to outliers)
+    y_sort = np.argsort(y)
+    steps = np.linalg.norm(np.diff(X[y_sort], axis=0), axis=1) / (np.diff(y[y_sort], axis=0) + 1e-16)
+    steps_median = np.median(steps)
+
+    # Drop detections that are not aligned with detected steps (ditance to neighbor)
+    distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
+    id_inliners = abs(np.median(distances, axis=0) - steps_median) / steps_median < config.r_error_outliers
+
+    # Reconstruct bbox for each unit (left, top, left + width, top + height)
+    bounding_box_units = np.concatenate(
+        (
+            data[id_inliners][:, [1, 2]],
+            data[id_inliners][:, [1, 2]] + data[id_inliners][:, [3, 4]],
+        ),
+        axis=1,
+    )
+    bounding_box_units = (1 / config.downscale_factor) * bounding_box_units
+
+    return RulerSegmentResult(
+        bounding_box=(
+            bounding_box_units[:, 0].min().item(),
+            bounding_box_units[:, 1].min().item(),
+            bounding_box_units[:, 2].max().item(),
+            bounding_box_units[:, 3].max().item(),
+        ),
+        px_per_unit=(1 / config.downscale_factor) * steps_median,
+        bounding_box_units=bounding_box_units.tolist(),
+    )
+
+
+def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySingleConfig) -> ImageSegmentResult:
     """Segment a single image via thresholding when no shared foreground bbox is available.
 
     Args:
         img_metadata (ImageMetadata): Metadata of the image to load and segment.
-        config (SegmentationConfig): Tunable segmentation parameters.
+        config (SegmentationTraySingleConfig): Tunable segmentation parameters.
 
     Returns:
         ImageSegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the
@@ -56,7 +139,7 @@ def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationConfig)
 
 def segment_tray_multiple(
     imgs_metadata: list[ImageMetadata],
-    config: SegmentationConfig,
+    config: SegmentationTrayMultipleConfig,
 ) -> ImageSegmentResult | None:
     """Estimate the foreground mask shared by a batch of images taken from a static camera position.
 
@@ -66,7 +149,7 @@ def segment_tray_multiple(
 
     Args:
         imgs_metadata (list[ImageMetadata]): Batch of images assumed to share the same camera position.
-        config (SegmentationConfig): Tunable segmentation parameters.
+        config (SegmentationTrayMultipleConfig): Tunable segmentation parameters.
 
     Returns:
         ImageSegmentResult | None: Estimated tray bounding box, or None if unavailable.
@@ -263,14 +346,14 @@ def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) 
 
 
 def segment_core_from_tray(
-    img_metadata: ImageMetadata, bbox: ImageSegmentResult, config: SegmentationConfig
+    img_metadata: ImageMetadata, bbox: ImageSegmentResult, config: SegmentationCoreConfig
 ) -> ImageSegmentResult:
     """Vertical trim the bounding box to exclude the wooden tray based on saturation.
 
     Args:
         img_metadata (ImageMetadata): Metadata of the image to load and trim.
         bbox (ImageSegmentResult): Bounding box to trim, in the original image's coordinate space.
-        config (SegmentationConfig): Tunable segmentation parameters (uses `tray_sat_threshold`,
+        config (SegmentationCoreConfig): Tunable segmentation parameters (uses `tray_sat_threshold`,
             `tray_sat_ratio`, and `downscale_factor`).
 
     Returns:

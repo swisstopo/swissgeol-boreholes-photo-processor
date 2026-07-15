@@ -28,12 +28,14 @@ def log_image_metadata_processed_mlflow(
     img_pil = Image.fromarray((img_npy * 255).astype(np.uint8))
     draw = ImageDraw.Draw(img_pil)
 
-    if result.core is not None:
+    if result.core:
         draw.rectangle(result.core.bounding_box, outline="green", width=5)
-    if result.tray is not None:
-        draw.rectangle(result.tray.bounding_box, outline="red", width=5)
-    if result.ruler is not None:
+    if result.ruler:
         draw.rectangle(result.ruler.bounding_box, outline="blue", width=5)
+        for bbox in result.ruler.bounding_box_units:
+            draw.rectangle(bbox, outline="blue", width=2)
+    if result.tray:
+        draw.rectangle(result.tray.bounding_box, outline="red", width=5)
 
     log_artifact_with_mlflow(img_pil, filename, suffix, subfolder)
 
