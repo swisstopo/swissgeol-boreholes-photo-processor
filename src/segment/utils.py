@@ -76,12 +76,16 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
 
     # Sort values in increasing order and compute steps / median step (robust to outliers)
     y_sort = np.argsort(y)
-    steps = np.linalg.norm(np.diff(X[y_sort], axis=0), axis=1) / (np.diff(y[y_sort], axis=0) + 1e-16)
-    steps_median = np.median(steps)
+    X_diff = np.linalg.norm(np.diff(X[y_sort], axis=0), axis=1)
+    y_diff = np.diff(y[y_sort], axis=0)
+    steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0])
 
     # Drop detections that are not aligned with detected steps (ditance to neighbor)
     distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
     id_inliners = abs(np.median(distances, axis=0) - steps_median) / steps_median < config.r_error_outliers
+
+    if not id_inliners.any():
+        return None
 
     # Reconstruct bbox for each unit (left, top, left + width, top + height)
     bounding_box_units = np.concatenate(
