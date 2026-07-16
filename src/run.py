@@ -12,7 +12,7 @@ from src.config import PipelineConfig
 from src.mlflow_utils import log_artifact_with_mlflow
 from src.models import ImageMetadata, ImageMetadataProcessed
 from src.segment.segment import segment
-from src.stitching import stitching
+from src.stitching.stitching import stitching
 
 
 def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
@@ -73,9 +73,11 @@ def run(
                 num_cores_per_image=config.stitching.num_cores_per_image,
                 padding_vertical=config.stitching.padding_vertical,
                 padding_horizontal=config.stitching.padding_horizontal,
-                output_width=config.stitching.output_width,
-                output_height=config.stitching.output_height,
-                max_core_length_m=config.stitching.max_core_length_m,
+                ruler_width=config.stitching.ruler_width,
+                core_height_px=config.stitching.core_height_px,
+                core_height_m=config.stitching.core_height_m,
+                core_width_rerror=config.stitching.core_width_rerror,
+                font_size=config.stitching.font_size,
             )
         ):
             stem = f"{input_dir.name}_{idx + 1:03d}"
@@ -86,8 +88,8 @@ def run(
                     filename=stem,
                 )
 
-            img.save(output_dir / f"{stem}.tif")
             img.save(output_dir / f"{stem}.png")
+            img.save(output_dir / f"{stem}.tif")
         logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
 
