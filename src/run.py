@@ -8,8 +8,7 @@ from pathlib import Path
 import mlflow
 from tqdm import tqdm
 
-from evaluations.core_length import check_core_length
-from evaluations.core_width import check_core_width
+from evaluations.core import check_core_length, check_core_width
 from src.config import PipelineConfig
 from src.mlflow_utils import log_artifact_with_mlflow, log_evaluation_results_with_mlflow
 from src.models import ImageMetadata, ImageMetadataProcessed

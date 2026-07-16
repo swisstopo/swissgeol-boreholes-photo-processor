@@ -1,6 +1,7 @@
 """Utility functions for MLflow."""
 
 import tempfile
+from dataclasses import fields
 from pathlib import Path
 
 import mlflow
@@ -44,31 +45,28 @@ def log_evaluation_results_with_mlflow(
 ) -> None:
     """Log evaluation results to MLflow.
 
+    Shared across all CoreCheckResults subtypes (width, length, ...): the pass-rate
+    score and the failed-core dump are common to every check. Folder-level reference
+    fields (named `folder_*`, e.g. folder_median_width) are the same on every result,
+    so they're additionally logged as their own metric.
+
     Args:
-        results (list): The evaluation results to log.
+        results (list): The evaluation results to log (instances of a CoreCheckResults subclass).
         filename (str): The filename for the artifact.
     """
-    if results:
-        score = sum(r.passed for r in results) / len(results)
+    if not results:
+        return
 
-        mlflow.log_metric(f"{filename}_score", score)
+    score = sum(r.passed for r in results) / len(results)
+    mlflow.log_metric(f"{filename}_score", score)
 
-        if hasattr(results[0], "folder_median_width"):
-            mlflow.log_metric(f"{filename}_median", results[0].folder_median_width)
-            failed_cores = {r.filename: {"width": r.width, "deviation": r.deviation} for r in results if not r.passed}
-            if failed_cores:
-                mlflow.log_dict(failed_cores, f"failed_{filename}.json")
+    folder_field_names = {f.name for f in fields(results[0]) if f.name.startswith("folder_")}
+    for folder_field_name in folder_field_names:
+        mlflow.log_metric(f"{filename}_{folder_field_name}", getattr(results[0], folder_field_name))
 
-        if hasattr(results[0], "folder_ratio_px_per_m"):
-            mlflow.log_metric(f"{filename}_folder_ratio_px_per_m", results[0].folder_ratio_px_per_m)
-            failed_cores = {
-                r.filename: {
-                    "length_px": r.length_px,
-                    "expected_length_px": r.expected_length_px,
-                    "deviation": r.deviation,
-                }
-                for r in results
-                if not r.passed
-            }
-            if failed_cores:
-                mlflow.log_dict(failed_cores, f"failed_{filename}.json")
+    per_core_field_names = {f.name for f in fields(results[0])} - folder_field_names - {"filename", "passed"}
+    failed_cores = {
+        r.filename: {name: getattr(r, name) for name in per_core_field_names} for r in results if not r.passed
+    }
+    if failed_cores:
+        mlflow.log_dict(failed_cores, f"failed_{filename}.json")

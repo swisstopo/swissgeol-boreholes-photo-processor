@@ -4,12 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from evaluations.core_length import check_core_length
+from evaluations.core import check_core_length
 from src.config import CoreLengthCheckConfig
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
-# Depth intervals (in metres) with varied, exactly-representable values so the RANSAC
-# fit has a well-defined slope regardless of which random subset it samples internally.
+# Depth intervals (in metres) with varied, exactly-representable values.
 _INTERVALS_M = [0.5, 0.75, 1.0, 1.25, 1.5]
 _RATIO_PX_PER_M = 800.0
 
@@ -32,7 +31,7 @@ def _make_detection(length: float, depth_start: float, interval: float) -> Image
 
 
 def test_check_core_length_returns_empty_below_min_samples():
-    """Too few detections to compute a reliable RANSAC fit means no results are returned."""
+    """Too few detections to compute a reliable median ratio means no results are returned."""
     detections = [_make_detection(800.0, depth_start=15.0 + i, interval=1.0) for i in range(3)]
 
     results = check_core_length(detections, CoreLengthCheckConfig(min_samples=5))
@@ -43,8 +42,8 @@ def test_check_core_length_returns_empty_below_min_samples():
 def test_check_core_length_flags_only_the_outlier():
     """One core far outside the folder's fitted ratio is flagged; the rest pass.
 
-    The outlier (2000px) is far enough from the clean line that RANSAC reliably excludes it
-    from the fit, so the recovered ratio and the flagged outcome are deterministic.
+    The outlier (2000px) is a minority (1 of 5) of the per-core ratios, so the median
+    reliably excludes it, keeping the recovered ratio and flagged outcome deterministic.
     """
     lengths = [interval * _RATIO_PX_PER_M for interval in _INTERVALS_M[:4]] + [2000.0]
     detections = [

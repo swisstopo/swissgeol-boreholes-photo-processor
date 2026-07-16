@@ -36,19 +36,25 @@ class StitchingConfig:
 
 
 @dataclass
-class CoreWidthCheckConfig:
-    """Tunable parameters for the core width check evaluation."""
+class CoreCheckConfig:
+    """Common tunable parameters shared by all per-core consistency checks (width, length, ...)."""
 
-    relative_tolerance: float = 0.25  # flag if |width - folder_median| / folder_median exceeds this
-    min_samples: int = 5  # below this, skip the check (median unreliable)
+    relative_tolerance: float = 0.1  # flag if the deviation from the expected/reference value exceeds this
+    min_samples: int = 5  # below this, skip the check (median/ratio unreliable with too few points)
 
 
 @dataclass
-class CoreLengthCheckConfig:
+class CoreWidthCheckConfig(CoreCheckConfig):
+    """Tunable parameters for the core width check evaluation."""
+
+    relative_tolerance: float = 0.25  # flag if |width - folder_median| / folder_median exceeds this
+
+
+@dataclass
+class CoreLengthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core length check evaluation."""
 
     relative_tolerance: float = 0.05  # ~5% buffer
-    min_samples: int = 5  # below this, skip the RANSAC fit (too few points to be robust)
 
 
 @dataclass
@@ -60,26 +66,29 @@ class EvaluationConfig:
 
 
 @dataclass
-class CoreWidthCheckResults:
-    """Results of the core width check evaluation."""
+class CoreCheckResults:
+    """Common fields shared by all per-core consistency checks (width, length, ...)."""
 
     filename: str  # name of the image file
-    width: float  # width of the core in pixels
-    folder_median_width: float  # median width of cores in the folder
-    deviation: float  # relative deviation from the folder median width
-    passed: bool  # whether the core passed the width check (True = within tolerance, False = flagged)
+    deviation: float  # relative deviation from the expected/reference value
+    passed: bool  # whether the core passed the check (True = within tolerance, False = flagged)
 
 
 @dataclass
-class CoreLengthCheckResults:
+class CoreWidthCheckResults(CoreCheckResults):
+    """Results of the core width check evaluation."""
+
+    width: float  # width of the core in pixels
+    folder_median_width: float  # median width of cores in the folder
+
+
+@dataclass
+class CoreLengthCheckResults(CoreCheckResults):
     """Results of the core length check evaluation."""
 
-    filename: str  # name of the image file
     length_px: float  # length of the core in pixels
     expected_length_px: float  # (depth_end - depth_start) * folder_ratio_px_per_m
-    folder_ratio_px_per_m: float  # RANSAC-fit slope for this folder
-    deviation: float  # relative deviation from the expected length
-    passed: bool  # whether the core passed the length check (True = within tolerance,
+    folder_ratio_px_per_m: float  # median px-per-metre ratio for this folder
 
 
 @dataclass
