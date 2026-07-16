@@ -59,7 +59,7 @@ def make_metadata(tmp_path):
 
 @pytest.fixture
 def example(tmp_path) -> ImageMetadata:
-    """TODO."""
+    """Copies the real example core/tray/ruler photo into tmp_path as a .tif and wraps it in ImageMetadata."""
     path_source_ = Path("examples/EX-EX_0001.00-002.00.jpg")
     path_dest = tmp_path / (path_source_.stem + ".tif")
     Image.open(path_source_).save(path_dest)
@@ -67,7 +67,7 @@ def example(tmp_path) -> ImageMetadata:
 
 
 def test_segment_example(example):
-    """TODO."""
+    """End-to-end test of segment() against the real example photo, checking metadata and bbox geometry."""
     detections = segment([example], config=SegmentationConfig())
 
     # Check metadata
@@ -82,16 +82,16 @@ def test_segment_example(example):
     assert detections[0].ruler is not None
 
     # Check core is contained within tray and trimmed (y axis)
-    assert detections[0].core.bounding_box[0] >= detections[0].tray.bounding_box[0]
-    assert detections[0].core.bounding_box[1] > detections[0].tray.bounding_box[1]
-    assert detections[0].core.bounding_box[2] <= detections[0].tray.bounding_box[2]
-    assert detections[0].core.bounding_box[3] < detections[0].tray.bounding_box[3]
+    assert detections[0].core.bbox[0] >= detections[0].tray.bbox[0]
+    assert detections[0].core.bbox[1] > detections[0].tray.bbox[1]
+    assert detections[0].core.bbox[2] <= detections[0].tray.bbox[2]
+    assert detections[0].core.bbox[3] < detections[0].tray.bbox[3]
 
     # Ruler detected with proper resoltuion (2% relative error)
     assert approx(detections[0].ruler.px_per_unit, rel=0.02) == 100
 
 
-def test_segment_detects_core_bounding_box(make_metadata):
+def test_segment_detects_core_bbox(make_metadata):
     """A bright, unsaturated core region on a dark background is detected as-is (no trimming needed)."""
     core_box = (200, 150, 600, 1100)
     metadata = make_metadata(15.0, 16.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
@@ -107,7 +107,7 @@ def test_segment_detects_core_bounding_box(make_metadata):
 
     assert len(detections) == 1
     assert detections[0].core is not None
-    assert detections[0].core.bounding_box == core_box
+    assert detections[0].core.bbox == core_box
 
 
 def test_segment_trims_saturated_tray_by_default(make_metadata):
@@ -129,7 +129,7 @@ def test_segment_trims_saturated_tray_by_default(make_metadata):
     )
 
     assert detections[0].core is not None
-    assert detections[0].core.bounding_box == core_box
+    assert detections[0].core.bbox == core_box
 
 
 def test_segment_tray_trim_threshold_is_configurable(make_metadata):
@@ -151,7 +151,7 @@ def test_segment_tray_trim_threshold_is_configurable(make_metadata):
     )
 
     assert detections[0].tray is not None
-    assert detections[0].tray.bounding_box == tray_box
+    assert detections[0].tray.bbox == tray_box
 
 
 def test_segment_skips_image_with_no_detectable_regions(make_metadata):
@@ -186,7 +186,7 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     assert len(detections) == 1
     assert detections[0].depth_start == 16.0
     assert detections[0].core is not None
-    assert detections[0].core.bounding_box == core_box
+    assert detections[0].core.bbox == core_box
 
 
 def test_estimate_foreground_returns_none_below_n_min(make_metadata):
@@ -231,6 +231,6 @@ def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
     )
     assert tray is not None
 
-    x_min, y_min, x_max, _ = tray.bounding_box
+    x_min, y_min, x_max, _ = tray.bbox
     assert int(x_max) - int(x_min) + 1 == 100  # Spans left to right
     assert int(y_min) > 50  # Bottom half is moving, not upper

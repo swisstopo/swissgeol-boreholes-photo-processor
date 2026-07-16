@@ -62,10 +62,9 @@ class SegmentationConfig:
 class StitchingConfig:
     """Tunable parameters for the stitching step."""
 
-    core_height_m: float = 1.0  # depth extent, in metres, that core_height_px pixels represents
-    core_height_px: int = 10000  # pixel budget for a core spanning core_height_m metres
-    core_width_rerror: float = 1.5  # max allowed width ratio vs. the reference core before treated as an outlier
     font_size: int = 100  # font size (px) used for borehole ID, depth labels, and ruler tick labels
+    max_core_height: int = 10000  # cap on each core crop's resized height (pixels) and the canvas row height
+    max_core_width: int = 1200  # cap on each core crop's resized width (pixels) and the per-core column width
     num_cores_per_image: int = 6  # cores placed side by side per output sheet
     padding_horizontal: int = 150  # left/right border width in pixels
     padding_vertical: int = 200  # top/bottom border height in pixels

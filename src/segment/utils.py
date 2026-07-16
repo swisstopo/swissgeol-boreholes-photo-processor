@@ -78,7 +78,7 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     y_sort = np.argsort(y)
     X_diff = np.linalg.norm(np.diff(X[y_sort], axis=0), axis=1)
     y_diff = np.diff(y[y_sort], axis=0)
-    steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0])
+    steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0]).item()
 
     # Drop detections that are not aligned with detected steps (ditance to neighbor)
     distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
@@ -88,24 +88,24 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
         return None
 
     # Reconstruct bbox for each unit (left, top, left + width, top + height)
-    bounding_box_units = np.concatenate(
+    bbox_units = np.concatenate(
         (
             data[id_inliners][:, [1, 2]],
             data[id_inliners][:, [1, 2]] + data[id_inliners][:, [3, 4]],
         ),
         axis=1,
     )
-    bounding_box_units = (1 / config.downscale_factor) * bounding_box_units
+    bbox_units = (1 / config.downscale_factor) * bbox_units
 
     return RulerSegmentResult(
-        bounding_box=(
-            bounding_box_units[:, 0].min().item(),
-            bounding_box_units[:, 1].min().item(),
-            bounding_box_units[:, 2].max().item(),
-            bounding_box_units[:, 3].max().item(),
+        bbox=(
+            bbox_units[:, 0].min().item(),
+            bbox_units[:, 1].min().item(),
+            bbox_units[:, 2].max().item(),
+            bbox_units[:, 3].max().item(),
         ),
         px_per_unit=(1 / config.downscale_factor) * steps_median,
-        bounding_box_units=bounding_box_units.tolist(),
+        bbox_units=bbox_units.tolist(),
     )
 
 
@@ -138,7 +138,7 @@ def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySin
         min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
     )
 
-    return ImageSegmentResult(bounding_box=scale_bbox(bbox, factor=1 / factor))
+    return ImageSegmentResult(bbox=scale_bbox(bbox, factor=1 / factor))
 
 
 def segment_tray_multiple(
@@ -187,7 +187,7 @@ def segment_tray_multiple(
     if fg_bbox is None:
         return None
 
-    return ImageSegmentResult(bounding_box=scale_bbox(fg_bbox, factor=1 / config.downscale_factor))
+    return ImageSegmentResult(bbox=scale_bbox(fg_bbox, factor=1 / config.downscale_factor))
 
 
 def _estimate_tray_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] | None:
@@ -368,10 +368,10 @@ def segment_core_from_tray(
         SegmentationError: If every row is classified as tray (no non-tray interval found).
     """
     img = img_metadata.load_image(factor=config.downscale_factor)
-    x_min, y_min, x_max, y_max = scale_bbox(bbox.bounding_box, factor=config.downscale_factor)
+    x_min, y_min, x_max, y_max = scale_bbox(bbox.bbox, factor=config.downscale_factor)
 
     hsv = rgb2hsv(img[int(y_min) : int(y_max + 1), int(x_min) : int(x_max + 1)])
     top_trim, bottom_trim = _find_non_tray_interval(hsv[:, :, 1], config.tray_sat_threshold, config.tray_sat_ratio)
 
     trimmed_bbox = (x_min, y_min + top_trim, x_max, y_min + bottom_trim)
-    return ImageSegmentResult(bounding_box=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))
+    return ImageSegmentResult(bbox=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))

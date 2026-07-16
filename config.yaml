@@ -29,10 +29,9 @@ segmentation:
     tray_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
 
 stitching:
-  core_height_m: 1.0 # depth extent, in metres, that core_height_px pixels represents
-  core_height_px: 10000 # pixel budget for a core spanning core_height_m metres
-  core_width_rerror: 1.5 # max allowed width ratio vs. the reference core before treated as an outlier
   font_size: 100 # font size (px) used for borehole ID, depth labels, and ruler tick labels
+  max_core_height: 10000 # cap on each core crop's resized height (pixels) and the canvas row height
+  max_core_width: 1200 # cap on each core crop's resized width (pixels) and the per-core column width
   num_cores_per_image: 6 # cores placed side by side per output sheet
   padding_horizontal: 150 # left/right border width in pixels
   padding_vertical: 200 # top/bottom border height in pixels
