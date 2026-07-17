@@ -334,7 +334,8 @@ def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) 
             non-tray interval.
 
     Raises:
-        SegmentationError: If every row is classified as tray (no non-tray interval found).
+        SegmentationError: If every row is classified as tray (no non-tray interval found),
+            or if the largest non-tray interval is degenerate (zero height).
     """
     confs_row = (values > threshold).mean(axis=1)
     detections = np.nonzero(confs_row < ratio)[0]
@@ -345,8 +346,12 @@ def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) 
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
     result = np.array([[g[0], g[-1]] for g in groups])
     id_best = np.argmax(result[:, 1] - result[:, 0])
+    top_trim, bottom_trim = result[id_best, 0].item(), result[id_best, 1].item()
 
-    return result[id_best, 0].item(), result[id_best, 1].item()
+    if bottom_trim <= top_trim:
+        raise SegmentationError("Largest non-tray interval is degenerate (zero height)")
+
+    return top_trim, bottom_trim
 
 
 def segment_core_from_tray(
@@ -375,3 +380,55 @@ def segment_core_from_tray(
 
     trimmed_bbox = (x_min, y_min + top_trim, x_max, y_min + bottom_trim)
     return ImageSegmentResult(bounding_box=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))
+
+
+def group_images_by_shape(imgs_metadata: list[ImageMetadata]) -> dict[tuple[int, int, int], list[ImageMetadata]]:
+    """Group images by their shape (height, width, channels).
+
+    Args:
+        imgs_metadata (list[ImageMetadata]): List of image metadata.
+
+    Returns:
+        dict[tuple[int, int, int], list[ImageMetadata]]: Dictionary where keys are image shapes
+            and values are lists of ImageMetadata with that shape.
+    """
+    grouped: dict[tuple[int, int, int], list[ImageMetadata]] = {}
+    for img_metadata in imgs_metadata:
+        grouped.setdefault(img_metadata.shape, []).append(img_metadata)
+    return grouped
+
+
+def segment_tray_by_group(
+    imgs_metadata: list[ImageMetadata],
+    config: SegmentationTrayMultipleConfig,
+) -> dict[tuple[int, int, int], ImageSegmentResult]:
+    """Estimate a shared tray bounding box per group of same-shaped images.
+
+    Images are grouped by their on-disk shape (read from metadata, without decoding pixel
+    data). Groups with at least ``config.n_min_foreground`` images have their foreground
+    estimated from a random sample of that many images; smaller groups are skipped and left
+    to the per-image fallback (segment_tray_single).
+
+    Args:
+        imgs_metadata (list[ImageMetadata]): All images to consider, potentially spanning
+            multiple shapes.
+        config (SegmentationTrayMultipleConfig): Tunable segmentation parameters.
+
+    Returns:
+        dict[tuple[int, int, int], ImageSegmentResult]: Estimated tray bounding box per image
+            shape, for groups where estimation succeeded.
+    """
+    rng = np.random.default_rng(config.seed)
+    results = {}
+    for shape, group in group_images_by_shape(imgs_metadata).items():
+        if len(group) < config.n_min_foreground:
+            continue
+
+        # subset of images is enough to calculate the foreground mask
+        sample_ids = rng.choice(len(group), size=config.n_min_foreground, replace=False)
+        sampled_imgs = [group[i] for i in sample_ids]
+        result = segment_tray_multiple(sampled_imgs, config)
+        if result is not None:
+            results[shape] = result
+
+    return results

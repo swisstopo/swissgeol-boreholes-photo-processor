@@ -11,7 +11,7 @@ from src.segment.utils import (
     SegmentationError,
     segment_core_from_tray,
     segment_ruler,
-    segment_tray_multiple,
+    segment_tray_by_group,
     segment_tray_single,
 )
 
@@ -41,16 +41,16 @@ def segment(
     detections: list[ImageMetadataProcessed] = []
 
     # Step 1: Try to estimate image foreground (moving part)
-    detection_tray = segment_tray_multiple(imgs_metadata, config.tray_multiple)
+    tray_by_shape = segment_tray_by_group(imgs_metadata, config.tray_multiple)
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
             # Step 2: Try to detect ruler on the image
             detection_ruler = segment_ruler(img_metadata, config.ruler)
 
-            # Step 3: Check if tray already detected, otherwise fallback to single
-            detection_tray = (
-                detection_tray if detection_tray is not None else segment_tray_single(img_metadata, config.tray_single)
+            # Step 3: Use the group's shared tray if available, otherwise fallback to single
+            detection_tray = tray_by_shape.get(img_metadata.shape) or segment_tray_single(
+                img_metadata, config.tray_single
             )
 
             # Step 4: Remove wooden tray (up/down)

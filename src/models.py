@@ -8,7 +8,7 @@ from typing import ClassVar
 import numpy as np
 from PIL import Image
 
-from src.utils import load_image
+from src.utils import get_image_shape, load_image
 
 
 @dataclass
@@ -66,6 +66,15 @@ class ImageMetadata:
     def folder(self) -> Path:
         """Parent directory of the image file."""
         return self.image_path.parent
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        """Shape of the image as (height, width, channels).
+
+        Returns:
+            tuple[int, int, int]: The shape of the image.
+        """
+        return get_image_shape(str(self.image_path))
 
     def load_image(self, factor: float = 1.0) -> np.ndarray:
         """Load a TIF image and normalize it to an RGB float array in [0, 1].

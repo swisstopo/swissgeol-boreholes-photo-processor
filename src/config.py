@@ -31,7 +31,8 @@ class SegmentationTrayMultipleConfig:
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
-    n_min_foreground: int = 10  # Minimum number images required to estimate a foreground
+    n_min_foreground: int = 10  # min images required to estimate a foreground; also the sample size drawn per group
+    seed: int = 0  # seed for randomly sampling images from a group
 
 
 @dataclass
