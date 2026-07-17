@@ -92,6 +92,19 @@ class CoreLengthCheckResults(CoreCheckResults):
 
 
 @dataclass
+class CoreCheckResult:
+    """All per-core consistency check results for a single file.
+
+    width/length are None when the corresponding check was skipped for this file
+    (e.g. too few detections for a reliable reference, see CoreCheckConfig.min_samples).
+    """
+
+    filename: str  # name of the image file
+    width: CoreWidthCheckResults | None
+    length: CoreLengthCheckResults | None
+
+
+@dataclass
 class PipelineConfig:
     """Top-level configuration for the borehole photo processing pipeline."""
 

@@ -1,11 +1,13 @@
 """Utility functions for MLflow."""
 
 import tempfile
-from dataclasses import fields
+from dataclasses import asdict, fields
 from pathlib import Path
 
 import mlflow
 from PIL import Image, ImageDraw
+
+from src.config import CoreCheckResult
 
 
 def log_artifact_with_mlflow(
@@ -70,3 +72,27 @@ def log_evaluation_results_with_mlflow(
     }
     if failed_cores:
         mlflow.log_dict(failed_cores, f"failed_{filename}.json")
+
+
+def log_core_check_results_with_mlflow(results: list[CoreCheckResult], filename: str) -> None:
+    """Log every file's width/length check results to MLflow as a single per-file JSON.
+
+    Unlike log_evaluation_results_with_mlflow (which only dumps the failed cores for a single
+    check), this logs every file's full prediction -- useful for inspecting a specific core's
+    width and length results side by side, not just the ones that got flagged.
+
+    Args:
+        results (list[CoreCheckResult]): Per-file merged core check results.
+        filename (str): The filename for the JSON artifact (without extension).
+    """
+    if not results:
+        return
+
+    predictions = {
+        r.filename: {
+            "width": asdict(r.width) if r.width is not None else None,
+            "length": asdict(r.length) if r.length is not None else None,
+        }
+        for r in results
+    }
+    mlflow.log_dict(predictions, f"{filename}.json")

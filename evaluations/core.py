@@ -4,10 +4,12 @@ import numpy as np
 
 from src.config import (
     CoreCheckConfig,
+    CoreCheckResult,
     CoreLengthCheckConfig,
     CoreLengthCheckResults,
     CoreWidthCheckConfig,
     CoreWidthCheckResults,
+    EvaluationConfig,
 )
 from src.models import ImageMetadataProcessed
 
@@ -112,4 +114,33 @@ def check_core_length(
         for detection, value, expected, reference, deviation, passed in _check_core(
             detections, config, lengths, scales
         )
+    ]
+
+
+def check_core(detections: list[ImageMetadataProcessed], config: EvaluationConfig) -> list[CoreCheckResult]:
+    """Run the width and length checks and merge them into one result per file.
+
+    width/length checks report results in different units and reference a differently-scaled
+    folder reference, so they can't be merged into a single flat result type. Instead, each
+    file gets one CoreCheckResult with both nested inside, keyed by filename -- this is what
+    gets logged as the per-file prediction JSON (see log_core_check_results_with_mlflow).
+
+    Args:
+        detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
+        config (EvaluationConfig): Configuration parameters for all core checks.
+
+    Returns:
+        list[CoreCheckResult]: One result per detection. width/length are None for a file
+        whose corresponding check was skipped (see CoreCheckConfig.min_samples).
+    """
+    width_by_filename = {r.filename: r for r in check_core_width(detections, config.core_width)}
+    length_by_filename = {r.filename: r for r in check_core_length(detections, config.core_length)}
+
+    return [
+        CoreCheckResult(
+            filename=detection.image_path.name,
+            width=width_by_filename.get(detection.image_path.name),
+            length=length_by_filename.get(detection.image_path.name),
+        )
+        for detection in detections
     ]
