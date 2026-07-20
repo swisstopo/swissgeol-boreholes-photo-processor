@@ -60,13 +60,13 @@ def log_evaluation_results_with_mlflow(
     if not results:
         return
 
-    width_results = [r.width for r in results if r.width is not None]
-    length_results = [r.length for r in results if r.length is not None]
-
-    if width_results:
-        mlflow.log_metric("width_score", sum(r.passed for r in width_results) / len(width_results))
-    if length_results:
-        mlflow.log_metric("length_score", sum(r.passed for r in length_results) / len(length_results))
+    checks_by_name = {
+        "width": [r.width for r in results if r.width is not None],
+        "length": [r.length for r in results if r.length is not None],
+    }
+    for name, checks in checks_by_name.items():
+        if checks:
+            mlflow.log_metric(f"{name}_score", sum(c.passed for c in checks) / len(checks))
 
     predictions = {
         r.filename: {

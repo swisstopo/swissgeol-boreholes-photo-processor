@@ -1,5 +1,8 @@
 """Module for checking core width and length consistency across a set of detections."""
 
+from collections.abc import Callable
+from typing import TypeVar
+
 import numpy as np
 
 from src.config import (
@@ -12,6 +15,8 @@ from src.config import (
     EvaluationConfig,
 )
 from src.models import ImageMetadataProcessed
+
+_CoreCheckResultT = TypeVar("_CoreCheckResultT", CoreWidthCheckResult, CoreLengthCheckResult)
 
 
 def _check_core(
@@ -58,6 +63,14 @@ def _check_core(
     return results
 
 
+def _build_results(
+    raw_results: list[tuple[float, float, float, float, bool] | None],
+    build: Callable[[float, float, float, float, bool], _CoreCheckResultT],
+) -> list[_CoreCheckResultT | None]:
+    """Apply build to each non-None _check_core entry, passing None through unchanged."""
+    return [build(*raw_result) if raw_result is not None else None for raw_result in raw_results]
+
+
 def check_core_width(
     detections: list[ImageMetadataProcessed], config: CoreWidthCheckConfig
 ) -> list[CoreWidthCheckResult | None]:
@@ -74,16 +87,12 @@ def check_core_width(
     widths = [d.result.bounding_box[3] - d.result.bounding_box[1] for d in detections]
     scales = [1.0] * len(detections)
 
-    results = []
-    for result in _check_core(config, widths, scales):
-        if result is None:
-            results.append(None)
-            continue
-        value, _, reference, deviation, passed = result
-        results.append(
-            CoreWidthCheckResult(passed=passed, width=value, folder_median_width=reference, deviation=deviation)
-        )
-    return results
+    return _build_results(
+        _check_core(config, widths, scales),
+        lambda value, _expected, reference, deviation, passed: CoreWidthCheckResult(
+            passed=passed, width=value, folder_median_width=reference, deviation=deviation
+        ),
+    )
 
 
 def check_core_length(
@@ -102,22 +111,16 @@ def check_core_length(
     lengths = [d.result.bounding_box[2] - d.result.bounding_box[0] for d in detections]
     scales = [d.depth_end - d.depth_start for d in detections]
 
-    results = []
-    for result in _check_core(config, lengths, scales):
-        if result is None:
-            results.append(None)
-            continue
-        value, expected, reference, deviation, passed = result
-        results.append(
-            CoreLengthCheckResult(
-                passed=passed,
-                length_px=value,
-                expected_length_px=expected,
-                folder_ratio_px_per_m=reference,
-                deviation=deviation,
-            )
-        )
-    return results
+    return _build_results(
+        _check_core(config, lengths, scales),
+        lambda value, expected, reference, deviation, passed: CoreLengthCheckResult(
+            passed=passed,
+            length_px=value,
+            expected_length_px=expected,
+            folder_ratio_px_per_m=reference,
+            deviation=deviation,
+        ),
+    )
 
 
 def check_core(detections: list[ImageMetadataProcessed], config: EvaluationConfig) -> list[CoreCheckResult]:
