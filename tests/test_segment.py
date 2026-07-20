@@ -2,7 +2,9 @@
 
 from collections.abc import Callable
 
+import numpy as np
 import pytest
+import tifffile
 from PIL import Image, ImageDraw
 
 from src.config import (
@@ -13,7 +15,7 @@ from src.config import (
 )
 from src.models import ImageMetadata
 from src.segment.segment import segment
-from src.segment.utils import segment_tray_multiple
+from src.segment.utils import group_images_by_shape, segment_tray_by_group, segment_tray_multiple
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
@@ -153,6 +155,29 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     assert detections[0].core.bounding_box == core_box
 
 
+def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, make_metadata):
+    """A blank image with a non-uint8/uint16 dtype (e.g. float32) is skipped, not crashing the whole batch."""
+    bad_image_path = tmp_path / "GBC-CB50_0015.00-0016.00_vd_p.TIF"
+    tifffile.imwrite(bad_image_path, np.zeros((300, 300, 3), dtype=np.float32), photometric="rgb")
+    bad = ImageMetadata(borehole_id="GBC-CB50", depth_start=15.0, depth_end=16.0, image_path=bad_image_path)
+
+    core_box = (200, 150, 600, 1100)
+    good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
+
+    detections = segment(
+        [bad, good],
+        config=SegmentationConfig(
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1),
+        ),
+    )
+
+    assert len(detections) == 1
+    assert detections[0].depth_start == 16.0
+    assert detections[0].core is not None
+    assert detections[0].core.bounding_box == core_box
+
+
 def test_estimate_foreground_returns_none_below_n_min(make_metadata):
     """Fewer than n_min successfully loaded images isn't enough for a reliable per-pixel std."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(4)]
@@ -198,3 +223,67 @@ def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
     x_min, y_min, x_max, _ = tray.bounding_box
     assert int(x_max) - int(x_min) + 1 == 100  # Spans left to right
     assert int(y_min) > 50  # Bottom half is moving, not upper
+
+
+def test_group_images_by_shape_groups_by_dimensions(make_metadata):
+    """Images are grouped by their (height, width, channels) shape, independent of depth/order."""
+    small = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(2)]
+    large = [make_metadata(30.0 + i, 31.0 + i, size=(80, 80)) for i in range(3)]
+
+    grouped = group_images_by_shape(small + large)
+
+    assert set(grouped) == {small[0].shape, large[0].shape}
+    assert grouped[small[0].shape] == small
+    assert grouped[large[0].shape] == large
+
+
+def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
+    """Each image-shape group gets its own independently estimated shared-foreground bbox."""
+    fills = [50, 90, 130, 170, 210]
+
+    def make_group(size, depth_offset):
+        core_box = (0, size[1] // 2, size[0], size[1])  # bottom half varies
+        imgs = [
+            make_metadata(
+                depth_offset + i,
+                depth_offset + i + 1,
+                lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)),
+                size=size,
+            )
+            for i, f in enumerate(fills)
+        ]
+        return imgs, core_box
+
+    group_a, core_box_a = make_group((100, 100), 15.0)
+    group_b, core_box_b = make_group((60, 60), 30.0)
+
+    results = segment_tray_by_group(
+        group_a + group_b,
+        SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=5),
+    )
+
+    shape_a, shape_b = group_a[0].shape, group_b[0].shape
+    assert set(results) == {shape_a, shape_b}
+
+    for core_box, shape in [(core_box_a, shape_a), (core_box_b, shape_b)]:
+        x_min, y_min, x_max, _ = results[shape].bounding_box
+        assert int(x_max) - int(x_min) + 1 == core_box[2] - core_box[0]  # spans full width
+        assert int(y_min) > core_box[1] - 1  # bottom half is moving, not upper
+
+
+def test_segment_tray_by_group_skips_shape_group_below_n_min(make_metadata):
+    """A shape group below n_min_foreground is skipped, while a qualifying group still succeeds."""
+    fills = [50, 90, 130, 170, 210]
+    core_box = (0, 50, 100, 100)
+    qualifying = [
+        make_metadata(15.0 + i, 16.0 + i, lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)), size=(100, 100))
+        for i, f in enumerate(fills)
+    ]
+    too_small = [make_metadata(30.0 + i, 31.0 + i, size=(50, 50)) for i in range(3)]
+
+    results = segment_tray_by_group(
+        qualifying + too_small,
+        SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=5),
+    )
+
+    assert set(results) == {qualifying[0].shape}

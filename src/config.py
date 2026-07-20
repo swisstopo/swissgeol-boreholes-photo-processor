@@ -6,6 +6,10 @@ from pathlib import Path
 import yaml
 
 
+class SegmentationError(Exception):
+    """Raised when segmentation fails for a single image."""
+
+
 @dataclass
 class SegmentationCoreConfig:
     """Tunable parameters for trimming the wooden tray off a detected core bounding box."""
@@ -20,8 +24,8 @@ class SegmentationRulerConfig:
     """Tunable parameters for detecting a depth ruler via OCR on its printed number ticks."""
 
     downscale_factor: float = 0.5  # Scale images by this factor before OCR
-    text_min_value: int = 1  # Minimal visible number on ruler
-    text_max_value: int = 99  # Maximal visible number on ruler
+    text_min_value: int = 1  # Minimum visible number on ruler
+    text_max_value: int = 99  # Maximum visible number on ruler
     r_error_outliers: float = 0.1  # Allow 10% error for inliers detection
 
 

@@ -154,7 +154,10 @@ Segmentation and stitching parameters are set via a YAML config file, not CLI fl
 
 To speed up segmentation, images are downscaled by `downscale_factor` before detecting the core, and the resulting bounding box is scaled back up to the original resolution for stitching.
 
-The pipeline first tries to derive a single bounding box shared across the whole batch, by comparing all images from the (assumed static) camera position and locating the region that changes between shots (the core). This requires at least `10` successfully loaded images in the batch. Smaller batches, or images with inconsistent size, fall back to per-image thresholding instead.
+The pipeline groups images by their on-disk shape (height, width, channels) and, for each
+group with at least `10` images, derives a shared bounding box by comparing images from the
+(assumed static) camera position and locating the region that changes between shots (the
+core/tray). Groups with fewer than `10` images fall back to per-image thresholding instead.
 
 To use a different config file, pass `--config <path>` (see below).
 
