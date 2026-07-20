@@ -142,7 +142,7 @@ def stitching(
         Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
     """
     # Get spans and resolution for all cores
-    original_scales, original_heights = np.array(
+    original = np.array(
         [
             (img.ruler.px_per_unit, (img.core.bbox[2] - img.core.bbox[0]))
             for img in imgs
@@ -150,6 +150,11 @@ def stitching(
             if img.ruler and img.core
         ]
     ).T
+
+    if original.size == 0:
+        return
+
+    original_scales, original_heights = original
 
     # Set default resolution is missing
     fallback_scale = np.median(original_scales).item()
