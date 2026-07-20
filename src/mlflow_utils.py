@@ -21,7 +21,7 @@ def log_image_metadata_processed_mlflow(
 
     Args:
         result (ImageMetadataProcessed): The processed image whose detected regions are drawn and logged.
-        filename (str): The filename for the artifact.
+        filename (str): The filename prefix for the artifact.
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
         font_size (int): Font size used to draw the ruler's px-per-unit label.
@@ -61,7 +61,7 @@ def log_artifact_with_mlflow(
 
     Args:
         img (Image.Image): The image to log.
-        filename (str): The filename for the artifact.
+        filename (str): The filename prefix for the artifact.
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
     """

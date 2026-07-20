@@ -45,7 +45,6 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
             pixel-per-unit scale, and the per-number bounding boxes, or None if no ruler
             numbers were detected.
     """
-    # Full resolution for OCR
     img = img_metadata.load_image(factor=config.downscale_factor)
 
     # OCR performs better on binarized images
@@ -56,7 +55,7 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     # Run OCR
     img_data = pytesseract.image_to_data(255 * img_bin, output_type=pytesseract.Output.DICT)
 
-    # Only keep text from 0 to 100
+    # Only keep text from text_min_value to text_max_value
     data = np.array(
         [
             (int(text), left, top, width, height)

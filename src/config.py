@@ -8,7 +8,7 @@ import yaml
 
 @dataclass
 class SegmentationCoreConfig:
-    """Tunable parameters for trimming the wooden tray off a detected core bounding box."""
+    """Tunable parameters for trimming the wooden tray off."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
