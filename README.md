@@ -18,7 +18,7 @@ The pipeline uses OCR to read the printed tick numbers on the depth ruler in eac
 ```bash
 # Install Tesseract OCR engine (system-level)
 # On Ubuntu/Debian:
-sudo apt install tesseract-ocr
+sudo apt-get install -y tesseract-ocr=5.3.4*
 
 # On macOS:
 brew install tesseract
