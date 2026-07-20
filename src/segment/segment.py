@@ -5,7 +5,7 @@ import logging
 from tqdm import tqdm
 
 from src.config import SegmentationConfig
-from src.mlflow_utils import log_image_metadata_processed_mlflow
+from src.mlflow_utils import log_image_metadata_processed_mlflow, log_segmentation_summary_mlflow
 from src.models import ImageMetadata, ImageMetadataProcessed
 from src.segment.utils import (
     SegmentationError,
@@ -39,19 +39,23 @@ def segment(
     """
     config = config or SegmentationConfig()
     detections: list[ImageMetadataProcessed] = []
+    segmentation_records: list[dict] = []
 
     # Step 1: Try to estimate image foreground (moving part)
     tray_by_shape = segment_tray_by_group(imgs_metadata, config.tray_multiple)
+    foreground_group_by_shape = {shape: idx for idx, shape in enumerate(tray_by_shape)}
+    fallback_count = 0
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
+            shape = img_metadata.shape
+
             # Step 2: Try to detect ruler on the image
             detection_ruler = segment_ruler(img_metadata, config.ruler)
 
             # Step 3: Use the group's shared tray if available, otherwise fallback to single
-            detection_tray = tray_by_shape.get(img_metadata.shape) or segment_tray_single(
-                img_metadata, config.tray_single
-            )
+            shared_tray = tray_by_shape.get(shape)
+            detection_tray = shared_tray or segment_tray_single(img_metadata, config.tray_single)
 
             # Step 4: Remove wooden tray (up/down)
             detection_core = segment_core_from_tray(img_metadata, detection_tray, config=config.core)
@@ -72,7 +76,23 @@ def segment(
 
             detections.append(detection)
 
+            foreground_group = foreground_group_by_shape.get(shape)
+            if foreground_group is None:
+                fallback_count += 1
+            segmentation_records.append(
+                {
+                    "filename": img_metadata.image_path.name,
+                    "approach": "foreground" if foreground_group is not None else "fallback",
+                    "foreground_group": foreground_group,
+                }
+            )
+
         except SegmentationError as e:
             logger.warning("%s. Skipping.", e)
+
+    logger.info("Segmented %d/%d image(s) using the fallback (per-image) approach.", fallback_count, len(detections))
+
+    if with_mlflow:
+        log_segmentation_summary_mlflow(num_foreground_groups=len(tray_by_shape), images=segmentation_records)
 
     return detections

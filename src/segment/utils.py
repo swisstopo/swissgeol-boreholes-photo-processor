@@ -419,8 +419,9 @@ def segment_tray_by_group(
             shape, for groups where estimation succeeded.
     """
     rng = np.random.default_rng(config.seed)
+    groups = group_images_by_shape(imgs_metadata)
     results = {}
-    for shape, group in group_images_by_shape(imgs_metadata).items():
+    for shape, group in groups.items():
         if len(group) < config.n_min_foreground:
             continue
 
@@ -430,5 +431,7 @@ def segment_tray_by_group(
         result = segment_tray_multiple(sampled_imgs, config)
         if result is not None:
             results[shape] = result
+
+    logger.info("Computed shared foreground for %d/%d shape group(s).", len(results), len(groups))
 
     return results

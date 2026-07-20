@@ -40,6 +40,23 @@ def log_image_metadata_processed_mlflow(
     log_artifact_with_mlflow(img_pil, filename, suffix, subfolder)
 
 
+def log_segmentation_summary_mlflow(
+    num_foreground_groups: int,
+    images: list[dict],
+    filename: str = "segmentation_summary.json",
+) -> None:
+    """Log a JSON summary of the segmentation approach used per image.
+
+    Args:
+        num_foreground_groups (int): Number of image-shape groups with a successfully
+            estimated shared foreground.
+        images (list[dict]): Per-image records, each with "filename" (str), "approach"
+            ("foreground" or "fallback"), and "foreground_group" (int, or None for fallback).
+        filename (str): The filename for the JSON artifact.
+    """
+    mlflow.log_dict({"num_foreground_groups": num_foreground_groups, "images": images}, filename)
+
+
 def log_artifact_with_mlflow(
     img: Image.Image,
     filename: str,
