@@ -54,9 +54,10 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
 
     # Run OCR
     img_data = pytesseract.image_to_data(255 * img_bin, output_type=pytesseract.Output.DICT)
+    logger.info(img_data)
 
-    # Only keep text from text_min_value to text_max_value
     data = np.array(
+        # Only keep text from text_min_value to text_max_value
         [
             (int(text), left, top, width, height)
             for text, left, top, width, height in zip(
