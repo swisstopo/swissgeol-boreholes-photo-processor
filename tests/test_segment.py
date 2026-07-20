@@ -10,6 +10,7 @@ from pytest import approx
 from src.config import (
     SegmentationConfig,
     SegmentationCoreConfig,
+    SegmentationRulerConfig,
     SegmentationTrayMultipleConfig,
     SegmentationTraySingleConfig,
 )
@@ -68,7 +69,7 @@ def example(tmp_path) -> ImageMetadata:
 
 def test_segment_example(example):
     """End-to-end test of segment() against the real example photo, checking metadata and bbox geometry."""
-    detections = segment([example], config=SegmentationConfig())
+    detections = segment([example], config=SegmentationConfig(ruler=SegmentationRulerConfig(downscale_factor=1.0)))
 
     # Check metadata
     assert len(detections) == 1
