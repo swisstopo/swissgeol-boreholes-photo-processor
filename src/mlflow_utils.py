@@ -39,7 +39,7 @@ def log_image_metadata_processed_mlflow(
             draw.rectangle(bbox, outline="blue", width=2)
         draw.text(
             (result.ruler.bbox[0], result.ruler.bbox[1]),
-            f"{result.ruler.px_per_unit:.1f}",
+            f"{result.ruler.px_per_unit:.1f} px/unit",
             fill=(255, 255, 255),
             font=font,
             anchor="lt",
