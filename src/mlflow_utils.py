@@ -1,7 +1,7 @@
 """Utility functions for MLflow."""
 
 import tempfile
-from dataclasses import asdict, fields
+from dataclasses import asdict
 from pathlib import Path
 
 import mlflow
@@ -42,51 +42,31 @@ def log_artifact_with_mlflow(
 
 
 def log_evaluation_results_with_mlflow(
-    results: list,
-    filename: str,
+    results: list[CoreCheckResult],
+    folder_name: str,
 ) -> None:
     """Log evaluation results to MLflow.
 
-    Shared across all CoreCheckResults subtypes (width, length, ...): the pass-rate
-    score and the failed-core dump are common to every check. Folder-level reference
-    fields (named `folder_*`, e.g. folder_median_width) are the same on every result,
-    so they're additionally logged as their own metric.
-
-    Args:
-        results (list): The evaluation results to log (instances of a CoreCheckResults subclass).
-        filename (str): The filename for the artifact.
-    """
-    if not results:
-        return
-
-    score = sum(r.passed for r in results) / len(results)
-    mlflow.log_metric(f"{filename}_score", score)
-
-    folder_field_names = {f.name for f in fields(results[0]) if f.name.startswith("folder_")}
-    for folder_field_name in folder_field_names:
-        mlflow.log_metric(f"{filename}_{folder_field_name}", getattr(results[0], folder_field_name))
-
-    per_core_field_names = {f.name for f in fields(results[0])} - folder_field_names - {"filename", "passed"}
-    failed_cores = {
-        r.filename: {name: getattr(r, name) for name in per_core_field_names} for r in results if not r.passed
-    }
-    if failed_cores:
-        mlflow.log_dict(failed_cores, f"failed_{filename}.json")
-
-
-def log_core_check_results_with_mlflow(results: list[CoreCheckResult], filename: str) -> None:
-    """Log every file's width/length check results to MLflow as a single per-file JSON.
-
-    Unlike log_evaluation_results_with_mlflow (which only dumps the failed cores for a single
-    check), this logs every file's full prediction -- useful for inspecting a specific core's
-    width and length results side by side, not just the ones that got flagged.
+    Logs the width and length pass-rate as separate metrics, and dumps every file's full
+    width/length results as a single JSON artifact, keyed by filename -- useful for inspecting
+    a specific core's width and length results side by side, not just the ones that got flagged.
+    The artifact is named after the folder so batch runs don't clobber each other's results.
 
     Args:
         results (list[CoreCheckResult]): Per-file merged core check results.
-        filename (str): The filename for the JSON artifact (without extension).
+        folder_name (str): Name of the input folder these results belong to, used as the
+            JSON artifact's filename.
     """
     if not results:
         return
+
+    width_results = [r.width for r in results if r.width is not None]
+    length_results = [r.length for r in results if r.length is not None]
+
+    if width_results:
+        mlflow.log_metric("width_score", sum(r.passed for r in width_results) / len(width_results))
+    if length_results:
+        mlflow.log_metric("length_score", sum(r.passed for r in length_results) / len(length_results))
 
     predictions = {
         r.filename: {
@@ -95,4 +75,4 @@ def log_core_check_results_with_mlflow(results: list[CoreCheckResult], filename:
         }
         for r in results
     }
-    mlflow.log_dict(predictions, f"{filename}.json")
+    mlflow.log_dict(predictions, f"{folder_name}.json")

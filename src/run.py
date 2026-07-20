@@ -12,7 +12,6 @@ from evaluations.core import check_core
 from src.config import PipelineConfig
 from src.mlflow_utils import (
     log_artifact_with_mlflow,
-    log_core_check_results_with_mlflow,
     log_evaluation_results_with_mlflow,
 )
 from src.models import ImageMetadata, ImageMetadataProcessed
@@ -72,15 +71,7 @@ def run(
         # evaluation of detection
         if with_mlflow:
             results = check_core(detections, config.evaluation)
-            log_evaluation_results_with_mlflow(
-                results=[r.width for r in results if r.width is not None],
-                filename="core_width",
-            )
-            log_evaluation_results_with_mlflow(
-                results=[r.length for r in results if r.length is not None],
-                filename="core_length",
-            )
-            log_core_check_results_with_mlflow(results, filename="core_check")
+            log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)

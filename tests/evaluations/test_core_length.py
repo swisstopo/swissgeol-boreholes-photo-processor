@@ -30,13 +30,13 @@ def _make_detection(length: float, depth_start: float, interval: float) -> Image
     )
 
 
-def test_check_core_length_returns_empty_below_min_samples():
-    """Too few detections to compute a reliable median ratio means no results are returned."""
+def test_check_core_length_returns_none_below_min_samples():
+    """Too few detections to compute a reliable median ratio means every core is skipped, not dropped."""
     detections = [_make_detection(800.0, depth_start=15.0 + i, interval=1.0) for i in range(3)]
 
     results = check_core_length(detections, CoreLengthCheckConfig(min_samples=5))
 
-    assert results == []
+    assert results == [None] * len(detections)
 
 
 def test_check_core_length_flags_only_the_outlier():
@@ -53,9 +53,11 @@ def test_check_core_length_flags_only_the_outlier():
 
     results = check_core_length(detections, CoreLengthCheckConfig(relative_tolerance=0.25, min_samples=5))
 
-    assert [r.passed for r in results] == [True, True, True, True, False]
-    assert results[-1].length_px == 2000.0
-    assert results[-1].folder_ratio_px_per_m == pytest.approx(_RATIO_PX_PER_M)
+    assert [r.passed for r in results if r is not None] == [True, True, True, True, False]
+    last = results[-1]
+    assert last is not None
+    assert last.length_px == 2000.0
+    assert last.folder_ratio_px_per_m == pytest.approx(_RATIO_PX_PER_M)
 
 
 def test_check_core_length_within_tolerance_all_pass():
@@ -68,5 +70,5 @@ def test_check_core_length_within_tolerance_all_pass():
 
     results = check_core_length(detections, CoreLengthCheckConfig(relative_tolerance=0.25, min_samples=5))
 
-    assert all(r.passed for r in results)
-    assert all(r.deviation < 0.25 for r in results)
+    assert all(r is not None and r.passed for r in results)
+    assert all(r is not None and r.deviation < 0.25 for r in results)

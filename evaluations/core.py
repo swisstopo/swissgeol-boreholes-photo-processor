@@ -6,20 +6,19 @@ from src.config import (
     CoreCheckConfig,
     CoreCheckResult,
     CoreLengthCheckConfig,
-    CoreLengthCheckResults,
+    CoreLengthCheckResult,
     CoreWidthCheckConfig,
-    CoreWidthCheckResults,
+    CoreWidthCheckResult,
     EvaluationConfig,
 )
 from src.models import ImageMetadataProcessed
 
 
 def _check_core(
-    detections: list[ImageMetadataProcessed],
     config: CoreCheckConfig,
     values: list[float],
     scales: list[float],
-) -> list[tuple[ImageMetadataProcessed, float, float, float, float, bool]]:
+) -> list[tuple[float, float, float, float, bool] | None]:
     """Flag cores whose measured value deviates too far from a robust folder-wide reference.
 
     The reference is the median of each core's own value/scale ratio, which is insensitive
@@ -28,18 +27,18 @@ def _check_core(
     while passing the depth extent (the length check) turns it into a px-per-metre ratio.
 
     Args:
-        detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
         config (CoreCheckConfig): Common tunable parameters (relative_tolerance, min_samples).
         values (list[float]): Measured value (width or length, in pixels) for each detection.
         scales (list[float]): Per-core scale (1.0 for width, depth extent for length).
 
     Returns:
-        list[tuple[ImageMetadataProcessed, float, float, float, float, bool]]: For each detection with a
-        non-zero expected value, a tuple of (detection, value, expected, reference, deviation, passed).
-        If not enough detections are present, returns an empty list.
+        list[tuple[float, float, float, float, bool] | None]: One entry per detection, aligned
+        1:1 with values/scales. An entry is None if there aren't enough detections for a reliable
+        reference, or if this core's expected value is 0 (undefined deviation). Otherwise it's a
+        tuple of (value, expected, reference, deviation, passed).
     """
-    if len(detections) < config.min_samples:
-        return []
+    if len(values) < config.min_samples:
+        return [None] * len(values)
 
     values_arr = np.array(values)
     scales_arr = np.array(scales)
@@ -47,20 +46,21 @@ def _check_core(
     folder_reference = float(np.median(ratios))
 
     results = []
-    for detection, value, scale in zip(detections, values, scales, strict=True):
+    for value, scale in zip(values, scales, strict=True):
         expected = scale * folder_reference
         if expected == 0:
+            results.append(None)
             continue
         deviation = abs(value - expected) / expected
         passed = bool(deviation <= config.relative_tolerance)
-        results.append((detection, value, expected, folder_reference, deviation, passed))
+        results.append((value, expected, folder_reference, deviation, passed))
 
     return results
 
 
 def check_core_width(
     detections: list[ImageMetadataProcessed], config: CoreWidthCheckConfig
-) -> list[CoreWidthCheckResults]:
+) -> list[CoreWidthCheckResult | None]:
     """Flag cores whose width deviates too far from the folder's median width.
 
     Args:
@@ -68,27 +68,27 @@ def check_core_width(
         config (CoreWidthCheckConfig): Configuration parameters for the core width check.
 
     Returns:
-        list[CoreWidthCheckResults]: List of results for each core.
-        If not enough detections are present, returns an empty list.
+        list[CoreWidthCheckResult | None]: One entry per detection, aligned 1:1 with detections.
+        None where the check was skipped for that core (see CoreCheckConfig.min_samples).
     """
     widths = [d.result.bounding_box[3] - d.result.bounding_box[1] for d in detections]
     scales = [1.0] * len(detections)
 
-    return [
-        CoreWidthCheckResults(
-            filename=detection.image_path.name,
-            width=value,
-            folder_median_width=reference,
-            deviation=deviation,
-            passed=passed,
+    results = []
+    for result in _check_core(config, widths, scales):
+        if result is None:
+            results.append(None)
+            continue
+        value, _, reference, deviation, passed = result
+        results.append(
+            CoreWidthCheckResult(passed=passed, width=value, folder_median_width=reference, deviation=deviation)
         )
-        for detection, value, _, reference, deviation, passed in _check_core(detections, config, widths, scales)
-    ]
+    return results
 
 
 def check_core_length(
     detections: list[ImageMetadataProcessed], config: CoreLengthCheckConfig
-) -> list[CoreLengthCheckResults]:
+) -> list[CoreLengthCheckResult | None]:
     """Flag cores whose length deviates too far from the expected length based on the folder's median ratio.
 
     Args:
@@ -96,25 +96,28 @@ def check_core_length(
         config (CoreLengthCheckConfig): Configuration parameters for the core length check.
 
     Returns:
-        list[CoreLengthCheckResults]: List of results for each core.
-        If not enough detections are present, returns an empty list.
+        list[CoreLengthCheckResult | None]: One entry per detection, aligned 1:1 with detections.
+        None where the check was skipped for that core (see CoreCheckConfig.min_samples).
     """
     lengths = [d.result.bounding_box[2] - d.result.bounding_box[0] for d in detections]
     scales = [d.depth_end - d.depth_start for d in detections]
 
-    return [
-        CoreLengthCheckResults(
-            filename=detection.image_path.name,
-            length_px=value,
-            expected_length_px=expected,
-            folder_ratio_px_per_m=reference,
-            deviation=deviation,
-            passed=passed,
+    results = []
+    for result in _check_core(config, lengths, scales):
+        if result is None:
+            results.append(None)
+            continue
+        value, expected, reference, deviation, passed = result
+        results.append(
+            CoreLengthCheckResult(
+                passed=passed,
+                length_px=value,
+                expected_length_px=expected,
+                folder_ratio_px_per_m=reference,
+                deviation=deviation,
+            )
         )
-        for detection, value, expected, reference, deviation, passed in _check_core(
-            detections, config, lengths, scales
-        )
-    ]
+    return results
 
 
 def check_core(detections: list[ImageMetadataProcessed], config: EvaluationConfig) -> list[CoreCheckResult]:
@@ -122,8 +125,7 @@ def check_core(detections: list[ImageMetadataProcessed], config: EvaluationConfi
 
     width/length checks report results in different units and reference a differently-scaled
     folder reference, so they can't be merged into a single flat result type. Instead, each
-    file gets one CoreCheckResult with both nested inside, keyed by filename -- this is what
-    gets logged as the per-file prediction JSON (see log_core_check_results_with_mlflow).
+    file gets one CoreCheckResult with both nested inside, keyed by filename.
 
     Args:
         detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
@@ -133,14 +135,10 @@ def check_core(detections: list[ImageMetadataProcessed], config: EvaluationConfi
         list[CoreCheckResult]: One result per detection. width/length are None for a file
         whose corresponding check was skipped (see CoreCheckConfig.min_samples).
     """
-    width_by_filename = {r.filename: r for r in check_core_width(detections, config.core_width)}
-    length_by_filename = {r.filename: r for r in check_core_length(detections, config.core_length)}
+    width_results = check_core_width(detections, config.core_width)
+    length_results = check_core_length(detections, config.core_length)
 
     return [
-        CoreCheckResult(
-            filename=detection.image_path.name,
-            width=width_by_filename.get(detection.image_path.name),
-            length=length_by_filename.get(detection.image_path.name),
-        )
-        for detection in detections
+        CoreCheckResult(filename=detection.image_path.name, width=width, length=length)
+        for detection, width, length in zip(detections, width_results, length_results, strict=True)
     ]

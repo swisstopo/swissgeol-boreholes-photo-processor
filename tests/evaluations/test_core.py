@@ -36,9 +36,32 @@ def test_check_core_merges_width_and_length_per_file():
     for detection, result in zip(detections, results, strict=True):
         assert result.filename == detection.image_path.name
         assert result.width is not None
-        assert result.width.filename == result.filename
         assert result.length is not None
-        assert result.length.filename == result.filename
+
+
+def test_check_core_keeps_filename_alignment_when_one_core_is_skipped():
+    """A single zero-length interval must not shift width/length results onto the wrong file.
+
+    check_core_length skips only the individual core whose depth interval is zero (its expected
+    length is undefined), while every other file in the folder is still checked -- this must not
+    misattribute results to the wrong file or drop it from the output.
+    """
+    detections = [_make_detection(width=800.0, length=800.0, depth_start=15.0 + i) for i in range(5)]
+    detections[2] = _make_detection(width=800.0, length=800.0, depth_start=17.0, interval=0.0)
+
+    results = check_core(
+        detections,
+        EvaluationConfig(
+            core_width=CoreWidthCheckConfig(min_samples=5),
+            core_length=CoreLengthCheckConfig(min_samples=5),
+        ),
+    )
+
+    assert len(results) == 5
+    for detection, result in zip(detections, results, strict=True):
+        assert result.filename == detection.image_path.name
+    assert results[2].length is None
+    assert all(result.length is not None for result in results[:2] + results[3:])
 
 
 def test_check_core_leaves_width_or_length_none_below_min_samples():
