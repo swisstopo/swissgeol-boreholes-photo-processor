@@ -37,6 +37,7 @@ def run(
     config: PipelineConfig,
     with_mlflow: bool = False,
     nested: bool = False,
+    n_cores: int = 1,
 ) -> None:
     """Process borehole photos from input to output directory.
 
@@ -46,6 +47,7 @@ def run(
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
         nested (bool): Whether to start a nested MLflow run under an existing active run.
+        n_cores (int): Number of worker processes used to segment images in parallel.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory and parse filename metadata
@@ -61,7 +63,10 @@ def run(
 
         # segmentation
         detections: list[ImageMetadataProcessed] = segment(
-            imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow
+            imgs_metadata,
+            config=config.segmentation,
+            with_mlflow=with_mlflow,
+            n_cores=n_cores,
         )
 
         # stitching
@@ -86,6 +91,7 @@ def batch_run(
     output_dir: Path,
     config: PipelineConfig,
     with_mlflow: bool = False,
+    n_cores: int = 1,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -95,6 +101,7 @@ def batch_run(
         output_dir (Path): Path to the directory where processed images will be written.
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
+        n_cores (int): Number of worker processes used to segment images in parallel.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
         subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
@@ -106,6 +113,7 @@ def batch_run(
                 config=config,
                 with_mlflow=with_mlflow,
                 nested=True,
+                n_cores=n_cores,
             )
 
 
@@ -122,6 +130,12 @@ def main() -> None:
         default=Path("config.yaml"),
         help="Path to the YAML config file for segmentation and stitching parameters (default: config.yaml).",
     )
+    parser.add_argument(
+        "--ncore",
+        type=int,
+        default=1,
+        help="Number of worker processes used to segment images in parallel (default: 1).",
+    )
     args = parser.parse_args()
 
     if not args.input.exists():
@@ -135,9 +149,21 @@ def main() -> None:
 
     has_subdirs = any(p.is_dir() for p in args.input.iterdir())
     if has_subdirs:
-        batch_run(input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow)
+        batch_run(
+            input_dir=args.input,
+            output_dir=args.output,
+            config=config,
+            with_mlflow=args.mlflow,
+            n_cores=args.ncore,
+        )
     else:
-        run(input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow)
+        run(
+            input_dir=args.input,
+            output_dir=args.output,
+            config=config,
+            with_mlflow=args.mlflow,
+            n_cores=args.ncore,
+        )
 
 
 if __name__ == "__main__":
