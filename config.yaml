@@ -36,3 +36,12 @@ stitching:
   padding_horizontal: 150 # left/right border width in pixels
   padding_vertical: 200 # top/bottom border height in pixels
   ruler_width: 300 # width in pixels of each of the two depth rulers (left/right of the cores)
+
+evaluation:
+  core_width:
+    min_samples: 5 # below this, skip the check (median/ratio unreliable with too few points)
+    relative_tolerance: 0.25 # flag if |width - folder_median| / folder_median exceeds this
+  core_length:
+    min_samples: 5 # below this, skip the check (median/ratio unreliable with too few points)
+    relative_tolerance: 0.05 # flag if |width - folder_median| / folder_median exceeds this
+    max_depth_range: 1.00 # Cap height scale to 1 meter (no image with more than 1m core)

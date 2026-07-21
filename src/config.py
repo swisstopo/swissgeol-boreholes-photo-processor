@@ -96,7 +96,7 @@ class PipelineConfig:
         """
         raw = yaml.safe_load(path.read_text()) or {}
         raw_segmentation = dict(raw.pop("segmentation", None) or {})
-        raw_evaluation = raw.get("evaluation") or {}
+        raw_evaluation = dict(raw.pop("evaluation", None) or {})
         return cls(
             segmentation=SegmentationConfig(
                 core=SegmentationCoreConfig(**(raw_segmentation.pop("core", None) or {})),

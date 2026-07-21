@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 class CoreCheckConfig:
     """Common tunable parameters shared by all per-core consistency checks (width, length, ...)."""
 
-    relative_tolerance: float = 0.1  # flag if the deviation from the expected/reference value exceeds this
+    relative_tolerance: float = 0.0  # flag if the deviation from the expected/reference value exceeds this
     min_samples: int = 5  # below this, skip the check (median/ratio unreliable with too few points)
 
 
@@ -15,14 +15,15 @@ class CoreCheckConfig:
 class CoreWidthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core width check evaluation."""
 
-    relative_tolerance: float = 0.25  # flag if |width - folder_median| / folder_median exceeds this
+    relative_tolerance: float = 0.25
 
 
 @dataclass
 class CoreLengthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core length check evaluation."""
 
-    relative_tolerance: float = 0.05  # ~5% buffer
+    relative_tolerance: float = 0.05
+    max_depth_range: float = 1.00  # Cap height scale to 1 meter (no image with more than 1m core)
 
 
 @dataclass
@@ -34,27 +35,13 @@ class EvaluationConfig:
 
 
 @dataclass
-class CoreCheckOutcome:
+class CoreValueCheckResult:
     """Common pass/fail verdict fields shared by all per-core consistency checks (width, length, ...)."""
 
     passed: bool  # whether the core passed the check (True = within tolerance, False = flagged)
-    relative_error: float  # (measure_px - reference_px) / reference_px
-
-
-@dataclass
-class CoreWidthCheckResult(CoreCheckOutcome):
-    """Results of the core width check evaluation."""
-
-    measure_px: float  # width of the core in pixels
-    reference_px: float  # median width of cores in the folder
-
-
-@dataclass
-class CoreLengthCheckResult(CoreCheckOutcome):
-    """Results of the core length check evaluation."""
-
-    measure_px: float  # length of the core in pixels
-    reference_px: float  # (depth_end - depth_start) * folder's median px-per-metre ratio
+    relative_error: float  # (measure - reference) / reference
+    measure: float  # value computed for this detection
+    reference: float  # group median value
 
 
 @dataclass
@@ -66,5 +53,5 @@ class CoreCheckResult:
     """
 
     filename: str  # name of the image file
-    width: CoreWidthCheckResult | None
-    length: CoreLengthCheckResult | None
+    width: CoreValueCheckResult | None
+    length: CoreValueCheckResult | None

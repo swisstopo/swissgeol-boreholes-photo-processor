@@ -9,7 +9,7 @@ import mlflow
 from tqdm import tqdm
 
 from src.config import PipelineConfig
-from src.evaluations.core import check_core
+from src.evaluations.core import evaluate_detections
 from src.mlflow_utils import (
     log_artifact_with_mlflow,
     log_evaluation_results_with_mlflow,
@@ -70,7 +70,7 @@ def run(
 
         # evaluation of detection
         if with_mlflow:
-            results = check_core(detections, config.evaluation)
+            results = evaluate_detections(detections, config.evaluation)
             log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
 
         # stitching

@@ -1,7 +1,6 @@
 """Module for checking core width and length consistency across a set of detections."""
 
-from collections.abc import Callable
-from typing import TypeVar
+from abc import ABC, abstractmethod
 
 import numpy as np
 
@@ -9,139 +8,136 @@ from src.evaluations.config import (
     CoreCheckConfig,
     CoreCheckResult,
     CoreLengthCheckConfig,
-    CoreLengthCheckResult,
-    CoreWidthCheckConfig,
-    CoreWidthCheckResult,
+    CoreValueCheckResult,
     EvaluationConfig,
 )
 from src.models import ImageMetadataProcessed
 
-_CoreCheckResultT = TypeVar("_CoreCheckResultT", CoreWidthCheckResult, CoreLengthCheckResult)
 
+class EvaluationCompute(ABC):
+    """Base class for flagging cores whose measured value deviates too far from a group median.
 
-def _core_bboxes(detections: list[ImageMetadataProcessed]) -> list[tuple[float, float, float, float]]:
-    """Extract each detection's core bounding box, raising if a core wasn't detected.
-
-    segment() only ever appends detections with a populated core (segmentation failures are
-    dropped before appending), so this should never raise in practice.
-    """
-    bboxes = []
-    for d in detections:
-        if d.core is None:
-            raise ValueError(f"No core region detected for image: {d.image_path}")
-        bboxes.append(d.core.bbox)
-    return bboxes
-
-
-def _check_core(
-    config: CoreCheckConfig,
-    values: list[float],
-    scales: list[float],
-) -> list[tuple[float, float, float, bool] | None]:
-    """Flag cores whose measured value deviates too far from a robust folder-wide reference.
-
-    The reference is the median of each core's own value/scale ratio, which is insensitive
-    to outlier cores. A core's expected value is then scale * reference, so passing scale=1
-    for every core (the width check) makes the reference a plain median of the raw values,
-    while passing the depth extent (the length check) turns it into a px-per-metre ratio.
+    Subclasses implement `_compute` to derive the per-detection measured value. This base class
+    handles computing the group median reference from those values and flagging entries whose
+    relative deviation from it exceeds `relative_tolerance`.
 
     Args:
-        config (CoreCheckConfig): Common tunable parameters (relative_tolerance, min_samples).
-        values (list[float]): Measured value (width or length, in pixels) for each detection.
-        scales (list[float]): Per-core scale (1.0 for width, depth extent for length).
-
-    Returns:
-        list[tuple[float, float, float, bool] | None]: One entry per detection, aligned
-        1:1 with values/scales. An entry is None if there aren't enough detections for a reliable
-        reference, or if this core's expected value is 0 (undefined relative error). Otherwise it's
-        a tuple of (value, expected, relative_error, passed).
+        config (CoreCheckConfig): Tunable parameters (relative_tolerance, min_samples) for the check.
     """
-    if len(values) < config.min_samples:
-        return [None] * len(values)
 
-    values_arr = np.array(values)
-    scales_arr = np.array(scales)
-    ratios = values_arr[scales_arr != 0] / scales_arr[scales_arr != 0]
-    folder_reference = float(np.median(ratios))
+    def __init__(self, config: CoreCheckConfig):
+        self.min_samples = config.min_samples
+        self.relative_tolerance = config.relative_tolerance
 
-    results = []
-    for value, scale in zip(values, scales, strict=True):
-        expected = scale * folder_reference
-        if expected == 0:
-            results.append(None)
-            continue
-        relative_error = abs(value - expected) / expected
-        passed = bool(relative_error <= config.relative_tolerance)
-        results.append((value, expected, relative_error, passed))
+    def _evaluate_median(
+        self,
+        values: list[float | None],
+    ) -> list[CoreValueCheckResult | None]:
+        """Flag values that deviate too far from the group median of all measured values.
 
-    return results
+        None entries mark a detection with no measurement for this check (e.g. a missing core or
+        ruler detection).
+
+        Args:
+            values (list[float | None]): Measured value for each detection, or None where unavailable.
+
+        Returns:
+            list[CoreCheckOutcome | None]: One entry per detection. None when fewer than `min_samples` values.
+        """
+        values_ = np.array(values, dtype=float)
+
+        if np.isfinite(values_).sum() < self.min_samples:
+            return [None] * len(values)
+
+        reference = float(np.nanmedian(values_))
+        relative_errors = np.abs(values_ - reference) / reference
+
+        return [
+            CoreValueCheckResult(
+                bool(relative_error <= self.relative_tolerance), float(relative_error), value, reference
+            )
+            if value
+            else None
+            for relative_error, value in zip(relative_errors, values, strict=True)
+        ]
+
+    def evaluate(
+        self,
+        detections: list[ImageMetadataProcessed],
+    ) -> list[CoreValueCheckResult | None]:
+        """Compute each detection's measured value via `_compute` and flag deviations from the median.
+
+        Args:
+            detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
+
+        Returns:
+            list[CoreCheckOutcome | None]: One entry per detection. None where the check was skipped.
+        """
+        return self._evaluate_median(values=[self._compute(detection) for detection in detections])
+
+    @abstractmethod
+    def _compute(self, detection: ImageMetadataProcessed) -> float | None:
+        """Derive the measured value for one detection.
+
+        Args:
+            detection (ImageMetadataProcessed): The processed image metadata to measure.
+
+        Returns:
+            float | None: The measured value, or None if it can't be computed.
+        """
+        raise NotImplementedError()
 
 
-def _build_results(
-    raw_results: list[tuple[float, float, float, bool] | None],
-    build: Callable[[float, float, float, bool], _CoreCheckResultT],
-) -> list[_CoreCheckResultT | None]:
-    """Apply build to each non-None _check_core entry, passing None through unchanged."""
-    return [build(*raw_result) if raw_result is not None else None for raw_result in raw_results]
+class EvaluationWidthCompute(EvaluationCompute):
+    """Flags cores whose width deviates too far from the median width."""
+
+    def _compute(self, detection: ImageMetadataProcessed) -> float | None:
+        """Compute a core's width in pixels: its bounding box's vertical (y) extent.
+
+        Args:
+            detection (ImageMetadataProcessed): The processed image metadata to measure.
+
+        Returns:
+            float | None: Width in pixels, or None if no core was detected for this image.
+        """
+        return detection.core.bbox[3] - detection.core.bbox[1] if detection.core is not None else None
 
 
-def check_core_width(
-    detections: list[ImageMetadataProcessed], config: CoreWidthCheckConfig
-) -> list[CoreWidthCheckResult | None]:
-    """Flag cores whose width deviates too far from the folder's median width.
+class EvaluationLengthCompute(EvaluationCompute):
+    """Flags cores whose length-to-depth ratio deviates too far from the median ratio.
 
     Args:
-        detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
-        config (CoreWidthCheckConfig): Configuration parameters for the core width check.
-
-    Returns:
-        list[CoreWidthCheckResult | None]: One entry per detection, aligned 1:1 with detections.
-        None where the check was skipped for that core (see CoreCheckConfig.min_samples).
+        config (CoreLengthConfig): Tunable parameters (relative_tolerance, min_samples,
+            max_depth_range) for the core length check.
     """
-    widths = [bbox[3] - bbox[1] for bbox in _core_bboxes(detections)]
-    scales = [1.0] * len(detections)
 
-    return _build_results(
-        _check_core(config, widths, scales),
-        lambda value, expected, relative_error, passed: CoreWidthCheckResult(
-            passed=passed, measure_px=value, reference_px=expected, relative_error=relative_error
-        ),
-    )
+    def __init__(self, config: CoreLengthCheckConfig):
+        super().__init__(config)
+        self.max_depth_range = config.max_depth_range
 
+    def _compute(self, detection: ImageMetadataProcessed) -> float | None:
+        """Compute a core's length-to-depth ratio, normalized by the ruler's px-per-unit scale.
 
-def check_core_length(
-    detections: list[ImageMetadataProcessed], config: CoreLengthCheckConfig
-) -> list[CoreLengthCheckResult | None]:
-    """Flag cores whose length deviates too far from the expected length based on the folder's median ratio.
+        Args:
+            detection (ImageMetadataProcessed): The processed image metadata to measure.
 
-    Args:
-        detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
-        config (CoreLengthCheckConfig): Configuration parameters for the core length check.
+        Returns:
+            float | None: The normalized px-per-depth-unit ratio, or None.
+        """
+        if detection.core is None or detection.ruler is None:
+            return None
 
-    Returns:
-        list[CoreLengthCheckResult | None]: One entry per detection, aligned 1:1 with detections.
-        None where the check was skipped for that core (see CoreCheckConfig.min_samples).
-    """
-    lengths = [bbox[2] - bbox[0] for bbox in _core_bboxes(detections)]
-    scales = [d.depth_end - d.depth_start for d in detections]
+        depth_range = min(detection.depth_end - detection.depth_start, self.max_depth_range)
+        ruler_res = detection.ruler.px_per_unit
 
-    return _build_results(
-        _check_core(config, lengths, scales),
-        lambda value, expected, relative_error, passed: CoreLengthCheckResult(
-            passed=passed,
-            measure_px=value,
-            reference_px=expected,
-            relative_error=relative_error,
-        ),
-    )
+        if not depth_range or not ruler_res:
+            return None
+
+        return (detection.core.bbox[2] - detection.core.bbox[0]) / depth_range / detection.ruler.px_per_unit
 
 
-def check_core(detections: list[ImageMetadataProcessed], config: EvaluationConfig) -> list[CoreCheckResult]:
+def evaluate_detections(detections: list[ImageMetadataProcessed], config: EvaluationConfig) -> list[CoreCheckResult]:
     """Run the width and length checks and merge them into one result per file.
-
-    width/length checks report results in different units and reference a differently-scaled
-    folder reference, so they can't be merged into a single flat result type. Instead, each
-    file gets one CoreCheckResult with both nested inside, keyed by filename.
 
     Args:
         detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
@@ -151,8 +147,8 @@ def check_core(detections: list[ImageMetadataProcessed], config: EvaluationConfi
         list[CoreCheckResult]: One result per detection. width/length are None for a file
         whose corresponding check was skipped (see CoreCheckConfig.min_samples).
     """
-    width_results = check_core_width(detections, config.core_width)
-    length_results = check_core_length(detections, config.core_length)
+    width_results = EvaluationWidthCompute(config=config.core_width).evaluate(detections)
+    length_results = EvaluationLengthCompute(config=config.core_length).evaluate(detections)
 
     return [
         CoreCheckResult(filename=detection.image_path.name, width=width, length=length)
