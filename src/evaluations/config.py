@@ -54,8 +54,7 @@ class CoreLengthCheckResult(CoreCheckOutcome):
     """Results of the core length check evaluation."""
 
     measure_px: float  # length of the core in pixels
-    reference_px: float  # (depth_end - depth_start) * reference_px_per_m
-    reference_px_per_m: float  # median px-per-metre ratio for this folder
+    reference_px: float  # (depth_end - depth_start) * folder's median px-per-metre ratio
 
 
 @dataclass

@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from src.evaluations.config import CoreLengthCheckConfig
 from src.evaluations.core import check_core_length
 from src.models import CoreSegmentResult, ImageMetadataProcessed
@@ -57,7 +55,6 @@ def test_check_core_length_flags_only_the_outlier():
     last = results[-1]
     assert last is not None
     assert last.measure_px == 2000.0
-    assert last.reference_px_per_m == pytest.approx(_RATIO_PX_PER_M)
 
 
 def test_check_core_length_within_tolerance_all_pass():

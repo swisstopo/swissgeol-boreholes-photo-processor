@@ -23,7 +23,7 @@ def _check_core(
     config: CoreCheckConfig,
     values: list[float],
     scales: list[float],
-) -> list[tuple[float, float, float, float, bool] | None]:
+) -> list[tuple[float, float, float, bool] | None]:
     """Flag cores whose measured value deviates too far from a robust folder-wide reference.
 
     The reference is the median of each core's own value/scale ratio, which is insensitive
@@ -37,10 +37,10 @@ def _check_core(
         scales (list[float]): Per-core scale (1.0 for width, depth extent for length).
 
     Returns:
-        list[tuple[float, float, float, float, bool] | None]: One entry per detection, aligned
+        list[tuple[float, float, float, bool] | None]: One entry per detection, aligned
         1:1 with values/scales. An entry is None if there aren't enough detections for a reliable
         reference, or if this core's expected value is 0 (undefined relative error). Otherwise it's
-        a tuple of (value, expected, reference, relative_error, passed).
+        a tuple of (value, expected, relative_error, passed).
     """
     if len(values) < config.min_samples:
         return [None] * len(values)
@@ -58,14 +58,14 @@ def _check_core(
             continue
         relative_error = abs(value - expected) / expected
         passed = bool(relative_error <= config.relative_tolerance)
-        results.append((value, expected, folder_reference, relative_error, passed))
+        results.append((value, expected, relative_error, passed))
 
     return results
 
 
 def _build_results(
-    raw_results: list[tuple[float, float, float, float, bool] | None],
-    build: Callable[[float, float, float, float, bool], _CoreCheckResultT],
+    raw_results: list[tuple[float, float, float, bool] | None],
+    build: Callable[[float, float, float, bool], _CoreCheckResultT],
 ) -> list[_CoreCheckResultT | None]:
     """Apply build to each non-None _check_core entry, passing None through unchanged."""
     return [build(*raw_result) if raw_result is not None else None for raw_result in raw_results]
@@ -89,8 +89,8 @@ def check_core_width(
 
     return _build_results(
         _check_core(config, widths, scales),
-        lambda value, _expected, reference, relative_error, passed: CoreWidthCheckResult(
-            passed=passed, measure_px=value, reference_px=reference, relative_error=relative_error
+        lambda value, expected, relative_error, passed: CoreWidthCheckResult(
+            passed=passed, measure_px=value, reference_px=expected, relative_error=relative_error
         ),
     )
 
@@ -113,11 +113,10 @@ def check_core_length(
 
     return _build_results(
         _check_core(config, lengths, scales),
-        lambda value, expected, reference, relative_error, passed: CoreLengthCheckResult(
+        lambda value, expected, relative_error, passed: CoreLengthCheckResult(
             passed=passed,
             measure_px=value,
             reference_px=expected,
-            reference_px_per_m=reference,
             relative_error=relative_error,
         ),
     )
