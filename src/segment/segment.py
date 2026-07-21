@@ -4,6 +4,7 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 
+import mlflow
 from tqdm import tqdm
 
 from src.config import SegmentationConfig
@@ -26,6 +27,7 @@ def segment_single(
     detection_ruler: RulerSegmentResult | None = None,
     detection_tray: ImageSegmentResult | None = None,
     with_mlflow: bool = False,
+    run_id: str | None = None,
 ) -> ImageMetadataProcessed | None:
     """Run the full segmentation pipeline (ruler, tray, core) on a single image.
 
@@ -41,6 +43,8 @@ def segment_single(
             to reuse instead of running `segment_tray_single`. Defaults to None.
         with_mlflow (bool, optional): Whether to log the segmentation result as an MLflow
             debug artifact. Defaults to False.
+        run_id (str | None, optional): MLflow run ID to log into. Required when `with_mlflow`
+            is True, since worker processes don't inherit the parent's active run. Defaults to None.
 
     Returns:
         ImageMetadataProcessed | None: The image metadata enriched with the detected core,
@@ -68,11 +72,12 @@ def segment_single(
         )
 
         if with_mlflow:
-            log_image_metadata_processed_mlflow(
-                result=detection,
-                filename=f"{img_metadata.image_path.stem}",
-                subfolder="debug",
-            )
+            with mlflow.start_run(run_id=run_id):
+                log_image_metadata_processed_mlflow(
+                    result=detection,
+                    filename=f"{img_metadata.image_path.stem}",
+                    subfolder="debug",
+                )
 
     except (SegmentationError, ValueError) as e:
         logger.warning("%s. Skipping.", e)
@@ -107,8 +112,14 @@ def segment(
     # Try to estimate image foreground (moving part)
     detection_tray = segment_tray_multiple(imgs_metadata, config.tray_multiple)
 
+    # Worker processes don't inherit the parent's active MLflow run, so pass its ID explicitly
+    active_run = mlflow.active_run()
+    run_id = active_run.info.run_id if with_mlflow and active_run is not None else None
+
     # Setup up worker with fixed / non iterable items
-    worker = partial(segment_single, detection_tray=detection_tray, config=config, with_mlflow=with_mlflow)
+    worker = partial(
+        segment_single, detection_tray=detection_tray, config=config, with_mlflow=with_mlflow, run_id=run_id
+    )
 
     with ProcessPoolExecutor(n_cores) as executor:
         detections = list(
