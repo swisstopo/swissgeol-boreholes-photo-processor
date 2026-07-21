@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
+
 
 @dataclass
 class SegmentationCoreConfig:
@@ -77,13 +79,14 @@ class PipelineConfig:
 
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
     stitching: StitchingConfig = field(default_factory=StitchingConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "PipelineConfig":
         """Load a PipelineConfig from a YAML file.
 
         Keys omitted from the file fall back to the defaults defined on
-        SegmentationConfig / StitchingConfig.
+        SegmentationConfig / StitchingConfig / EvaluationConfig.
 
         Args:
             path (Path): Path to the YAML config file.
@@ -92,15 +95,20 @@ class PipelineConfig:
             PipelineConfig: The loaded configuration.
         """
         raw = yaml.safe_load(path.read_text()) or {}
-        segmentation_raw = dict(raw.pop("segmentation", None) or {})
+        raw_segmentation = dict(raw.pop("segmentation", None) or {})
+        raw_evaluation = raw.get("evaluation") or {}
         return cls(
             segmentation=SegmentationConfig(
-                core=SegmentationCoreConfig(**(segmentation_raw.pop("core", None) or {})),
-                ruler=SegmentationRulerConfig(**(segmentation_raw.pop("ruler", None) or {})),
-                tray_multiple=SegmentationTrayMultipleConfig(**(segmentation_raw.pop("tray_multiple", None) or {})),
-                tray_single=SegmentationTraySingleConfig(**(segmentation_raw.pop("tray_single", None) or {})),
-                **segmentation_raw,
+                core=SegmentationCoreConfig(**(raw_segmentation.pop("core", None) or {})),
+                ruler=SegmentationRulerConfig(**(raw_segmentation.pop("ruler", None) or {})),
+                tray_multiple=SegmentationTrayMultipleConfig(**(raw_segmentation.pop("tray_multiple", None) or {})),
+                tray_single=SegmentationTraySingleConfig(**(raw_segmentation.pop("tray_single", None) or {})),
+                **raw_segmentation,
             ),
             stitching=StitchingConfig(**(raw.pop("stitching", None) or {})),
+            evaluation=EvaluationConfig(
+                core_width=CoreWidthCheckConfig(**(raw_evaluation.get("core_width") or {})),
+                core_length=CoreLengthCheckConfig(**(raw_evaluation.get("core_length") or {})),
+            ),
             **raw,
         )
