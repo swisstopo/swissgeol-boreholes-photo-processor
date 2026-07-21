@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from evaluations.core import check_core
 from src.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
+from src.evaluations.core import check_core
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
 

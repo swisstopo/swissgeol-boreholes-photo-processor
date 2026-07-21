@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from evaluations.core import check_core_length
 from src.config import CoreLengthCheckConfig
+from src.evaluations.core import check_core_length
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
 # Depth intervals (in metres) with varied, exactly-representable values.
