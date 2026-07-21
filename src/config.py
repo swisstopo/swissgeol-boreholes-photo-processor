@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
+
 
 @dataclass
 class SegmentationConfig:
@@ -43,13 +45,14 @@ class PipelineConfig:
 
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
     stitching: StitchingConfig = field(default_factory=StitchingConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "PipelineConfig":
         """Load a PipelineConfig from a YAML file.
 
         Keys omitted from the file fall back to the defaults defined on
-        SegmentationConfig / StitchingConfig.
+        SegmentationConfig / StitchingConfig / EvaluationConfig.
 
         Args:
             path (Path): Path to the YAML config file.
@@ -58,7 +61,12 @@ class PipelineConfig:
             PipelineConfig: The loaded configuration.
         """
         raw = yaml.safe_load(path.read_text()) or {}
+        raw_evaluation = raw.get("evaluation") or {}
         return cls(
             segmentation=SegmentationConfig(**(raw.get("segmentation") or {})),
             stitching=StitchingConfig(**(raw.get("stitching") or {})),
+            evaluation=EvaluationConfig(
+                core_width=CoreWidthCheckConfig(**(raw_evaluation.get("core_width") or {})),
+                core_length=CoreLengthCheckConfig(**(raw_evaluation.get("core_length") or {})),
+            ),
         )
