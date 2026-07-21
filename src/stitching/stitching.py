@@ -76,7 +76,7 @@ def stitching_batch(
     )
 
     canvas_width = (
-        +2 * config.ruler_width  # Ruler
+        2 * config.ruler_width  # Ruler
         + 4 * config.padding_horizontal  #  Padding
         + n_core_width  # Cores
     )
@@ -86,7 +86,7 @@ def stitching_batch(
     # Drawing
     v_core_width = sum([img.width for img in cores_img])  # Width of all core
     v_core_width = v_core_width * (config.num_cores_per_image / len(cores_img))  # Add extra width if core is missing
-    n_padding_horizontal = (n_core_width - v_core_width) / (config.num_cores_per_image - 1)
+    n_padding_horizontal = (n_core_width - v_core_width) / max((config.num_cores_per_image - 1), 1)
     canvas = _draw_cores(
         canvas=canvas,
         cores=cores_img,
@@ -156,7 +156,7 @@ def stitching(
 
     original_scales, original_heights = original
 
-    # Set default resolution is missing
+    # Set default resolution if missing
     fallback_scale = np.median(original_scales).item()
 
     # Estimate ruler span over all cores

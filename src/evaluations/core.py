@@ -56,7 +56,7 @@ class EvaluationCompute(ABC):
             CoreValueCheckResult(
                 bool(relative_error <= self.relative_tolerance), float(relative_error), value, reference
             )
-            if value
+            if value is not None
             else None
             for relative_error, value in zip(relative_errors, values, strict=True)
         ]
@@ -107,7 +107,7 @@ class EvaluationLengthCompute(EvaluationCompute):
     """Flags cores whose length-to-depth ratio deviates too far from the median ratio.
 
     Args:
-        config (CoreLengthConfig): Tunable parameters (relative_tolerance, min_samples,
+        config (CoreLengthCheckConfig): Tunable parameters (relative_tolerance, min_samples,
             max_depth_range) for the core length check.
     """
 

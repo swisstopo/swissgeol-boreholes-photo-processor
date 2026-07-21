@@ -7,6 +7,7 @@ import tifffile
 from skimage.transform import rescale
 
 
+# Store up to 4 different image (downscaled) in memory
 @lru_cache(maxsize=4)
 def load_image(path: str, factor: float = 1.0) -> np.ndarray:
     """Load a TIF image and normalize it to an RGB float array in [0, 1].

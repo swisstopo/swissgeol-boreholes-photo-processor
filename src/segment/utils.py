@@ -79,18 +79,18 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     y_diff = np.diff(y[y_sort], axis=0)
     steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0]).item()
 
-    # Drop detections that are not aligned with detected steps (ditance to neighbor)
+    # Drop detections that are not aligned with detected steps (distance to neighbor)
     distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
-    id_inliners = abs(np.median(distances, axis=0) - steps_median) / steps_median < config.r_error_outliers
+    id_inliers = abs(np.median(distances, axis=0) - steps_median) / steps_median < config.r_error_outliers
 
-    if not id_inliners.any():
+    if not id_inliers.any():
         return None
 
     # Reconstruct bbox for each unit (left, top, left + width, top + height)
     bbox_units = np.concatenate(
         (
-            data[id_inliners][:, [1, 2]],
-            data[id_inliners][:, [1, 2]] + data[id_inliners][:, [3, 4]],
+            data[id_inliers][:, [1, 2]],
+            data[id_inliers][:, [1, 2]] + data[id_inliers][:, [3, 4]],
         ),
         axis=1,
     )
@@ -162,7 +162,7 @@ def segment_tray_multiple(
     for img_metadata in tqdm(imgs_metadata, desc="Load images"):
         try:
             img = img_metadata.load_image(factor=config.downscale_factor)
-        except SegmentationError as e:
+        except (SegmentationError, ValueError) as e:
             logger.warning("%s. Skipping.", e)
             continue
 

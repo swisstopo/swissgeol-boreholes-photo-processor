@@ -109,6 +109,7 @@ class PipelineConfig:
             evaluation=EvaluationConfig(
                 core_width=CoreWidthCheckConfig(**(raw_evaluation.get("core_width") or {})),
                 core_length=CoreLengthCheckConfig(**(raw_evaluation.get("core_length") or {})),
+                **raw_evaluation,
             ),
             **raw,
         )
