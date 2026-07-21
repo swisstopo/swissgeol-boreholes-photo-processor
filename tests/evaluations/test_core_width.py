@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from src.evaluations.config import CoreWidthCheckConfig
 from src.evaluations.core import check_core_width
 from src.models import CoreSegmentResult, ImageMetadataProcessed
@@ -42,8 +44,9 @@ def test_check_core_width_flags_only_the_outlier():
     assert [r.passed for r in results if r is not None] == [True, True, True, True, False]
     last = results[-1]
     assert last is not None
-    assert last.width == 1500.0
-    assert last.folder_median_width == 800.0
+    assert last.measure_px == 1500.0
+    assert last.reference_px == 800.0
+    assert last.relative_error == pytest.approx(0.875)  # (1500-800)/800
 
 
 def test_check_core_width_deviation_exactly_at_tolerance_passes():

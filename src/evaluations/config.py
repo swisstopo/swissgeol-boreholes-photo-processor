@@ -38,24 +38,24 @@ class CoreCheckOutcome:
     """Common pass/fail verdict fields shared by all per-core consistency checks (width, length, ...)."""
 
     passed: bool  # whether the core passed the check (True = within tolerance, False = flagged)
-    deviation: float  # relative deviation from the expected/reference value
+    relative_error: float  # (measure_px - reference_px) / reference_px
 
 
 @dataclass
 class CoreWidthCheckResult(CoreCheckOutcome):
     """Results of the core width check evaluation."""
 
-    width: float  # width of the core in pixels
-    folder_median_width: float  # median width of cores in the folder
+    measure_px: float  # width of the core in pixels
+    reference_px: float  # median width of cores in the folder
 
 
 @dataclass
 class CoreLengthCheckResult(CoreCheckOutcome):
     """Results of the core length check evaluation."""
 
-    length_px: float  # length of the core in pixels
-    expected_length_px: float  # (depth_end - depth_start) * folder_ratio_px_per_m
-    folder_ratio_px_per_m: float  # median px-per-metre ratio for this folder
+    measure_px: float  # length of the core in pixels
+    reference_px: float  # (depth_end - depth_start) * reference_px_per_m
+    reference_px_per_m: float  # median px-per-metre ratio for this folder
 
 
 @dataclass

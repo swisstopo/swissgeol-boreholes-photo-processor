@@ -56,8 +56,8 @@ def test_check_core_length_flags_only_the_outlier():
     assert [r.passed for r in results if r is not None] == [True, True, True, True, False]
     last = results[-1]
     assert last is not None
-    assert last.length_px == 2000.0
-    assert last.folder_ratio_px_per_m == pytest.approx(_RATIO_PX_PER_M)
+    assert last.measure_px == 2000.0
+    assert last.reference_px_per_m == pytest.approx(_RATIO_PX_PER_M)
 
 
 def test_check_core_length_within_tolerance_all_pass():
@@ -71,4 +71,4 @@ def test_check_core_length_within_tolerance_all_pass():
     results = check_core_length(detections, CoreLengthCheckConfig(relative_tolerance=0.25, min_samples=5))
 
     assert all(r is not None and r.passed for r in results)
-    assert all(r is not None and r.deviation < 0.25 for r in results)
+    assert all(r is not None and r.relative_error < 0.25 for r in results)

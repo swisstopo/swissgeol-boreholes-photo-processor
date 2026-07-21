@@ -47,10 +47,11 @@ def log_evaluation_results_with_mlflow(
 ) -> None:
     """Log evaluation results to MLflow.
 
-    Logs the width and length pass-rate as separate metrics, and dumps every file's full
-    width/length results as a single JSON artifact, keyed by filename -- useful for inspecting
-    a specific core's width and length results side by side, not just the ones that got flagged.
-    The artifact is named after the folder so batch runs don't clobber each other's results.
+    Logs the width and length pass-rate and mean squared relative error as separate metrics, and
+    dumps every file's full width/length results as a single JSON artifact, keyed by filename --
+    useful for inspecting a specific core's width and length results side by side, not just the
+    ones that got flagged. The artifact is named after the folder so batch runs don't clobber
+    each other's results.
 
     Args:
         results (list[CoreCheckResult]): Per-file merged core check results.
@@ -66,7 +67,8 @@ def log_evaluation_results_with_mlflow(
     }
     for name, checks in checks_by_name.items():
         if checks:
-            mlflow.log_metric(f"{name}_score", sum(c.passed for c in checks) / len(checks))
+            mlflow.log_metric(f"{name}_acc", sum(c.passed for c in checks) / len(checks))
+            mlflow.log_metric(f"{name}_mse", sum(c.relative_error**2 for c in checks) / len(checks))
 
     predictions = {
         r.filename: {

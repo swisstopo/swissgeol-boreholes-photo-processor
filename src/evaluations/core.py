@@ -39,8 +39,8 @@ def _check_core(
     Returns:
         list[tuple[float, float, float, float, bool] | None]: One entry per detection, aligned
         1:1 with values/scales. An entry is None if there aren't enough detections for a reliable
-        reference, or if this core's expected value is 0 (undefined deviation). Otherwise it's a
-        tuple of (value, expected, reference, deviation, passed).
+        reference, or if this core's expected value is 0 (undefined relative error). Otherwise it's
+        a tuple of (value, expected, reference, relative_error, passed).
     """
     if len(values) < config.min_samples:
         return [None] * len(values)
@@ -56,9 +56,9 @@ def _check_core(
         if expected == 0:
             results.append(None)
             continue
-        deviation = abs(value - expected) / expected
-        passed = bool(deviation <= config.relative_tolerance)
-        results.append((value, expected, folder_reference, deviation, passed))
+        relative_error = abs(value - expected) / expected
+        passed = bool(relative_error <= config.relative_tolerance)
+        results.append((value, expected, folder_reference, relative_error, passed))
 
     return results
 
@@ -89,8 +89,8 @@ def check_core_width(
 
     return _build_results(
         _check_core(config, widths, scales),
-        lambda value, _expected, reference, deviation, passed: CoreWidthCheckResult(
-            passed=passed, width=value, folder_median_width=reference, deviation=deviation
+        lambda value, _expected, reference, relative_error, passed: CoreWidthCheckResult(
+            passed=passed, measure_px=value, reference_px=reference, relative_error=relative_error
         ),
     )
 
@@ -113,12 +113,12 @@ def check_core_length(
 
     return _build_results(
         _check_core(config, lengths, scales),
-        lambda value, expected, reference, deviation, passed: CoreLengthCheckResult(
+        lambda value, expected, reference, relative_error, passed: CoreLengthCheckResult(
             passed=passed,
-            length_px=value,
-            expected_length_px=expected,
-            folder_ratio_px_per_m=reference,
-            deviation=deviation,
+            measure_px=value,
+            reference_px=expected,
+            reference_px_per_m=reference,
+            relative_error=relative_error,
         ),
     )
 
