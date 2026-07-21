@@ -107,8 +107,8 @@ class PipelineConfig:
             ),
             stitching=StitchingConfig(**(raw.pop("stitching", None) or {})),
             evaluation=EvaluationConfig(
-                core_width=CoreWidthCheckConfig(**(raw_evaluation.get("core_width") or {})),
-                core_length=CoreLengthCheckConfig(**(raw_evaluation.get("core_length") or {})),
+                core_width=CoreWidthCheckConfig(**(raw_evaluation.pop("core_width", None) or {})),
+                core_length=CoreLengthCheckConfig(**(raw_evaluation.pop("core_length", None) or {})),
                 **raw_evaluation,
             ),
             **raw,

@@ -42,7 +42,7 @@ class EvaluationCompute(ABC):
             values (list[float | None]): Measured value for each detection, or None where unavailable.
 
         Returns:
-            list[CoreCheckOutcome | None]: One entry per detection. None when fewer than `min_samples` values.
+            list[CoreValueCheckResult | None]: One entry per detection. None when fewer than `min_samples` values.
         """
         values_ = np.array(values, dtype=float)
 
@@ -50,6 +50,10 @@ class EvaluationCompute(ABC):
             return [None] * len(values)
 
         reference = float(np.nanmedian(values_))
+
+        if reference == 0:
+            return [None] * len(values)
+
         relative_errors = np.abs(values_ - reference) / reference
 
         return [
@@ -71,7 +75,7 @@ class EvaluationCompute(ABC):
             detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
 
         Returns:
-            list[CoreCheckOutcome | None]: One entry per detection. None where the check was skipped.
+            list[CoreValueCheckResult | None]: One entry per detection. None where the check was skipped.
         """
         return self._evaluate_median(values=[self._compute(detection) for detection in detections])
 
@@ -122,7 +126,8 @@ class EvaluationLengthCompute(EvaluationCompute):
             detection (ImageMetadataProcessed): The processed image metadata to measure.
 
         Returns:
-            float | None: The normalized px-per-depth-unit ratio, or None.
+            float | None: Dimensionless ratio of the core's length-to-depth scale to the ruler's
+                detected px-per-unit scale.
         """
         if detection.core is None or detection.ruler is None:
             return None

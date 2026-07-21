@@ -93,7 +93,7 @@ def test_cores_appear_in_order_left_to_right(make_processed):
 
 
 def test_outlier_core_width_matches_the_reference_core(make_processed):
-    """An outlier core (see _resize_cores) is placed and sized consistently with the resize step."""
+    """An outlier core is placed and sized consistently with the resize step."""
     normal_a = make_processed(0.0, 1.0, size=(20, 100), color=RED)
     normal_b = make_processed(1.0, 2.0, size=(20, 100), color=GREEN)
     outlier = make_processed(2.0, 102.0, size=(20, 1000), color=BLUE)
