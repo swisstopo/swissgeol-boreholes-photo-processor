@@ -41,7 +41,7 @@ def segment(
     detections: list[ImageMetadataProcessed] = []
 
     # Step 1: Try to estimate image foreground (moving part)
-    detection_tray = segment_tray_multiple(imgs_metadata, config.tray_multiple)
+    detection_tray_multi = segment_tray_multiple(imgs_metadata, config.tray_multiple)
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
@@ -50,7 +50,9 @@ def segment(
 
             # Step 3: Check if tray already detected, otherwise fallback to single
             detection_tray = (
-                detection_tray if detection_tray is not None else segment_tray_single(img_metadata, config.tray_single)
+                detection_tray_multi
+                if detection_tray_multi is not None
+                else segment_tray_single(img_metadata, config.tray_single)
             )
 
             # Step 4: Remove wooden tray (up/down)
@@ -72,7 +74,7 @@ def segment(
 
             detections.append(detection)
 
-        except SegmentationError as e:
+        except (SegmentationError, ValueError) as e:
             logger.warning("%s. Skipping.", e)
 
     return detections
