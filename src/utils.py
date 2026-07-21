@@ -1,17 +1,17 @@
 """Shared packages utilities."""
 
-from functools import cache
+from functools import lru_cache
 
 import numpy as np
 import tifffile
 from skimage.transform import rescale
 
 
-@cache
+@lru_cache(maxsize=4)
 def load_image(path: str, factor: float = 1.0) -> np.ndarray:
     """Load a TIF image and normalize it to an RGB float array in [0, 1].
 
-    Only RGB (3-channel) images are supported; grayscale (2D) input raises an error.
+    Only 3-channel TIFs are supported; grayscale (2D) input raises an error.
     Uses tifffile instead of PIL since raw borehole scans may be 16-bit, which
     PIL does not handle as reliably for downstream processing.
 
