@@ -5,7 +5,7 @@ from typing import TypeVar
 
 import numpy as np
 
-from src.config import (
+from src.evaluations.config import (
     CoreCheckConfig,
     CoreCheckResult,
     CoreLengthCheckConfig,

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.config import CoreLengthCheckConfig
+from src.evaluations.config import CoreLengthCheckConfig
 from src.evaluations.core import check_core_length
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 

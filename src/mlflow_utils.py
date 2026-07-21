@@ -7,7 +7,7 @@ from pathlib import Path
 import mlflow
 from PIL import Image, ImageDraw
 
-from src.config import CoreCheckResult
+from src.evaluations.config import CoreCheckResult
 
 
 def log_artifact_with_mlflow(

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
+from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
 from src.evaluations.core import check_core
 from src.models import CoreSegmentResult, ImageMetadataProcessed
 
