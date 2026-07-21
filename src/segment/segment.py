@@ -10,7 +10,7 @@ from src.models import ImageMetadata, ImageMetadataProcessed
 from src.segment.utils import (
     SegmentationError,
     segment_core_from_tray,
-    segment_ruler,
+    segment_ruler_by_group,
     segment_tray_by_group,
     segment_tray_single,
 )
@@ -26,7 +26,9 @@ def segment(
     """Segment the input images and return a list of processed image metadata objects.
 
     A bounding box is derived from the batch's shared foreground estimate (falling back
-    to per-image thresholding if unavailable).
+    to per-image thresholding if unavailable). The ruler is detected once per shape group
+    and reused for every image in that group, including images that fall back to per-image
+    tray segmentation.
 
     Args:
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
@@ -41,8 +43,9 @@ def segment(
     detections: list[ImageMetadataProcessed] = []
     segmentation_records: list[dict] = []
 
-    # Step 1: Try to estimate image foreground (moving part)
+    # Step 1: Try to estimate image foreground (moving part) and ruler, once per shape group
     tray_by_shape = segment_tray_by_group(imgs_metadata, config.tray_multiple)
+    ruler_by_shape = segment_ruler_by_group(imgs_metadata, config.ruler)
     foreground_group_by_shape = {shape: idx for idx, shape in enumerate(tray_by_shape)}
     fallback_count = 0
 
@@ -50,8 +53,8 @@ def segment(
         try:
             shape = img_metadata.shape
 
-            # Step 2: Try to detect ruler on the image
-            detection_ruler = segment_ruler(img_metadata, config.ruler)
+            # Step 2: Use the group's shared ruler
+            detection_ruler = ruler_by_shape.get(shape)
 
             # Step 3: Use the group's shared tray if available, otherwise fallback to single
             shared_tray = tray_by_shape.get(shape)

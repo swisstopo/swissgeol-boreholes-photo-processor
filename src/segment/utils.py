@@ -106,6 +106,45 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     )
 
 
+def segment_ruler_by_group(
+    imgs_metadata: list[ImageMetadata],
+    config: SegmentationRulerConfig,
+) -> dict[tuple[int, int, int], RulerSegmentResult | None]:
+    """Detect the depth ruler once per group of same-shaped images.
+
+    Images sharing a shape are assumed to come from the same static camera setup, so the
+    ruler position and scale are shared too. OCR is run on images within a shape group, in
+    order, until one succeeds, and the result is reused for every image in that group
+    (including images whose tray falls back to per-image segmentation).
+
+    Args:
+        imgs_metadata (list[ImageMetadata]): All images to consider, potentially spanning
+            multiple shapes.
+        config (SegmentationRulerConfig): Tunable segmentation parameters.
+
+    Returns:
+        dict[tuple[int, int, int], RulerSegmentResult | None]: Detected ruler per image
+            shape, or None for groups where no image yielded a ruler detection.
+    """
+    groups = group_images_by_shape(imgs_metadata)
+    results: dict[tuple[int, int, int], RulerSegmentResult | None] = {}
+    for shape, group in groups.items():
+        results[shape] = None
+        for img_metadata in group:
+            try:
+                detection = segment_ruler(img_metadata, config)
+            except SegmentationError as e:
+                logger.warning("%s. Skipping.", e)
+                continue
+            if detection is not None:
+                results[shape] = detection
+                break
+
+    logger.info("Computed shared ruler for %d/%d shape group(s).", sum(1 for r in results.values() if r), len(groups))
+
+    return results
+
+
 def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySingleConfig) -> ImageSegmentResult:
     """Segment a single image via thresholding when no shared foreground bbox is available.
 

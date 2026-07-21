@@ -7,15 +7,22 @@ import pytest
 import tifffile
 from PIL import Image, ImageDraw
 
+import src.segment.utils as segment_utils
 from src.config import (
     SegmentationConfig,
     SegmentationCoreConfig,
+    SegmentationRulerConfig,
     SegmentationTrayMultipleConfig,
     SegmentationTraySingleConfig,
 )
-from src.models import ImageMetadata
+from src.models import ImageMetadata, RulerSegmentResult
 from src.segment.segment import segment
-from src.segment.utils import group_images_by_shape, segment_tray_by_group, segment_tray_multiple
+from src.segment.utils import (
+    group_images_by_shape,
+    segment_ruler_by_group,
+    segment_tray_by_group,
+    segment_tray_multiple,
+)
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
@@ -269,6 +276,82 @@ def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
         x_min, y_min, x_max, _ = results[shape].bounding_box
         assert int(x_max) - int(x_min) + 1 == core_box[2] - core_box[0]  # spans full width
         assert int(y_min) > core_box[1] - 1  # bottom half is moving, not upper
+
+
+def test_segment_ruler_by_group_reuses_first_successful_detection(make_metadata, monkeypatch):
+    """The ruler is only OCR'd on the first image of a shape group; the rest reuse that result."""
+    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
+    fake_ruler = RulerSegmentResult(bounding_box=(0, 0, 10, 10), px_per_unit=5.0, bounding_box_units=[])
+    calls = []
+
+    def fake_segment_ruler(img_metadata, config):
+        calls.append(img_metadata.image_path)
+        return fake_ruler
+
+    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
+
+    results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
+
+    assert results == {imgs[0].shape: fake_ruler}
+    assert calls == [imgs[0].image_path]
+
+
+def test_segment_ruler_by_group_tries_next_image_after_a_miss(make_metadata, monkeypatch):
+    """If OCR misses on an image, the next image in the same shape group is tried."""
+    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
+    fake_ruler = RulerSegmentResult(bounding_box=(0, 0, 10, 10), px_per_unit=5.0, bounding_box_units=[])
+    calls = []
+
+    def fake_segment_ruler(img_metadata, config):
+        calls.append(img_metadata.image_path)
+        return None if img_metadata is imgs[0] else fake_ruler
+
+    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
+
+    results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
+
+    assert results == {imgs[0].shape: fake_ruler}
+    assert calls == [imgs[0].image_path, imgs[1].image_path]  # stops once a detection succeeds
+
+
+def test_segment_ruler_by_group_returns_none_when_no_image_detects_a_ruler(make_metadata, monkeypatch):
+    """A shape group where no image yields a ruler detection is recorded as None, not skipped."""
+    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(2)]
+
+    monkeypatch.setattr(segment_utils, "segment_ruler", lambda img_metadata, config: None)
+
+    results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
+
+    assert results == {imgs[0].shape: None}
+
+
+def test_segment_reuses_shared_ruler_even_when_tray_falls_back_per_image(make_metadata, monkeypatch):
+    """Tray segmentation may fall back per-image, but the ruler stays shared across the shape group."""
+    core_box = (200, 150, 600, 1100)
+    imgs = [
+        make_metadata(15.0 + i, 16.0 + i, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
+        for i in range(2)  # below tray_multiple's n_min_foreground -> tray falls back to per-image segmentation
+    ]
+    fake_ruler = RulerSegmentResult(bounding_box=(0, 0, 10, 10), px_per_unit=5.0, bounding_box_units=[])
+    calls = []
+
+    def fake_segment_ruler(img_metadata, config):
+        calls.append(img_metadata.image_path)
+        return fake_ruler
+
+    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
+
+    detections = segment(
+        imgs,
+        config=SegmentationConfig(
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1),
+        ),
+    )
+
+    assert len(detections) == 2
+    assert all(d.ruler == fake_ruler for d in detections)
+    assert len(calls) == 1  # OCR ran once for the whole shape group, not once per image
 
 
 def test_segment_tray_by_group_skips_shape_group_below_n_min(make_metadata):
