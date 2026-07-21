@@ -37,7 +37,7 @@ def run(
     config: PipelineConfig,
     with_mlflow: bool = False,
     nested: bool = False,
-    n_cores: int = 1,
+    n_cores: int = 4,
 ) -> None:
     """Process borehole photos from input to output directory.
 
@@ -91,7 +91,7 @@ def batch_run(
     output_dir: Path,
     config: PipelineConfig,
     with_mlflow: bool = False,
-    n_cores: int = 1,
+    n_cores: int = 4,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -131,7 +131,7 @@ def main() -> None:
         help="Path to the YAML config file for segmentation and stitching parameters (default: config.yaml).",
     )
     parser.add_argument(
-        "--ncore",
+        "--ncores",
         type=int,
         default=1,
         help="Number of worker processes used to segment images in parallel (default: 1).",
@@ -154,7 +154,7 @@ def main() -> None:
             output_dir=args.output,
             config=config,
             with_mlflow=args.mlflow,
-            n_cores=args.ncore,
+            n_cores=args.ncores,
         )
     else:
         run(
@@ -162,7 +162,7 @@ def main() -> None:
             output_dir=args.output,
             config=config,
             with_mlflow=args.mlflow,
-            n_cores=args.ncore,
+            n_cores=args.ncores,
         )
 
 

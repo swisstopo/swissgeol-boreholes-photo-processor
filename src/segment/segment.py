@@ -85,7 +85,7 @@ def segment(
     imgs_metadata: list[ImageMetadata],
     config: SegmentationConfig | None = None,
     with_mlflow: bool = False,
-    n_cores: int = 1,
+    n_cores: int = 4,
 ) -> list[ImageMetadataProcessed]:
     """Segment the input images and return a list of processed image metadata objects.
 
