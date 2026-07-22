@@ -25,7 +25,7 @@ def test_from_yaml_reads_both_sections(tmp_path):
             """
             segmentation:
               core:
-                tray_sat_threshold: 0.5
+                wood_sat_threshold: 0.5
             stitching:
               num_cores_per_image: 3
             """
@@ -34,7 +34,7 @@ def test_from_yaml_reads_both_sections(tmp_path):
 
     config = PipelineConfig.from_yaml(path)
 
-    assert config.segmentation == SegmentationConfig(core=SegmentationCoreConfig(tray_sat_threshold=0.5))
+    assert config.segmentation == SegmentationConfig(core=SegmentationCoreConfig(wood_sat_threshold=0.5))
     assert config.stitching == StitchingConfig(num_cores_per_image=3)
 
 

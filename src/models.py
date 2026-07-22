@@ -87,6 +87,22 @@ class ImageSegmentResult:
 
 
 @dataclass
+class TraySegmentResult(ImageSegmentResult):
+    """Result of detecting the shared tray/core bbox, with optional debug images for MLflow logging."""
+
+    img_background: np.ndarray | None = None  # mean image across the batch, only set by segment_tray_multiple
+    img_forground: np.ndarray | None = None  # per-pixel std map used to estimate the bbox (segment_tray_multiple)
+    img_downscale_factor: float | None = None  # downscale factor the debug images above are stored at
+
+
+@dataclass
+class CoreSegmentResult(ImageSegmentResult):
+    """Result of a core segmentation that resolves to multiple disjoint sub-regions (e.g. a fragmented core)."""
+
+    bbox_segments: list[tuple[float, float, float, float]]  # bbox of each fragment, in the original image's space
+
+
+@dataclass
 class RulerSegmentResult(ImageSegmentResult):
     """Result of detecting a depth ruler in an image via OCR on its printed number ticks."""
 
@@ -114,7 +130,7 @@ class ImageMetadataProcessed(ImageMetadata):
 
         Args:
             metadata (ImageMetadata): The original image metadata.
-            core (ImageSegmentResult | None): Detected core bounding box, if any.
+            core (CoreSegmentResult | None): Detected core bounding box, if any.
             tray (ImageSegmentResult | None): Detected tray bounding box, if any.
             ruler (RulerSegmentResult | None): Detected ruler bounding box, if any.
 

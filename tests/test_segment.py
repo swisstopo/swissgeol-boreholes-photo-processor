@@ -147,7 +147,7 @@ def test_segment_tray_trim_threshold_is_configurable(make_metadata):
         [metadata],
         config=SegmentationConfig(
             tray_single=SegmentationTraySingleConfig(downscale_factor=1),
-            core=SegmentationCoreConfig(downscale_factor=1, tray_sat_threshold=1.1),
+            core=SegmentationCoreConfig(downscale_factor=1, wood_sat_threshold=1.1),
         ),
     )
 

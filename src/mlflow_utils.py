@@ -9,7 +9,41 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
-from src.models import ImageMetadataProcessed
+from src.models import ImageMetadataProcessed, TraySegmentResult
+from src.utils import scale_bbox
+
+
+def log_tray_segment_mlflow(
+    result: TraySegmentResult | None,
+    filename: str,
+    suffix: str = ".jpg",
+    subfolder: str | None = None,
+):
+    """Log the debug background/foreground images used to estimate a shared tray bbox to MLflow.
+
+    Draws the estimated bbox on the foreground (per-pixel std) image for visual inspection, and
+    logs both the mean background image and the annotated foreground image as separate artifacts.
+
+    Args:
+        result (TraySegmentResult): Result of segment_tray_multiple; must include the
+            img_background/img_forground debug images.
+        filename (str): The filename prefix for the artifacts.
+        suffix (str, optional): File extension (including the dot) used when saving the artifacts.
+            Defaults to ".jpg".
+        subfolder (str | None, optional): Optional subfolder for image logging. Defaults to None.
+    """
+    if result is None:
+        return
+
+    if result.img_background:
+        img_bg_pil = Image.fromarray((result.img_background * 255).astype(np.uint8))
+        log_artifact_with_mlflow(img_bg_pil, filename + "-background", suffix, subfolder)
+
+    if result.img_forground and result.img_downscale_factor:
+        img_fg_pil = Image.fromarray((result.img_forground / result.img_forground.max() * 255).astype(np.uint8))
+        draw = ImageDraw.Draw(img_fg_pil)
+        draw.rectangle(scale_bbox(result.bbox, result.img_downscale_factor), outline="red", width=5)
+        log_artifact_with_mlflow(img_fg_pil, filename + "-foreground", suffix, subfolder)
 
 
 def log_image_metadata_processed_mlflow(
@@ -34,7 +68,8 @@ def log_image_metadata_processed_mlflow(
     font = ImageFont.load_default(size=font_size)
 
     if result.core:
-        draw.rectangle(result.core.bbox, outline="green", width=5)
+        draw.rectangle(result.core.bbox, outline="green", width=10)
+
     if result.ruler:
         draw.rectangle(result.ruler.bbox, outline="blue", width=5)
         for bbox in result.ruler.bbox_units:

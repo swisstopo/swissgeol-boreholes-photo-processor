@@ -5,7 +5,7 @@ import logging
 from tqdm import tqdm
 
 from src.config import SegmentationConfig
-from src.mlflow_utils import log_image_metadata_processed_mlflow
+from src.mlflow_utils import log_image_metadata_processed_mlflow, log_tray_segment_mlflow
 from src.models import ImageMetadata, ImageMetadataProcessed
 from src.segment.utils import (
     SegmentationError,
@@ -42,6 +42,13 @@ def segment(
 
     # Step 1: Try to estimate image foreground (moving part)
     detection_tray_multi = segment_tray_multiple(imgs_metadata, config.tray_multiple)
+
+    if with_mlflow:
+        log_tray_segment_mlflow(
+            result=detection_tray_multi,
+            filename="segment-tray",
+            subfolder="debug",
+        )
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:

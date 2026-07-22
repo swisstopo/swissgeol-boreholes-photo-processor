@@ -25,8 +25,8 @@ segmentation:
 
   core:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    tray_sat_ratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
-    tray_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
+    wood_sat_hratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
+    wood_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
 
 stitching:
   font_size: 100 # font size (px) used for borehole ID, depth labels, and ruler tick labels
