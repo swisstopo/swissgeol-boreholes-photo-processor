@@ -24,9 +24,6 @@ def stitching_batch(
     or fallback_scale where no ruler was detected), pasted left to right with depth labels,
     and flanked by a depth ruler on each side of the canvas.
 
-    Note: The scaling is based on each crop's raw pixel size, not on its depth interval
-    (depth_end - depth_start).
-
     The values are cores_height (H), cores_width (W), and ruler_width (R),
     padding_horizontal (PH), padding_vertical (PV), and num_cores_per_image (N).
 

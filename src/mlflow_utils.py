@@ -82,7 +82,7 @@ def log_evaluation_results_with_mlflow(
 ) -> None:
     """Log evaluation results to MLflow.
 
-    Logs the width and length pass-rate and mean squared relative error as separate metrics, and
+    Logs the width and length pass-rate and mean squared error as separate metrics, and
     dumps every file's full width/length results as a single JSON artifact, keyed by filename --
     useful for inspecting a specific core's width and length results side by side, not just the
     ones that got flagged. The artifact is named after the folder so batch runs don't clobber

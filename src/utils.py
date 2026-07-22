@@ -25,7 +25,6 @@ def load_image(path: str, factor: float = 1.0) -> np.ndarray:
     """
     img = tifffile.imread(path)
 
-    # grayscale to RGB
     if img.ndim == 2:
         raise ValueError(f"Input should be RGB: {path}")
 
