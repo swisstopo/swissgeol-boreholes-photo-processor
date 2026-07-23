@@ -314,8 +314,8 @@ def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
         assert int(y_min) > core_box[1] - 1  # bottom half is moving, not upper
 
 
-def test_segment_ruler_by_group_reuses_first_successful_detection(make_metadata, monkeypatch):
-    """The ruler is only OCR'd on the first image of a shape group; the rest reuse that result."""
+def test_segment_ruler_by_group_aggregates_all_available_images_below_quota(make_metadata, monkeypatch):
+    """A shape group smaller than n_min_ruler has every image OCR'd and aggregated."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
     fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
     calls = []
@@ -329,7 +329,7 @@ def test_segment_ruler_by_group_reuses_first_successful_detection(make_metadata,
     results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
 
     assert results == {imgs[0].shape: fake_ruler}
-    assert calls == [imgs[0].image_path]
+    assert calls == [img.image_path for img in imgs]
 
 
 def test_segment_ruler_by_group_tries_next_image_after_a_miss(make_metadata, monkeypatch):
@@ -347,7 +347,46 @@ def test_segment_ruler_by_group_tries_next_image_after_a_miss(make_metadata, mon
     results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
 
     assert results == {imgs[0].shape: fake_ruler}
-    assert calls == [imgs[0].image_path, imgs[1].image_path]  # stops once a detection succeeds
+    assert calls == [img.image_path for img in imgs]  # a miss doesn't stop the scan through the group
+
+
+def test_segment_ruler_by_group_picks_median_scale_detection(make_metadata, monkeypatch):
+    """Among several detections, the one with the median px_per_unit is kept, not the first or last."""
+    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
+    rulers_by_path = {
+        imgs[0].image_path: RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=9.0, bbox_units=[]),
+        imgs[1].image_path: RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[]),
+        imgs[2].image_path: RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=7.0, bbox_units=[]),
+    }
+
+    def fake_segment_ruler(img_metadata, config):
+        return rulers_by_path[img_metadata.image_path]
+
+    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
+
+    results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
+
+    result = results[imgs[0].shape]
+    assert result is not None
+    assert result.px_per_unit == 7.0  # median of 9.0, 5.0, 7.0
+
+
+def test_segment_ruler_by_group_stops_ocr_once_quota_reached(make_metadata, monkeypatch):
+    """OCR stops once n_min_ruler detections succeed, even if the group has more images left."""
+    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(5)]
+    fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
+    calls = []
+
+    def fake_segment_ruler(img_metadata, config):
+        calls.append(img_metadata.image_path)
+        return fake_ruler
+
+    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
+
+    results = segment_ruler_by_group(imgs, SegmentationRulerConfig(n_min_ruler=2))
+
+    assert results == {imgs[0].shape: fake_ruler}
+    assert calls == [imgs[0].image_path, imgs[1].image_path]
 
 
 def test_segment_ruler_by_group_returns_none_when_no_image_detects_a_ruler(make_metadata, monkeypatch):
@@ -387,7 +426,7 @@ def test_segment_reuses_shared_ruler_even_when_tray_falls_back_per_image(make_me
 
     assert len(detections) == 2
     assert all(d.ruler == fake_ruler for d in detections)
-    assert len(calls) == 1  # OCR ran once for the whole shape group, not once per image
+    assert len(calls) == 2  # OCR ran per image in the group (aggregated via median), shared across detections
 
 
 def test_segment_tray_by_group_skips_shape_group_below_n_min(make_metadata):

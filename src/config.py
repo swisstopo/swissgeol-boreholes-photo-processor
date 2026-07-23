@@ -29,6 +29,7 @@ class SegmentationRulerConfig:
     text_min_value: int = 1  # Minimum visible number on ruler
     text_max_value: int = 99  # Maximum visible number on ruler
     r_error_outliers: float = 0.1  # Allow 10% error for inliers detection
+    n_min_ruler: int = 10  # images to OCR per shape group before taking the median-scale detection
 
 
 @dataclass

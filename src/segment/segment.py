@@ -26,9 +26,9 @@ def segment(
     """Segment the input images and return a list of processed image metadata objects.
 
     A bounding box is derived from the batch's shared foreground estimate (falling back
-    to per-image thresholding if unavailable). The ruler is detected once per shape group
-    and reused for every image in that group, including images that fall back to per-image
-    tray segmentation.
+    to per-image thresholding if unavailable). The ruler is detected on several images per
+    shape group and the median-scale detection is reused for every image in that group,
+    including images that fall back to per-image tray segmentation.
 
     Args:
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.

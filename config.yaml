@@ -22,6 +22,7 @@ segmentation:
     text_min_value: 1 # Minimal visible number on ruler
     text_max_value: 99 # Maximal visible number on ruler
     r_error_outliers: 0.1 # Allow 10% error for inliers detection
+    n_min_ruler: 10 # images to OCR per shape group before taking the median-scale detection
 
   core:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
