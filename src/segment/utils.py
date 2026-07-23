@@ -83,11 +83,12 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
     distances_idx = ~np.eye(distances.shape[0], dtype=bool)
     distances = distances[distances_idx].reshape(
+        # Remove diagonal and reshape NxN -> Nx(N-1)
         (
             distances.shape[0],
             distances.shape[1] - 1,
         )
-    )  # Remove diagonal NxN -> Nx(N-1)
+    )
     id_inliers = abs(np.median(distances, axis=1) - steps_median) / steps_median < config.r_error_outliers
 
     if not id_inliers.any():
