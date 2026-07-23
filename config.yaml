@@ -21,7 +21,7 @@ segmentation:
     downscale_factor: 0.5 # scale images by this factor before OCR
     text_min_value: 1 # minimal visible number on ruler
     text_max_value: 99 # maximal visible number on ruler
-    r_error_outliers: 0.1 # allow 10% error for inliers detection
+    r_error_outliers: 0.1 # allow 10% error for outliers detection
 
   core:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)

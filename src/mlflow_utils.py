@@ -18,15 +18,15 @@ def log_tray_segment_mlflow(
     filename: str,
     suffix: str = ".jpg",
     subfolder: str | None = None,
-):
+) -> None:
     """Log the debug background/foreground images used to estimate a shared tray bbox to MLflow.
 
     Draws the estimated bbox on the foreground (per-pixel std) image for visual inspection, and
     logs both the mean background image and the annotated foreground image as separate artifacts.
 
     Args:
-        result (TraySegmentResult): Result of segment_tray_multiple; must include the
-            img_background/img_forground debug images.
+        result (TraySegmentResult | None): Result of segment_tray_multiple; must include the
+            img_background/img_foreground debug images.
         filename (str): The filename prefix for the artifacts.
         suffix (str, optional): File extension (including the dot) used when saving the artifacts.
             Defaults to ".jpg".
@@ -39,8 +39,10 @@ def log_tray_segment_mlflow(
         img_bg_pil = Image.fromarray((result.img_background * 255).astype(np.uint8))
         log_artifact_with_mlflow(img_bg_pil, filename + "-background", suffix, subfolder)
 
-    if result.img_forground is not None and result.img_downscale_factor is not None:
-        img_fg_pil = Image.fromarray((result.img_forground / result.img_forground.max() * 255).astype(np.uint8))
+    if result.img_foreground is not None and result.img_downscale_factor is not None:
+        img_fg_pil = Image.fromarray(
+            (result.img_foreground / (result.img_foreground.max() + 1e-16) * 255).astype(np.uint8)
+        )
         draw = ImageDraw.Draw(img_fg_pil)
         draw.rectangle(scale_bbox(result.bbox, result.img_downscale_factor), outline="red", width=5)
         log_artifact_with_mlflow(img_fg_pil, filename + "-foreground", suffix, subfolder)
@@ -68,14 +70,14 @@ def log_image_metadata_processed_mlflow(
     draw = ImageDraw.Draw(overlay)
     font = ImageFont.load_default(size=font_size)
 
-    if result.core:
+    if result.core is not None:
         # Draw segments < overall detection
         for bbox in result.core.bbox_segments or []:
             draw.rectangle(bbox, outline=(0, 255, 0, 255), fill=(0, 255, 0, 30), width=2)
         draw.rectangle(result.core.bbox, outline=(0, 255, 0, 255), width=5)
 
-    if result.ruler:
-        # Draw units < overall detection < reslution text
+    if result.ruler is not None:
+        # Draw units < overall detection < resolution text
         for bbox in result.ruler.bbox_units:
             draw.rectangle(bbox, outline=(0, 0, 255, 255), fill=(0, 0, 255, 30), width=2)
         draw.rectangle(result.ruler.bbox, outline=(0, 0, 255, 255), width=5)
@@ -87,7 +89,7 @@ def log_image_metadata_processed_mlflow(
             anchor="lt",
         )
 
-    if result.tray:
+    if result.tray is not None:
         draw.rectangle(result.tray.bbox, outline=(255, 0, 0, 255), width=5)
 
     img_pil = Image.alpha_composite(img_pil, overlay).convert("RGB")

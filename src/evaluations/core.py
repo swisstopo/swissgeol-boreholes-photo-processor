@@ -141,7 +141,7 @@ class EvaluationLengthCompute(EvaluationCompute):
         if not depth_range or not ruler_res:
             return None
 
-        return (detection.core.bbox[2] - detection.core.bbox[0]) / depth_range / detection.ruler.px_per_unit
+        return (detection.core.bbox[2] - detection.core.bbox[0]) / depth_range / ruler_res
 
 
 def evaluate_detections(detections: list[ImageMetadataProcessed], config: EvaluationConfig) -> list[CoreCheckResult]:

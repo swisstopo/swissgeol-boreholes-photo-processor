@@ -1,4 +1,4 @@
-"""Shared packages utilities."""
+"""Shared package utilities."""
 
 from functools import lru_cache
 
@@ -22,10 +22,13 @@ def load_image(path: str, factor: float = 1.0) -> np.ndarray:
 
     Returns:
         np.ndarray: RGB image array with float values in [0, 1].
+
+    Raises:
+        ValueError: If the image is not a 3-channel RGB array, or has an unsupported dtype.
     """
     img = tifffile.imread(path)
 
-    if img.ndim == 2:
+    if img.ndim != 3 or img.shape[-1] != 3:
         raise ValueError(f"Input should be RGB: {path}")
 
     # normalize to [0, 1]
@@ -41,13 +44,13 @@ def load_image(path: str, factor: float = 1.0) -> np.ndarray:
 
 def scale_bbox(
     bbox: tuple[float, float, float, float],
-    factor: float = 1,
+    factor: float = 1.0,
 ) -> tuple[float, float, float, float]:
     """Scale a bounding box's coordinates by a constant factor.
 
     Args:
         bbox (tuple[float, float, float, float]): Bounding box.
-        factor (float, optional): Multiplicative scale factor. Defaults to 1.
+        factor (float, optional): Multiplicative scale factor. Defaults to 1.0.
 
     Returns:
         tuple[float, float, float, float]: The scaled bounding box coordinates.

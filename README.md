@@ -140,11 +140,20 @@ The pipeline detects the mode automatically: if the input directory contains sub
 
 ### Output
 
-Each output sheet places up to `num_cores_per_image` cores side by side, top-aligned on a black background, with a ruler (major, intermediate, and minor ticks) drawn along both the left and right edges, and the borehole ID printed in the top-left corner. Depth values are shown separately as `depth_start`/`depth_end` labels (in metres) above and below each core strip. Cores whose raw pixel dimensions are disproportionately larger than the rest of the batch are treated as outliers and height/width-matched to estimated core frame instead of being scaled at their own natural size.
+Each output sheet places up to `num_cores_per_image` cores side by side, top-aligned on a black
+background, with a ruler (major, intermediate, and minor ticks) drawn along both the left and
+right edges, and the borehole ID printed in the top-left corner. Depth values are shown separately
+as `depth_start`/`depth_end` labels (in metres) above and below each core strip.
+
+The depth ruler is calibrated automatically: Tesseract OCR reads the printed tick numbers on each
+photo's ruler to derive a pixels-per-unit scale (`px_per_unit`), so tick counts and labels reflect
+actual detected depth rather than an arbitrary scale. Each core is then resized independently using
+its own detected `px_per_unit` (falling back to the batch median if no ruler was detected for that image), and clamped if it would exceed `max_core_width`/`max_core_height`.
+
 
 ## Configuration
 
-Segmentation and stitching parameters are set via a YAML config file, not CLI flags. A default [config.yaml](config.yaml) is provided at the repository root; any omitted key falls back to its default (see `src/config.py`).
+Segmentation, stitching and evaluation parameters are set via a YAML config file, not CLI flags. A default [config.yaml](config.yaml) is provided at the repository root; any omitted key falls back to its default (see `src/config.py`).
 
 To speed up segmentation, images are downscaled before each detection step (tray, core-trim, and ruler OCR each have their own 'downscale_factor' under 'segmentation.*' in 'config.yaml'), and resulting bounding boxes are scaled back up to the original resolution for stitching
 

@@ -75,6 +75,9 @@ class ImageMetadata:
 
         Returns:
             np.ndarray: RGB image array with float values in [0, 1].
+
+        Raises:
+            ValueError: If the image is grayscale or has an unsupported dtype.
         """
         return load_image(str(self.image_path), factor)
 
@@ -83,12 +86,12 @@ class ImageMetadata:
 class ImageSegmentResult:
     """Class to represent the result of detecting a region in an image."""
 
-    bbox: tuple[float, float, float, float]  # (left, upper, right, lower)
+    bbox: tuple[float, float, float, float]  # (left, top, right, bottom)
 
 
 @dataclass
 class CoreSegmentResult(ImageSegmentResult):
-    """TODO."""
+    """Result of detecting core bbox, with core bbox segments for MLflow logging."""
 
     bbox_segments: list[tuple[float, float, float, float]] | None = None
 
@@ -98,7 +101,7 @@ class TraySegmentResult(ImageSegmentResult):
     """Result of detecting the shared tray/core bbox, with optional debug images for MLflow logging."""
 
     img_background: np.ndarray | None = None  # mean image across the batch, only set by segment_tray_multiple
-    img_forground: np.ndarray | None = None  # per-pixel std map used to estimate the bbox (segment_tray_multiple)
+    img_foreground: np.ndarray | None = None  # per-pixel std map used to estimate the bbox (segment_tray_multiple)
     img_downscale_factor: float | None = None  # downscale factor the debug images above are stored at
 
 

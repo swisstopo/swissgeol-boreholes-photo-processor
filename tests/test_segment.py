@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 from PIL import Image, ImageDraw
-from pytest import approx
 
 from src.config import (
     SegmentationConfig,
@@ -89,7 +88,7 @@ def test_segment_example(example):
     assert detections[0].core.bbox[3] < detections[0].tray.bbox[3]
 
     # Ruler detected with proper resolution (2% relative error)
-    assert approx(detections[0].ruler.px_per_unit, rel=0.02) == 100
+    assert pytest.approx(detections[0].ruler.px_per_unit, rel=0.02) == 100
 
 
 def test_segment_detects_core_bbox(make_metadata):

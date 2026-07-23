@@ -163,7 +163,7 @@ def segment_tray_multiple(
         config (SegmentationTrayMultipleConfig): Tunable segmentation parameters.
 
     Returns:
-        ImageSegmentResult | None: Estimated tray bounding box, or None if unavailable.
+        TraySegmentResult | None: Estimated tray bounding box, or None if unavailable.
     """
     imgs_stack: list[np.ndarray] = []
     img_shape: tuple[int, ...] | None = None
@@ -198,7 +198,7 @@ def segment_tray_multiple(
     return TraySegmentResult(
         bbox=scale_bbox(fg_bbox, factor=1 / config.downscale_factor),
         img_background=bg_imgs.mean(axis=0),
-        img_forground=fg_img,
+        img_foreground=fg_img,
         img_downscale_factor=config.downscale_factor,
     )
 
@@ -354,7 +354,7 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
     detections = np.nonzero(confs_row < ratio)[0]
 
     if detections.size == 0:
-        raise SegmentationError("Entire region classified as tray; no non-tray interval found")
+        raise SegmentationError("Entire region classified as invalid; no valid interval found")
 
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
     results = np.array([[g[0], g[-1]] for g in groups])
@@ -377,8 +377,9 @@ def segment_core_from_tray(
         config (SegmentationCoreConfig): Tunable segmentation parameters.
 
     Returns:
-        CoreSegmentResult: Trimmed bounding box as (left, top, right, bottom), in the
-            original image's coordinate space.
+        CoreSegmentResult: bbox is the trimmed bounding box as (left, top, right, bottom), in the
+            original image's coordinate space. bbox_segments holds one bbox per surviving
+            left/right sub-segment.
 
     Raises:
         SegmentationError: If every row or column is classified as tray/background (no valid
@@ -387,20 +388,24 @@ def segment_core_from_tray(
     img = img_metadata.load_image(factor=config.downscale_factor)
     x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 
-    hsv = rgb2hsv(img[int(y_min) : int(y_max + 1), int(x_min) : int(x_max + 1)])
+    hsv = rgb2hsv(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
 
-    # Remove black background (vertical)
+    # Remove black background (left/right)
     # Get all segments that are valid and drop short ones
     lr_trims = _find_valid_intervals(
         values=-hsv[:, :, 2].T,
         threshold=-config.background_val_threshold,
         ratio=config.background_val_vratio,
     )
-    lr_trims = [lr_trim for lr_trim in lr_trims if config.min_segment_height_px < lr_trim[1] - lr_trim[0]]
+    lr_trims = [lr_trim for lr_trim in lr_trims if config.min_segment_height_px <= lr_trim[1] - lr_trim[0]]
+
+    if len(lr_trims) == 0:
+        return CoreSegmentResult(bbox=tray.bbox, bbox_segments=[tray.bbox])
+
     left_trim_b = np.array(lr_trims)[:, 0].min().item()
     right_trim_b = np.array(lr_trims)[:, 1].max().item()
 
-    # Remove wood / background (horizontal) - if multiple intervals, consider only largest one (first)
+    # Remove wood / background (top/bottom). If multiple intervals, consider only largest one (first)
     top_trim_b, bottom_trim_b = _find_valid_intervals(
         values=hsv[:, :, 1],
         threshold=config.wood_sat_threshold,

@@ -6,7 +6,7 @@ import pytest
 
 from src.evaluations.config import CoreWidthCheckConfig
 from src.evaluations.core import EvaluationWidthCompute
-from src.models import CoreSegmentResult, ImageMetadataProcessed
+from src.models import CoreSegmentResult, ImageMetadataProcessed, RulerSegmentResult
 
 
 def _make_detection(width: float, depth_start: float) -> ImageMetadataProcessed:

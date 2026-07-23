@@ -1,5 +1,6 @@
 """Module for stitching core segments together."""
 
+import logging
 from collections.abc import Generator
 
 import numpy as np
@@ -9,6 +10,8 @@ from src.config import StitchingConfig
 from src.models import ImageMetadataProcessed
 from src.stitching.draw import _draw_borehole_label, _draw_cores, _draw_ruler
 from src.stitching.utils import _resize_images
+
+logger = logging.getLogger(__name__)
 
 
 def stitching_batch(
@@ -74,7 +77,7 @@ def stitching_batch(
 
     canvas_width = (
         2 * config.ruler_width  # Ruler
-        + 4 * config.padding_horizontal  #  Padding
+        + 4 * config.padding_horizontal  # Padding
         + n_core_width  # Cores
     )
     canvas_height = 5 * config.padding_vertical + config.max_core_height
@@ -149,6 +152,7 @@ def stitching(
     ).T
 
     if original.size == 0:
+        logger.warning("No detection has both a ruler and a core; nothing to stitch")
         return
 
     original_scales, original_heights = original
