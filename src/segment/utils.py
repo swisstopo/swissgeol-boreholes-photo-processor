@@ -66,7 +66,7 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
         ]
     )
 
-    if data is None or data.size == 0:
+    if data.size == 0:
         return None
 
     # Central point of detected number (left + width/2, top + height / 2)
@@ -81,7 +81,14 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
 
     # Drop detections that are not aligned with detected steps (distance to neighbor)
     distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
-    id_inliers = abs(np.median(distances, axis=0) - steps_median) / steps_median < config.r_error_outliers
+    distances_idx = ~np.eye(distances.shape[0], dtype=bool)
+    distances = distances[distances_idx].reshape(
+        (
+            distances.shape[0],
+            distances.shape[1] - 1,
+        )
+    )  # Remove diagonal NxN -> Nx(N-1)
+    id_inliers = abs(np.median(distances, axis=1) - steps_median) / steps_median < config.r_error_outliers
 
     if not id_inliers.any():
         return None
@@ -104,7 +111,7 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
             bbox_units[:, 3].max().item(),
         ),
         px_per_unit=(1 / config.downscale_factor) * steps_median,
-        bbox_units=bbox_units.tolist(),
+        bbox_units=[tuple(row) for row in bbox_units.tolist()],
     )
 
 
