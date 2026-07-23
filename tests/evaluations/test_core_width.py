@@ -23,7 +23,7 @@ def _make_detection(width: float, depth_start: float) -> ImageMetadataProcessed:
         image_path=Path(f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"),
         core=CoreSegmentResult(bbox=(100.0, 0.0, 1000.0, width)),
         tray=None,
-        ruler=None,
+        ruler=RulerSegmentResult(px_per_unit=100, bbox=(0.0, 0.0, 0.0, 0.0), bbox_units=[]),
     )
 
 
@@ -47,8 +47,8 @@ def test_check_core_width_flags_only_the_outlier():
 
     assert [r.passed for r in results if r is not None] == [True, True, True, True, False]
     assert results[-1] is not None
-    assert results[-1].measure == 1500.0
-    assert results[-1].reference == 800.0
+    assert results[-1].measure == 15.0
+    assert results[-1].reference == 8.0
     assert results[-1].relative_error == pytest.approx(0.875)  # (1500-800)/800
 
 

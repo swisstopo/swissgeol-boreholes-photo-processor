@@ -104,7 +104,10 @@ class EvaluationWidthCompute(EvaluationCompute):
         Returns:
             float | None: Width in pixels, or None if no core was detected for this image.
         """
-        return detection.core.bbox[3] - detection.core.bbox[1] if detection.core is not None else None
+        if detection.core is None or detection.ruler is None or detection.ruler.px_per_unit is None:
+            return None
+
+        return (detection.core.bbox[3] - detection.core.bbox[1]) / detection.ruler.px_per_unit
 
 
 class EvaluationLengthCompute(EvaluationCompute):
