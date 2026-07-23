@@ -14,9 +14,9 @@ from src.config import (
     SegmentationTrayMultipleConfig,
     SegmentationTraySingleConfig,
 )
-from src.models import ImageMetadata
+from src.models import ImageMetadata, TraySegmentResult
 from src.segment.segment import segment
-from src.segment.utils import segment_tray_multiple
+from src.segment.utils import segment_core_from_tray, segment_tray_multiple
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
@@ -153,6 +153,65 @@ def test_segment_tray_trim_threshold_is_configurable(make_metadata):
 
     assert detections[0].tray is not None
     assert detections[0].tray.bbox == tray_box
+
+
+def test_segment_core_from_tray_trims_black_background_left_right(make_metadata):
+    """Black background left/right of a full-height, unsaturated core is trimmed via the value channel alone."""
+    size = (400, 100)
+    core_box = (100, 0, 300, 99)
+    metadata = make_metadata(15.0, 16.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)), size=size)
+    tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
+
+    result = segment_core_from_tray(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+
+    assert result.bbox == core_box
+
+
+def test_segment_core_from_tray_splits_fragmented_core_into_segments(make_metadata):
+    """A core split in two by a black gap yields two bbox_segments and a bbox spanning their union."""
+    size = (400, 100)
+    left_box = (50, 0, 150, 99)
+    right_box = (250, 0, 350, 99)
+    metadata = make_metadata(
+        15.0,
+        16.0,
+        lambda draw: (
+            draw.rectangle(left_box, fill=(200, 200, 200)),
+            draw.rectangle(right_box, fill=(200, 200, 200)),
+        ),
+        size=size,
+    )
+    tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
+
+    result = segment_core_from_tray(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+
+    assert result.bbox == (left_box[0], 0, right_box[2], 99)
+    assert result.bbox_segments is not None
+    assert len(result.bbox_segments) == 2
+    assert sorted(result.bbox_segments) == sorted([left_box, right_box])
+
+
+def test_segment_core_from_tray_drops_thin_slivers(make_metadata):
+    """A bright sliver narrower than min_segment_height_px is dropped and doesn't widen the core bbox."""
+    size = (400, 100)
+    core_box = (100, 0, 300, 99)
+    sliver_box = (10, 0, 14, 99)  # 5px wide, well under the default min_segment_height_px of 10
+    metadata = make_metadata(
+        15.0,
+        16.0,
+        lambda draw: (
+            draw.rectangle(core_box, fill=(200, 200, 200)),
+            draw.rectangle(sliver_box, fill=(200, 200, 200)),
+        ),
+        size=size,
+    )
+    tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
+
+    result = segment_core_from_tray(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+
+    assert result.bbox == core_box  # sliver excluded, doesn't pull the left edge out to x=10
+    assert result.bbox_segments is not None
+    assert len(result.bbox_segments) == 1
 
 
 def test_segment_skips_image_with_no_detectable_regions(make_metadata):
