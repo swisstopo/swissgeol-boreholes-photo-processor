@@ -421,7 +421,7 @@ def segment_core_from_tray(
     top_trim, bottom_trim = _find_non_tray_interval(hsv[:, :, 1], config.tray_sat_threshold, config.tray_sat_ratio)
 
     trimmed_bbox = (x_min, y_min + top_trim, x_max, y_min + bottom_trim)
-    return ImageSegmentResult(bounding_box=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))
+    return ImageSegmentResult(bbox=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))
 
 
 def group_images_by_shape(imgs_metadata: list[ImageMetadata]) -> dict[tuple[int, int, int], list[ImageMetadata]]:
@@ -477,4 +477,3 @@ def segment_tray_by_group(
     logger.info("Computed shared foreground for %d/%d shape group(s).", len(results), len(groups))
 
     return results
-    return ImageSegmentResult(bbox=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))

@@ -218,7 +218,7 @@ def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, 
     assert len(detections) == 1
     assert detections[0].depth_start == 16.0
     assert detections[0].core is not None
-    assert detections[0].core.bounding_box == core_box
+    assert detections[0].core.bbox == core_box
 
 
 def test_estimate_foreground_returns_none_below_n_min(make_metadata):
@@ -309,7 +309,7 @@ def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
     assert set(results) == {shape_a, shape_b}
 
     for core_box, shape in [(core_box_a, shape_a), (core_box_b, shape_b)]:
-        x_min, y_min, x_max, _ = results[shape].bounding_box
+        x_min, y_min, x_max, _ = results[shape].bbox
         assert int(x_max) - int(x_min) + 1 == core_box[2] - core_box[0]  # spans full width
         assert int(y_min) > core_box[1] - 1  # bottom half is moving, not upper
 
@@ -317,7 +317,7 @@ def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
 def test_segment_ruler_by_group_reuses_first_successful_detection(make_metadata, monkeypatch):
     """The ruler is only OCR'd on the first image of a shape group; the rest reuse that result."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
-    fake_ruler = RulerSegmentResult(bounding_box=(0, 0, 10, 10), px_per_unit=5.0, bounding_box_units=[])
+    fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
     calls = []
 
     def fake_segment_ruler(img_metadata, config):
@@ -335,7 +335,7 @@ def test_segment_ruler_by_group_reuses_first_successful_detection(make_metadata,
 def test_segment_ruler_by_group_tries_next_image_after_a_miss(make_metadata, monkeypatch):
     """If OCR misses on an image, the next image in the same shape group is tried."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
-    fake_ruler = RulerSegmentResult(bounding_box=(0, 0, 10, 10), px_per_unit=5.0, bounding_box_units=[])
+    fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
     calls = []
 
     def fake_segment_ruler(img_metadata, config):
@@ -368,7 +368,7 @@ def test_segment_reuses_shared_ruler_even_when_tray_falls_back_per_image(make_me
         make_metadata(15.0 + i, 16.0 + i, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
         for i in range(2)  # below tray_multiple's n_min_foreground -> tray falls back to per-image segmentation
     ]
-    fake_ruler = RulerSegmentResult(bounding_box=(0, 0, 10, 10), px_per_unit=5.0, bounding_box_units=[])
+    fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
     calls = []
 
     def fake_segment_ruler(img_metadata, config):

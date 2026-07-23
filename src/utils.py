@@ -1,6 +1,6 @@
 """Shared packages utilities."""
 
-from functools import lru_cache
+from functools import cache, lru_cache
 
 import numpy as np
 import tifffile
