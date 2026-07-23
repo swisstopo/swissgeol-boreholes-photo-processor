@@ -5,35 +5,70 @@ from dataclasses import asdict
 from pathlib import Path
 
 import mlflow
-from PIL import Image, ImageDraw
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
+from src.models import ImageMetadataProcessed
+
+
+def log_image_metadata_processed_mlflow(
+    result: ImageMetadataProcessed,
+    filename: str,
+    suffix: str = ".jpg",
+    subfolder: str | None = None,
+    font_size: int = 30,
+) -> None:
+    """Log a processed image to MLflow with core/tray/ruler bounding boxes overlaid.
+
+    Args:
+        result (ImageMetadataProcessed): The processed image whose detected regions are drawn and logged.
+        filename (str): The filename prefix for the artifact.
+        suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
+        subfolder (str | None): Optional subfolder for image logging.
+        font_size (int): Font size used to draw the ruler's px-per-unit label.
+    """
+    img_npy = result.load_image()
+    img_pil = Image.fromarray((img_npy * 255).astype(np.uint8))
+    draw = ImageDraw.Draw(img_pil)
+    font = ImageFont.load_default(size=font_size)
+
+    if result.core:
+        draw.rectangle(result.core.bbox, outline="green", width=5)
+    if result.ruler:
+        draw.rectangle(result.ruler.bbox, outline="blue", width=5)
+        for bbox in result.ruler.bbox_units:
+            draw.rectangle(bbox, outline="blue", width=2)
+        draw.text(
+            (result.ruler.bbox[0], result.ruler.bbox[1]),
+            f"{result.ruler.px_per_unit:.1f} px/unit",
+            fill=(255, 255, 255),
+            font=font,
+            anchor="lt",
+        )
+
+    if result.tray:
+        draw.rectangle(result.tray.bbox, outline="red", width=5)
+
+    log_artifact_with_mlflow(img_pil, filename, suffix, subfolder)
 
 
 def log_artifact_with_mlflow(
     img: Image.Image,
     filename: str,
-    bounding_box: tuple[float, float, float, float] | None = None,
     suffix: str = ".jpg",
     subfolder: str | None = None,
 ) -> None:
-    """Log an artifact to MLflow.
+    """Log an image artifact to MLflow.
 
     Args:
         img (Image.Image): The image to log.
-        filename (str): The filename for the artifact.
-        bounding_box (tuple[float, float, float, float] | None): The bounding box coordinates, if applicable.
+        filename (str): The filename prefix for the artifact.
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         artifact_path = Path(tmp_dir) / f"{filename}{suffix}"
-
-        if bounding_box is not None:
-            img = img.copy()
-            draw = ImageDraw.Draw(img)
-            draw.rectangle(bounding_box, outline="red", width=2)
-
         img.save(artifact_path)
         mlflow.log_artifact(
             local_path=str(artifact_path),
@@ -47,7 +82,7 @@ def log_evaluation_results_with_mlflow(
 ) -> None:
     """Log evaluation results to MLflow.
 
-    Logs the width and length pass-rate and mean squared relative error as separate metrics, and
+    Logs the width and length pass-rate and mean squared error as separate metrics, and
     dumps every file's full width/length results as a single JSON artifact, keyed by filename --
     useful for inspecting a specific core's width and length results side by side, not just the
     ones that got flagged. The artifact is named after the folder so batch runs don't clobber
@@ -68,7 +103,7 @@ def log_evaluation_results_with_mlflow(
     for name, checks in checks_by_name.items():
         if checks:
             mlflow.log_metric(f"{name}_acc", sum(c.passed for c in checks) / len(checks))
-            mlflow.log_metric(f"{name}_mse", sum(c.relative_error**2 for c in checks) / len(checks))
+            mlflow.log_metric(f"{name}_mre", sum(c.relative_error for c in checks) / len(checks))
 
     predictions = {
         r.filename: {

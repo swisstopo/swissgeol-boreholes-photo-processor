@@ -9,7 +9,7 @@ import mlflow
 from tqdm import tqdm
 
 from src.config import PipelineConfig
-from src.evaluations.core import check_core
+from src.evaluations.core import evaluate_detections
 from src.mlflow_utils import (
     log_artifact_with_mlflow,
     log_evaluation_results_with_mlflow,
@@ -70,25 +70,13 @@ def run(
 
         # evaluation of detection
         if with_mlflow:
-            results = check_core(detections, config.evaluation)
+            results = evaluate_detections(detections, config.evaluation)
             log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
         idx = -1  # guards against NameError in the logging call when detections is empty
-        for idx, img in enumerate(
-            stitching(
-                detections,
-                num_cores_per_image=config.stitching.num_cores_per_image,
-                padding_vertical=config.stitching.padding_vertical,
-                padding_horizontal=config.stitching.padding_horizontal,
-                ruler_width=config.stitching.ruler_width,
-                core_height_px=config.stitching.core_height_px,
-                core_height_m=config.stitching.core_height_m,
-                core_width_rerror=config.stitching.core_width_rerror,
-                font_size=config.stitching.font_size,
-            )
-        ):
+        for idx, img in enumerate(stitching(detections, config=config.stitching)):
             stem = f"{input_dir.name}_{idx + 1:03d}"
 
             if with_mlflow:

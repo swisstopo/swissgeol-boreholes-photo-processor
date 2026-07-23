@@ -1,45 +1,38 @@
 """Helper functions for stitching."""
 
-import numpy as np
+import logging
+
 from PIL import Image
 
+logger = logging.getLogger(__name__)
 
-def _resize_cores(
-    cores: list[Image.Image],
-    core_height_px: int,
-    core_height_m: float,
-    core_width_rerror: float,
+
+def _resize_images(
+    images: list[Image.Image],
+    scales: list[float],
+    max_core_height: int,
+    max_core_width: int,
 ) -> list[Image.Image]:
-    """Resize cores to a common pixel scale, clamping outlier widths to the reference core.
+    """Resize each core crop by its own scale factor, clamped to fit within the max dimensions.
 
     Args:
-        cores (list[Image.Image]): Raw core crops to resize.
-        core_height_px (float): Pixel budget for a core spanning core_height_m metres.
-        core_height_m (float): Depth extent, in metres, that core_height_px pixels represents.
-        core_width_rerror (float): Maximum allowed width ratio vs. the reference core before
-            a core is treated as an outlier and rescaled using the reference core's scale factor.
+        images (list[Image.Image]): Raw core crops to resize.
+        scales (list[float]): Per-image resize factor (pixels-per-unit ratio), same order as images.
+        max_core_height (int): Maximum allowed height in pixels after resizing.
+        max_core_width (int): Maximum allowed width in pixels after resizing.
 
     Returns:
         list[Image.Image]: Cores resized to a consistent pixel scale.
     """
-    # Pick the core closest to the batch median in both width and height as the reference
-    widths = np.array([core.width for core in cores])
-    heights = np.array([core.height for core in cores])
-
-    error_width = np.abs(1 - widths / np.median(widths))
-    error_height = np.abs(1 - heights / np.median(heights))
-    id_ref = np.argmin(error_width + error_height)
-
-    ref_fx = cores[id_ref].height / (core_height_px * core_height_m)
-
     cores_resized: list[Image.Image] = []
-    for core in cores:
-        # Core is within acceptable range
-        fx = core.height / (core_height_px * core_height_m)
+    for img, scale in zip(images, scales, strict=True):
+        # Ensure resize falls within range
+        if img.width * scale > max_core_width or img.height * scale > max_core_height:
+            logger.warning(f"Image {img.size} ({scale=:.4f}) cannot be fit in ({max_core_width}, {max_core_height})")
+            scale = min(max_core_width / img.width, max_core_height / img.height)
 
-        if core.width / fx > core_width_rerror * cores[id_ref].width / ref_fx:
-            fx = ref_fx
-
-        cores_resized.append(core.resize((round(core.width / fx), round(core.height / fx)), Image.Resampling.LANCZOS))
+        cores_resized.append(
+            img.resize((round(img.width * scale), round(img.height * scale)), Image.Resampling.LANCZOS)
+        )
 
     return cores_resized

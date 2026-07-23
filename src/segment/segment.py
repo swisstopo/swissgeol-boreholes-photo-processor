@@ -2,55 +2,20 @@
 
 import logging
 
-import numpy as np
-from PIL import Image
-from skimage.transform import rescale
 from tqdm import tqdm
 
 from src.config import SegmentationConfig
-from src.mlflow_utils import log_artifact_with_mlflow
-from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed
+from src.mlflow_utils import log_image_metadata_processed_mlflow
+from src.models import ImageMetadata, ImageMetadataProcessed
 from src.segment.utils import (
     SegmentationError,
-    _apply_threshold_and_clean,
-    _estimate_foreground,
-    _estimate_foreground_bbox,
-    _load_image,
-    _select_bbox,
-    _tray_trim,
+    segment_core_from_tray,
+    segment_ruler,
+    segment_tray_multiple,
+    segment_tray_single,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _segment_single_fallback(img: np.ndarray, config: SegmentationConfig) -> tuple[int, int, int, int]:
-    """Segment a single image via thresholding when no shared foreground bbox is available.
-
-    Args:
-        img (np.ndarray): RGB image array (float, [0, 1]), already downscaled by `config.downscale_factor`.
-        config (SegmentationConfig): Tunable segmentation parameters.
-
-    Returns:
-        tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), in the
-        downscaled image's coordinate space.
-    """
-    factor = config.downscale_factor
-    binary, grey = _apply_threshold_and_clean(
-        img,
-        min_object_size=max(1, round(config.min_object_size * factor**2)),  # factor**2 for area-based configs
-        opening_disk=max(1, round(config.opening_disk * factor)),
-        closing_disk=max(1, round(config.closing_disk * factor)),
-    )
-
-    return _select_bbox(
-        img_mask=binary,
-        img_intensity=grey,
-        img_height=binary.shape[0],
-        min_bbox_height=max(1, round(config.min_bbox_height * factor)),
-        edge_margin_top=round(config.edge_margin_top * factor),
-        edge_margin_bottom=round(config.edge_margin_bottom * factor),
-        min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
-    )
 
 
 def segment(
@@ -73,57 +38,43 @@ def segment(
         imgs_metadata if any images failed to segment.
     """
     config = config or SegmentationConfig()
-    factor = config.downscale_factor
     detections: list[ImageMetadataProcessed] = []
 
-    # Step 0: Try to estimate image foreground (moving part)
-    fg_img = _estimate_foreground(imgs=imgs_metadata, factor=factor, sigma=config.foreground_blur_sigma)
-    fg_bbox = _estimate_foreground_bbox(fg_img)
-
-    if with_mlflow and fg_img is not None and fg_bbox is not None:
-        log_artifact_with_mlflow(
-            img=Image.fromarray((fg_img / fg_img.max() * 255).astype(np.uint8)).convert("RGB"),
-            filename=f"{imgs_metadata[0].borehole_id}-foreground",
-            bounding_box=fg_bbox,
-            subfolder="debug",
-        )
+    # Step 1: Try to estimate image foreground (moving part)
+    detection_tray_multi = segment_tray_multiple(imgs_metadata, config.tray_multiple)
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
-            # Step 1: Read and rescale image
-            img = _load_image(img_metadata.image_path)
-            detect_img = rescale(img, factor, channel_axis=-1, anti_aliasing=True) if factor != 1.0 else img
+            # Step 2: Try to detect ruler on the image
+            detection_ruler = segment_ruler(img_metadata, config.ruler)
 
-            # Step 2: Define bbox as foreground detection, fallback single segmentation
-            core_bbox = fg_bbox if fg_bbox is not None else _segment_single_fallback(detect_img, config)
-
-            # Step 3: Remove wooden tray (up/down)
-            core_bbox = _tray_trim(
-                detect_img,
-                core_bbox,
-                tray_sat_threshold=config.tray_sat_threshold,
-                tray_sat_ratio=config.tray_sat_ratio,
+            # Step 3: Check if tray already detected, otherwise fallback to single
+            detection_tray = (
+                detection_tray_multi
+                if detection_tray_multi is not None
+                else segment_tray_single(img_metadata, config.tray_single)
             )
 
-            # bounding box was computed on the downscaled image; rescale it back to the original resolution
-            if factor != 1.0:
-                core_bbox = tuple((np.array(core_bbox) / factor).round().astype(int).tolist())
+            # Step 4: Remove wooden tray (up/down)
+            detection_core = segment_core_from_tray(img_metadata, detection_tray, config=config.core)
+
+            detection = ImageMetadataProcessed.from_metadata(
+                metadata=img_metadata,
+                core=detection_core,
+                tray=detection_tray,
+                ruler=detection_ruler,
+            )
 
             if with_mlflow:
-                log_artifact_with_mlflow(
-                    img=Image.fromarray((img * 255).astype(np.uint8)),
+                log_image_metadata_processed_mlflow(
+                    result=detection,
                     filename=f"{img_metadata.image_path.stem}",
-                    bounding_box=core_bbox,
                     subfolder="debug",
                 )
 
-            detections.append(
-                ImageMetadataProcessed.from_metadata(
-                    metadata=img_metadata,
-                    result=CoreSegmentResult(bounding_box=core_bbox),
-                )
-            )
-        except SegmentationError as e:
+            detections.append(detection)
+
+        except (SegmentationError, ValueError) as e:
             logger.warning("%s. Skipping.", e)
 
     return detections

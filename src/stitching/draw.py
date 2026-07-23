@@ -11,8 +11,9 @@ def _draw_cores(
     loc: tuple[int, int],
     padding_horizontal: int,
     padding_vertical: int,
+    max_core_height: int,
     font_size: int,
-):
+) -> Image.Image:
     """Paste core crops onto the canvas and draw their depth labels above/below.
 
     Args:
@@ -22,6 +23,8 @@ def _draw_cores(
         loc (tuple[int, int]): Top-left corner of the first core.
         padding_horizontal (int): Horizontal gap between cores in pixels.
         padding_vertical (int): Vertical space reserved for labels above/below each core.
+        max_core_height (int): Row height in pixels reserved for a core; labels are drawn
+            padding_vertical pixels above/below this band.
         font_size (int): Font size used for the depth labels.
 
     Returns:
@@ -30,7 +33,6 @@ def _draw_cores(
     x_min, y_min = loc
     draw = ImageDraw.Draw(canvas)
     font = ImageFont.load_default(size=font_size)
-    y_offset = max(core.height for core in cores)
 
     for i, (core, label_range) in enumerate(zip(cores, labels_range, strict=True)):
         x_offset = x_min + i * padding_horizontal + sum(c.width for c in cores[:i])
@@ -45,7 +47,7 @@ def _draw_cores(
             anchor="mm",
         )
         draw.text(
-            (x_offset + core.width / 2, y_min + y_offset + padding_vertical),
+            (x_offset + core.width / 2, y_min + max_core_height + padding_vertical),
             f"{end_label:.2f} m",
             fill=(255, 255, 255),
             font=font,

@@ -9,34 +9,68 @@ from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig, 
 
 
 @dataclass
+class SegmentationCoreConfig:
+    """Tunable parameters for trimming the wooden tray off."""
+
+    downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
+    tray_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
+
+
+@dataclass
+class SegmentationRulerConfig:
+    """Tunable parameters for detecting a depth ruler via OCR on its printed number ticks."""
+
+    downscale_factor: float = 0.5  # Scale images by this factor before OCR
+    text_min_value: int = 1  # Minimal visible number on ruler
+    text_max_value: int = 99  # Maximal visible number on ruler
+    r_error_outliers: float = 0.1  # Allow 10% error for inliers detection
+
+
+@dataclass
+class SegmentationTrayMultipleConfig:
+    """Tunable parameters for estimating a shared tray/core bounding box across a batch of images."""
+
+    downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
+    n_min_foreground: int = 10  # Minimum number images required to estimate a foreground
+
+
+@dataclass
+class SegmentationTraySingleConfig:
+    """Tunable parameters for segmenting a single image via thresholding when no shared bbox is available."""
+
+    downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    closing_disk: int = 20  # radius for binary_closing (fills gaps)
+    edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
+    edge_margin_top: int = 100  # ignore top edge of image (ruler)
+    min_bbox_height: int = 500  # minimum height for a candidate core bounding box
+    min_object_size: int = 500  # minimum blob size in pixels
+    min_size_for_bottom: int = 500_000  # minimum area for a candidate core to touch the bottom edge of the image
+    opening_disk: int = 20  # radius for binary_opening (removes noise)
+
+
+@dataclass
 class SegmentationConfig:
     """Tunable parameters for the segmentation step."""
 
-    opening_disk: int = 20  # radius for binary_opening (removes noise)
-    closing_disk: int = 20  # radius for binary_closing (fills gaps)
-    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
-    min_object_size: int = 500  # minimum blob size in pixels
-    edge_margin_top: int = 100  # ignore top edge of image (ruler)
-    edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
-    min_bbox_height: int = 500  # minimum height for a candidate core bounding box
-    tray_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
-    tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
-    min_size_for_bottom: int = 500_000  # minimum area for a candidate core to touch the bottom edge of the image
-    downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    core: SegmentationCoreConfig = field(default_factory=SegmentationCoreConfig)
+    ruler: SegmentationRulerConfig = field(default_factory=SegmentationRulerConfig)
+    tray_multiple: SegmentationTrayMultipleConfig = field(default_factory=SegmentationTrayMultipleConfig)
+    tray_single: SegmentationTraySingleConfig = field(default_factory=SegmentationTraySingleConfig)
 
 
 @dataclass
 class StitchingConfig:
     """Tunable parameters for the stitching step."""
 
-    num_cores_per_image: int = 6  # cores placed side by side per output sheet
-    padding_vertical: int = 200  # top/bottom border height in pixels
-    padding_horizontal: int = 150  # left/right border width in pixels
-    ruler_width: int = 300  # width in pixels of each of the two depth rulers (left/right of the cores)
-    core_height_px: int = 10000  # pixel budget for a core spanning core_height_m metres
-    core_height_m: float = 1.0  # depth extent, in metres, that core_height_px pixels represents
-    core_width_rerror: float = 1.5  # max allowed width ratio vs. the reference core before treated as an outlier
     font_size: int = 100  # font size (px) used for borehole ID, depth labels, and ruler tick labels
+    max_core_height: int = 10000  # cap on each core crop's resized height (pixels) and the canvas row height
+    max_core_width: int = 1200  # cap on each core crop's resized width (pixels) and the per-core column width
+    num_cores_per_image: int = 6  # cores placed side by side per output sheet
+    padding_horizontal: int = 150  # left/right border width in pixels
+    padding_vertical: int = 200  # top/bottom border height in pixels
+    ruler_width: int = 300  # width in pixels of each of the two depth rulers (left/right of the cores)
 
 
 @dataclass
@@ -61,12 +95,21 @@ class PipelineConfig:
             PipelineConfig: The loaded configuration.
         """
         raw = yaml.safe_load(path.read_text()) or {}
-        raw_evaluation = raw.get("evaluation") or {}
+        raw_segmentation = dict(raw.pop("segmentation", None) or {})
+        raw_evaluation = dict(raw.pop("evaluation", None) or {})
         return cls(
-            segmentation=SegmentationConfig(**(raw.get("segmentation") or {})),
-            stitching=StitchingConfig(**(raw.get("stitching") or {})),
-            evaluation=EvaluationConfig(
-                core_width=CoreWidthCheckConfig(**(raw_evaluation.get("core_width") or {})),
-                core_length=CoreLengthCheckConfig(**(raw_evaluation.get("core_length") or {})),
+            segmentation=SegmentationConfig(
+                core=SegmentationCoreConfig(**(raw_segmentation.pop("core", None) or {})),
+                ruler=SegmentationRulerConfig(**(raw_segmentation.pop("ruler", None) or {})),
+                tray_multiple=SegmentationTrayMultipleConfig(**(raw_segmentation.pop("tray_multiple", None) or {})),
+                tray_single=SegmentationTraySingleConfig(**(raw_segmentation.pop("tray_single", None) or {})),
+                **raw_segmentation,
             ),
+            stitching=StitchingConfig(**(raw.pop("stitching", None) or {})),
+            evaluation=EvaluationConfig(
+                core_width=CoreWidthCheckConfig(**(raw_evaluation.pop("core_width", None) or {})),
+                core_length=CoreLengthCheckConfig(**(raw_evaluation.pop("core_length", None) or {})),
+                **raw_evaluation,
+            ),
+            **raw,
         )

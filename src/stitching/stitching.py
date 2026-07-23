@@ -2,128 +2,123 @@
 
 from collections.abc import Generator
 
+import numpy as np
 from PIL import Image
 
+from src.config import StitchingConfig
 from src.models import ImageMetadataProcessed
 from src.stitching.draw import _draw_borehole_label, _draw_cores, _draw_ruler
-from src.stitching.utils import _resize_cores
+from src.stitching.utils import _resize_images
 
 
 def stitching_batch(
     cores: list[ImageMetadataProcessed],
-    num_cores_per_image: int = 6,
-    padding_vertical: int = 200,
-    padding_horizontal: int = 150,
-    ruler_width: int = 300,
-    core_height_px: int = 10000,
-    core_height_m: float = 1.0,
-    core_width_rerror: float = 1.5,
-    font_size: int = 100,
+    shared_ruler_steps: int,
+    shared_core_id: str,
+    fallback_scale: float,
+    config: StitchingConfig,
 ) -> Image.Image:
     """Stitch one batch (chunk) of core segments into a single output image.
 
-    Each core crop is resized preserving its aspect ratio, scaling its own pixel
-    height to match core_height_px * core_height_m (see _resize_cores). Cores whose
-    own scale factor would make them disproportionately wide relative to a reference
-    core in the same chunk are instead rescaled using the reference core's scale
-    factor, keeping pixel density consistent across all cores.
+    Cores are resized to a shared pixel scale (derived from each core's ruler resolution,
+    or fallback_scale where no ruler was detected), pasted left to right with depth labels,
+    and flanked by a depth ruler on each side of the canvas.
 
-    Note: this scaling is currently based on each crop's raw pixel size, not on its
-    depth interval (depth_end - depth_start) — core height is not yet depth-accurate.
+    The values are cores_height (H), cores_width (W), and ruler_width (R),
+    padding_horizontal (PH), padding_vertical (PV), and num_cores_per_image (N).
 
-    The values are padding_horizontal (A), padding_vertical (B),
-    core_height_px (C), and ruler_width (D), and num_cores_per_image (N).
-
-    <-------------- (3 + N) * A + 2 * D + sum (core widths) --------------->
-    ------------------------------------------------------------------------  ʌ
-    | ID    ʌ                                                              |  |
-    |      3*B         FROM           FROM           FROM                  |  |
-    |       v                                                              |  |
-    | <A> |---| <A> |--------| ... |--------| ... |--------| <A> |---| <A> |  |
-    |     | r |     | CORE 1 |  ʌ  | CORE J |     | CORE N |     | r |     |  |
-    |     | u |     |        |  |  |        |     |        |     | u |     | 5*B
-    |     | l |     |        |  |C |        |     |        |     | l |     | + C
-    |     | e |     |--------|  |  |        |     |        |     | e |     |  |
-    |     | r |                 |  |        |     |------- |     | r |     |  |
-    |     |---|                 v  |--------|                    |---|     |  |
-    |       ʌ                                                    <-D->     |  |
-    |      2*B          TO             TO             TO                   |  |
-    |       v                                                              |  |
-    ------------------------------------------------------------------------  v
+    <------------------------ 4 * PH + 2 * R + W * N -------------------------->
+    ----------------------------------------------------------------------------  ʌ
+    | ID     ʌ                                                                 |  |
+    |       3*PV        FROM           FROM           FROM                     |  |
+    |        v     <------------------ W * N ------------------>               |  |
+    | <PH> |---| <PH> |--------| ... |--------| ... |--------| <PH> |---| <PH> |  |
+    |      | r |      | CORE 1 |  ʌ  | CORE J |     | CORE N |      | r |      |  |
+    |      | u |      |        |  |  |        |     |        |      | u |      | 5*PV
+    |      | l |      |        |  |H |        |     |        |      | l |      | + H
+    |      | e |      |--------|  |  |        |     |        |      | e |      |  |
+    |      | r |                  |  |        |     |------- |      | r |      |  |
+    |      |---|                  v  |--------|                     |---|      |  |
+    |        ʌ                                                      <-R->      |  |
+    |       2*PV          TO             TO             TO                     |  |
+    |        v                                                                 |  |
+    ----------------------------------------------------------------------------  v
 
     Args:
         cores (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
-        num_cores_per_image (int): Expected number of cores on image. Pad with mean width if not enough cores.
-        padding_vertical (int): Top/bottom border height in pixels.
-        padding_horizontal (int): Left/right border width in pixels.
-        ruler_width (int): Width in pixels of each of the two depth rulers.
-        core_height_px (int): Pixel budget for a core spanning core_height_m metres.
-        core_height_m (float): Depth extent, in metres, represented by core_height_px pixels.
-        core_width_rerror (float): Maximum allowed width ratio vs. the reference core before a core is
-            treated as an outlier.
-        font_size (int): Font size used for labels.
+        shared_ruler_steps (int): Number of major ruler ticks (depth units) spanned by the canvas height,
+            shared across all batches so rulers line up between output images.
+        shared_core_id (str): Borehole ID drawn in the top-left label, shared across all batches.
+        fallback_scale (float): Pixels-per-unit used to resize cores whose ruler was not detected.
+        config (StitchingConfig): Tunable layout parameters (padding, font size, canvas sizing, etc.).
 
     Returns:
         Image.Image: The stitched image for this batch of cores.
     """
+    n_core_width = config.num_cores_per_image * config.max_core_width
+
     # Load all core crops up front so we can identify outliers before resizing
-    cores_img = [core.as_image() for core in cores]
+    cores_img = [core.load_core() for core in cores]
 
     # resize all crops to preserve aspect ratio
-    cores_img = _resize_cores(
-        cores=cores_img,
-        core_height_px=core_height_px,
-        core_height_m=core_height_m,
-        core_width_rerror=core_width_rerror,
+    cores_img = _resize_images(
+        images=cores_img,
+        scales=[
+            (config.max_core_height / shared_ruler_steps)
+            / ((s.ruler.px_per_unit if s.ruler else None) or fallback_scale)
+            for s in cores
+        ],
+        max_core_height=config.max_core_height,
+        max_core_width=config.max_core_width,
     )
-
-    # Derive gap from remaining horizontal space after placing all cores
-    cores_widths = [core_img.width for core_img in cores_img]
-
-    # Pad widths if not enough cores on image
-    if len(cores) < num_cores_per_image:
-        cores_widths = cores_widths + [int(sum(cores_widths) / len(cores))] * (num_cores_per_image - len(cores))
 
     canvas_width = (
-        (3 + num_cores_per_image) * padding_horizontal  # Paddings
-        + 2 * ruler_width  # Ruler
-        + sum(cores_widths)  # Cores
+        2 * config.ruler_width  # Ruler
+        + 4 * config.padding_horizontal  #  Padding
+        + n_core_width  # Cores
     )
-    canvas_height = 5 * padding_vertical + core_height_px
+    canvas_height = 5 * config.padding_vertical + config.max_core_height
     canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
 
     # Drawing
+    v_core_width = sum([img.width for img in cores_img])  # Width of all core
+    v_core_width = v_core_width * (config.num_cores_per_image / len(cores_img))  # Add extra width if core is missing
+    n_padding_horizontal = (n_core_width - v_core_width) / max((config.num_cores_per_image - 1), 1)
     canvas = _draw_cores(
         canvas=canvas,
         cores=cores_img,
         labels_range=[(core.depth_start, core.depth_end) for core in cores],
-        loc=(2 * padding_horizontal + ruler_width, 3 * padding_vertical),
-        padding_horizontal=padding_horizontal,
-        padding_vertical=padding_vertical,
-        font_size=font_size,
+        loc=(2 * config.padding_horizontal + config.ruler_width, 3 * config.padding_vertical),
+        padding_horizontal=int(n_padding_horizontal),
+        padding_vertical=config.padding_vertical,
+        max_core_height=config.max_core_height,
+        font_size=config.font_size,
     )
 
     canvas = _draw_borehole_label(
         canvas,
-        borehole_id=cores[0].borehole_id,
-        loc=(padding_horizontal, padding_vertical),
-        font_size=font_size,
+        borehole_id=shared_core_id,
+        loc=(config.padding_horizontal, config.padding_vertical),
+        font_size=config.font_size,
     )
 
     canvas = _draw_ruler(
         canvas,
-        loc=(padding_horizontal, 3 * padding_vertical),
-        size=(ruler_width, core_height_px),
-        n_major=100,
-        font_size=round(font_size / 2),
+        loc=(config.padding_horizontal, 3 * config.padding_vertical),
+        size=(config.ruler_width, config.max_core_height),
+        n_major=shared_ruler_steps,
+        font_size=round(config.font_size / 2),
     )
 
     canvas = _draw_ruler(
         canvas,
-        loc=((2 + num_cores_per_image) * padding_horizontal + ruler_width + sum(cores_widths), 3 * padding_vertical),
-        size=(ruler_width, core_height_px),
-        n_major=100,
-        font_size=round(font_size / 2),
+        loc=(
+            3 * config.padding_horizontal + config.ruler_width + n_core_width,
+            3 * config.padding_vertical,
+        ),
+        size=(config.ruler_width, config.max_core_height),
+        n_major=shared_ruler_steps,
+        font_size=round(config.font_size / 2),
         horizontal_flip=True,
     )
 
@@ -132,41 +127,43 @@ def stitching_batch(
 
 def stitching(
     imgs: list[ImageMetadataProcessed],
-    num_cores_per_image: int = 6,
-    padding_vertical: int = 200,
-    padding_horizontal: int = 150,
-    ruler_width: int = 300,
-    core_height_px: int = 10000,
-    core_height_m: float = 1.0,
-    core_width_rerror: float = 1.5,
-    font_size: int = 100,
+    config: StitchingConfig,
 ) -> Generator[Image.Image, None, None]:
     """Stitch core segments together, yielding one output image at a time.
 
     Args:
         imgs (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
-        num_cores_per_image (int): Number of cores placed side by side per output sheet.
-        padding_vertical (int): Top/bottom border height in pixels.
-        padding_horizontal (int): Left/right border width in pixels.
-        ruler_width (int): Width in pixels of each of the two depth rulers.
-        core_height_px (int): Pixel budget for a core spanning core_height_m metres.
-        core_height_m (float): Depth extent, in metres, represented by core_height_px pixels.
-        core_width_rerror (float): Maximum allowed width ratio vs. the reference core before a core is
-            treated as an outlier.
-        font_size (int): Font size used for labels.
+        config (StitchingConfig): Tunable layout parameters (padding, font size, canvas sizing, etc.).
 
     Yields:
         Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
     """
-    for i in range(0, len(imgs), num_cores_per_image):
+    # Get spans and resolution for all cores
+    original = np.array(
+        [
+            (img.ruler.px_per_unit, (img.core.bbox[2] - img.core.bbox[0]))
+            for img in imgs
+            # Both ruler and core need to be detected for scaling to work
+            if img.ruler and img.core
+        ]
+    ).T
+
+    if original.size == 0:
+        return
+
+    original_scales, original_heights = original
+
+    # Set default resolution if missing
+    fallback_scale = np.median(original_scales).item()
+
+    # Estimate ruler span over all cores
+    canvas_ruler_steps = np.ceil(max(original_heights / original_scales)).astype(int).item()
+
+    for i in range(0, len(imgs), config.num_cores_per_image):
         yield stitching_batch(
-            cores=imgs[i : i + num_cores_per_image],
-            num_cores_per_image=num_cores_per_image,
-            padding_vertical=padding_vertical,
-            padding_horizontal=padding_horizontal,
-            ruler_width=ruler_width,
-            core_height_px=core_height_px,
-            core_height_m=core_height_m,
-            core_width_rerror=core_width_rerror,
-            font_size=font_size,
+            cores=imgs[i : i + config.num_cores_per_image],
+            shared_ruler_steps=canvas_ruler_steps,
+            shared_core_id=imgs[0].borehole_id,
+            fallback_scale=fallback_scale,
+            config=config,
         )

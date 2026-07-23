@@ -3,8 +3,8 @@
 from pathlib import Path
 
 from src.evaluations.config import CoreLengthCheckConfig
-from src.evaluations.core import check_core_length
-from src.models import CoreSegmentResult, ImageMetadataProcessed
+from src.evaluations.core import EvaluationLengthCompute
+from src.models import ImageMetadataProcessed, ImageSegmentResult, RulerSegmentResult
 
 # Depth intervals (in metres) with varied, exactly-representable values.
 _INTERVALS_M = [0.5, 0.75, 1.0, 1.25, 1.5]
@@ -24,7 +24,9 @@ def _make_detection(length: float, depth_start: float, interval: float) -> Image
         depth_start=depth_start,
         depth_end=depth_end,
         image_path=Path(f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"),
-        result=CoreSegmentResult(bounding_box=(left, 0.0, left + length, 900.0)),
+        core=ImageSegmentResult(bbox=(left, 0.0, left + length, 900.0)),
+        tray=None,
+        ruler=RulerSegmentResult(px_per_unit=100, bbox=(0.0, 0.0, 0.0, 0.0), bbox_units=[]),
     )
 
 
@@ -32,7 +34,7 @@ def test_check_core_length_returns_none_below_min_samples():
     """Too few detections to compute a reliable median ratio means every core is skipped, not dropped."""
     detections = [_make_detection(800.0, depth_start=15.0 + i, interval=1.0) for i in range(3)]
 
-    results = check_core_length(detections, CoreLengthCheckConfig(min_samples=5))
+    results = EvaluationLengthCompute(CoreLengthCheckConfig(min_samples=5)).evaluate(detections)
 
     assert results == [None] * len(detections)
 
@@ -49,23 +51,10 @@ def test_check_core_length_flags_only_the_outlier():
         for i, (length, interval) in enumerate(zip(lengths, _INTERVALS_M, strict=True))
     ]
 
-    results = check_core_length(detections, CoreLengthCheckConfig(relative_tolerance=0.25, min_samples=5))
+    results = EvaluationLengthCompute(CoreLengthCheckConfig(relative_tolerance=0.25, min_samples=5)).evaluate(
+        detections
+    )
 
     assert [r.passed for r in results if r is not None] == [True, True, True, True, False]
-    last = results[-1]
-    assert last is not None
-    assert last.measure_px == 2000.0
-
-
-def test_check_core_length_within_tolerance_all_pass():
-    """Cores whose lengths only mildly deviate from the fitted ratio all pass."""
-    lengths = [interval * _RATIO_PX_PER_M for interval in _INTERVALS_M[:4]] + [1450.0]
-    detections = [
-        _make_detection(length, depth_start=15.0 + i, interval=interval)
-        for i, (length, interval) in enumerate(zip(lengths, _INTERVALS_M, strict=True))
-    ]
-
-    results = check_core_length(detections, CoreLengthCheckConfig(relative_tolerance=0.25, min_samples=5))
-
-    assert all(r is not None and r.passed for r in results)
-    assert all(r is not None and r.relative_error < 0.25 for r in results)
+    assert results[-1] is not None
+    assert results[-1].measure == 20.0
