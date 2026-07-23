@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import numpy as np
 from PIL import Image
@@ -86,6 +86,15 @@ class ImageMetadata:
             np.ndarray: RGB image array with float values in [0, 1].
         """
         return load_image(str(self.image_path), factor)
+
+
+@dataclass
+class SegmentationRecord:
+    """Per-image record of which segmentation approach was used, for the mlflow summary log."""
+
+    filename: str
+    approach: Literal["foreground", "fallback"]
+    foreground_group: int | None
 
 
 @dataclass

@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from src.config import SegmentationConfig
 from src.mlflow_utils import log_image_metadata_processed_mlflow, log_segmentation_summary_mlflow
-from src.models import ImageMetadata, ImageMetadataProcessed
+from src.models import ImageMetadata, ImageMetadataProcessed, SegmentationRecord
 from src.segment.utils import (
     SegmentationError,
     segment_core_from_tray,
@@ -41,7 +41,7 @@ def segment(
     """
     config = config or SegmentationConfig()
     detections: list[ImageMetadataProcessed] = []
-    segmentation_records: list[dict] = []
+    segmentation_records: list[SegmentationRecord] = []
 
     # Step 1: Try to estimate image foreground (moving part) and ruler, once per shape group
     tray_by_shape = segment_tray_by_group(imgs_metadata, config.tray_multiple)
@@ -83,11 +83,11 @@ def segment(
             if foreground_group is None:
                 fallback_count += 1
             segmentation_records.append(
-                {
-                    "filename": img_metadata.image_path.name,
-                    "approach": "foreground" if foreground_group is not None else "fallback",
-                    "foreground_group": foreground_group,
-                }
+                SegmentationRecord(
+                    filename=img_metadata.image_path.name,
+                    approach="foreground" if foreground_group is not None else "fallback",
+                    foreground_group=foreground_group,
+                )
             )
 
         except SegmentationError as e:

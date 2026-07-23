@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
-from src.models import ImageMetadataProcessed
+from src.models import ImageMetadataProcessed, SegmentationRecord
 
 
 def log_image_metadata_processed_mlflow(
@@ -55,7 +55,7 @@ def log_image_metadata_processed_mlflow(
 
 def log_segmentation_summary_mlflow(
     num_foreground_groups: int,
-    images: list[dict],
+    images: list[SegmentationRecord],
     filename: str = "segmentation_summary.json",
 ) -> None:
     """Log a JSON summary of the segmentation approach used per image.
@@ -63,11 +63,12 @@ def log_segmentation_summary_mlflow(
     Args:
         num_foreground_groups (int): Number of image-shape groups with a successfully
             estimated shared foreground.
-        images (list[dict]): Per-image records, each with "filename" (str), "approach"
-            ("foreground" or "fallback"), and "foreground_group" (int, or None for fallback).
+        images (list[SegmentationRecord]): Per-image segmentation approach records.
         filename (str): The filename for the JSON artifact.
     """
-    mlflow.log_dict({"num_foreground_groups": num_foreground_groups, "images": images}, filename)
+    mlflow.log_dict(
+        {"num_foreground_groups": num_foreground_groups, "images": [asdict(image) for image in images]}, filename
+    )
 
 
 def log_artifact_with_mlflow(
