@@ -92,7 +92,7 @@ class ImageMetadata:
 class ImageSegmentResult:
     """Class to represent the result of detecting a region in an image."""
 
-    bounding_box: tuple[float, float, float, float]  # (left, upper, right, lower)
+    bbox: tuple[float, float, float, float]  # (left, upper, right, lower)
 
 
 @dataclass
@@ -100,7 +100,7 @@ class RulerSegmentResult(ImageSegmentResult):
     """Result of detecting a depth ruler in an image via OCR on its printed number ticks."""
 
     px_per_unit: float  # pixel distance between two consecutive ruler unit ticks, at full image resolution
-    bounding_box_units: list[tuple[float, float, float, float]]  # one bbox per detected ruler number
+    bbox_units: list[tuple[float, float, float, float]]  # one bbox per detected ruler number
 
 
 @dataclass
@@ -156,7 +156,7 @@ class ImageMetadataProcessed(ImageMetadata):
             raise ValueError(f"No core region detected for image: {self.image_path}")
 
         with Image.open(self.image_path) as src:
-            left, upper, right, lower = (round(v) for v in self.core.bounding_box)
+            left, upper, right, lower = (round(v) for v in self.core.bbox)
             crop = src.crop((left, upper, right, lower))
             if crop.width > crop.height:
                 crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top

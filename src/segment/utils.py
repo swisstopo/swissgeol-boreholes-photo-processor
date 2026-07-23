@@ -42,7 +42,6 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
             pixel-per-unit scale, and the per-number bounding boxes, or None if no ruler
             numbers were detected.
     """
-    # Full resolution for OCR
     img = img_metadata.load_image(factor=config.downscale_factor)
 
     # OCR performs better on binarized images
@@ -53,8 +52,8 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     # Run OCR
     img_data = pytesseract.image_to_data(255 * img_bin, output_type=pytesseract.Output.DICT)
 
-    # Only keep text from 0 to 100
     data = np.array(
+        # Only keep text from text_min_value to text_max_value
         [
             (int(text), left, top, width, height)
             for text, left, top, width, height in zip(
@@ -64,7 +63,7 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
         ]
     )
 
-    if data is None or data.size == 0:
+    if data.size == 0:
         return None
 
     # Central point of detected number (left + width/2, top + height / 2)
@@ -75,34 +74,41 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     y_sort = np.argsort(y)
     X_diff = np.linalg.norm(np.diff(X[y_sort], axis=0), axis=1)
     y_diff = np.diff(y[y_sort], axis=0)
-    steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0])
+    steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0]).item()
 
     # Drop detections that are not aligned with detected steps (distance to neighbor)
     distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
-    id_inliers = abs(np.median(distances, axis=0) - steps_median) / steps_median < config.r_error_outliers
+    distances_idx = ~np.eye(distances.shape[0], dtype=bool)
+    distances = distances[distances_idx].reshape(
+        (
+            distances.shape[0],
+            distances.shape[1] - 1,
+        )
+    )  # Remove diagonal NxN -> Nx(N-1)
+    id_inliers = abs(np.median(distances, axis=1) - steps_median) / steps_median < config.r_error_outliers
 
     if not id_inliers.any():
         return None
 
     # Reconstruct bbox for each unit (left, top, left + width, top + height)
-    bounding_box_units = np.concatenate(
+    bbox_units = np.concatenate(
         (
             data[id_inliers][:, [1, 2]],
             data[id_inliers][:, [1, 2]] + data[id_inliers][:, [3, 4]],
         ),
         axis=1,
     )
-    bounding_box_units = (1 / config.downscale_factor) * bounding_box_units
+    bbox_units = (1 / config.downscale_factor) * bbox_units
 
     return RulerSegmentResult(
-        bounding_box=(
-            bounding_box_units[:, 0].min().item(),
-            bounding_box_units[:, 1].min().item(),
-            bounding_box_units[:, 2].max().item(),
-            bounding_box_units[:, 3].max().item(),
+        bbox=(
+            bbox_units[:, 0].min().item(),
+            bbox_units[:, 1].min().item(),
+            bbox_units[:, 2].max().item(),
+            bbox_units[:, 3].max().item(),
         ),
         px_per_unit=(1 / config.downscale_factor) * steps_median,
-        bounding_box_units=bounding_box_units.tolist(),
+        bbox_units=[tuple(row) for row in bbox_units.tolist()],
     )
 
 
@@ -174,7 +180,7 @@ def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySin
         min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
     )
 
-    return ImageSegmentResult(bounding_box=scale_bbox(bbox, factor=1 / factor))
+    return ImageSegmentResult(bbox=scale_bbox(bbox, factor=1 / factor))
 
 
 def segment_tray_multiple(
@@ -199,7 +205,7 @@ def segment_tray_multiple(
     for img_metadata in tqdm(imgs_metadata, desc="Load images"):
         try:
             img = img_metadata.load_image(factor=config.downscale_factor)
-        except SegmentationError as e:
+        except (SegmentationError, ValueError) as e:
             logger.warning("%s. Skipping.", e)
             continue
 
@@ -223,7 +229,7 @@ def segment_tray_multiple(
     if fg_bbox is None:
         return None
 
-    return ImageSegmentResult(bounding_box=scale_bbox(fg_bbox, factor=1 / config.downscale_factor))
+    return ImageSegmentResult(bbox=scale_bbox(fg_bbox, factor=1 / config.downscale_factor))
 
 
 def _estimate_tray_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] | None:
@@ -409,7 +415,7 @@ def segment_core_from_tray(
         SegmentationError: If every row is classified as tray (no non-tray interval found).
     """
     img = img_metadata.load_image(factor=config.downscale_factor)
-    x_min, y_min, x_max, y_max = scale_bbox(bbox.bounding_box, factor=config.downscale_factor)
+    x_min, y_min, x_max, y_max = scale_bbox(bbox.bbox, factor=config.downscale_factor)
 
     hsv = rgb2hsv(img[int(y_min) : int(y_max + 1), int(x_min) : int(x_max + 1)])
     top_trim, bottom_trim = _find_non_tray_interval(hsv[:, :, 1], config.tray_sat_threshold, config.tray_sat_ratio)
@@ -471,3 +477,4 @@ def segment_tray_by_group(
     logger.info("Computed shared foreground for %d/%d shape group(s).", len(results), len(groups))
 
     return results
+    return ImageSegmentResult(bbox=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))

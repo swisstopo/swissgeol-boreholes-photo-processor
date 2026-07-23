@@ -18,10 +18,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system deps for Tesseract
+      - name: Install system deps for Tesseract (5.3.4)
         run: |
           sudo apt-get update
-          sudo apt-get install -y tesseract-ocr
+          sudo apt-get install -y tesseract-ocr=5.3.4*
 
       - name: Install dependencies and run tests
         shell: bash

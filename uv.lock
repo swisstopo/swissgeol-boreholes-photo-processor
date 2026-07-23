@@ -2971,6 +2971,7 @@ dependencies = [
     { name = "pytesseract" },
     { name = "pyyaml" },
     { name = "scikit-image" },
+    { name = "scikit-learn" },
     { name = "tifffile", version = "2026.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "tifffile", version = "2026.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "tqdm" },
@@ -3002,6 +3003,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'test'", specifier = "==6.2.1" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "scikit-image", specifier = ">=0.26.0" },
+    { name = "scikit-learn", specifier = ">=1.9.0" },
     { name = "tifffile", specifier = ">=2026.3.3" },
     { name = "tqdm", specifier = "==4.67.1" },
 ]

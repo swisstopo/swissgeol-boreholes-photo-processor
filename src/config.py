@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
+
 
 class SegmentationError(Exception):
     """Raised when segmentation fails for a single image."""
@@ -12,7 +14,7 @@ class SegmentationError(Exception):
 
 @dataclass
 class SegmentationCoreConfig:
-    """Tunable parameters for trimming the wooden tray off a detected core bounding box."""
+    """Tunable parameters for trimming the wooden tray off."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     tray_sat_ratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
@@ -67,10 +69,9 @@ class SegmentationConfig:
 class StitchingConfig:
     """Tunable parameters for the stitching step."""
 
-    core_height_m: float = 1.0  # depth extent, in metres, that core_height_px pixels represents
-    core_height_px: int = 10000  # pixel budget for a core spanning core_height_m metres
-    core_width_rerror: float = 1.5  # max allowed width ratio vs. the reference core before treated as an outlier
     font_size: int = 100  # font size (px) used for borehole ID, depth labels, and ruler tick labels
+    max_core_height: int = 10000  # cap on each core crop's resized height (pixels) and the canvas row height
+    max_core_width: int = 1200  # cap on each core crop's resized width (pixels) and the per-core column width
     num_cores_per_image: int = 6  # cores placed side by side per output sheet
     padding_horizontal: int = 150  # left/right border width in pixels
     padding_vertical: int = 200  # top/bottom border height in pixels
@@ -83,13 +84,14 @@ class PipelineConfig:
 
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
     stitching: StitchingConfig = field(default_factory=StitchingConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "PipelineConfig":
         """Load a PipelineConfig from a YAML file.
 
         Keys omitted from the file fall back to the defaults defined on
-        SegmentationConfig / StitchingConfig.
+        SegmentationConfig / StitchingConfig / EvaluationConfig.
 
         Args:
             path (Path): Path to the YAML config file.
@@ -98,15 +100,21 @@ class PipelineConfig:
             PipelineConfig: The loaded configuration.
         """
         raw = yaml.safe_load(path.read_text()) or {}
-        segmentation_raw = dict(raw.pop("segmentation", None) or {})
+        raw_segmentation = dict(raw.pop("segmentation", None) or {})
+        raw_evaluation = dict(raw.pop("evaluation", None) or {})
         return cls(
             segmentation=SegmentationConfig(
-                core=SegmentationCoreConfig(**(segmentation_raw.pop("core", None) or {})),
-                ruler=SegmentationRulerConfig(**(segmentation_raw.pop("ruler", None) or {})),
-                tray_multiple=SegmentationTrayMultipleConfig(**(segmentation_raw.pop("tray_multiple", None) or {})),
-                tray_single=SegmentationTraySingleConfig(**(segmentation_raw.pop("tray_single", None) or {})),
-                **segmentation_raw,
+                core=SegmentationCoreConfig(**(raw_segmentation.pop("core", None) or {})),
+                ruler=SegmentationRulerConfig(**(raw_segmentation.pop("ruler", None) or {})),
+                tray_multiple=SegmentationTrayMultipleConfig(**(raw_segmentation.pop("tray_multiple", None) or {})),
+                tray_single=SegmentationTraySingleConfig(**(raw_segmentation.pop("tray_single", None) or {})),
+                **raw_segmentation,
             ),
             stitching=StitchingConfig(**(raw.pop("stitching", None) or {})),
+            evaluation=EvaluationConfig(
+                core_width=CoreWidthCheckConfig(**(raw_evaluation.pop("core_width", None) or {})),
+                core_length=CoreLengthCheckConfig(**(raw_evaluation.pop("core_length", None) or {})),
+                **raw_evaluation,
+            ),
             **raw,
         )
