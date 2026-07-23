@@ -18,16 +18,17 @@ class SegmentationCoreConfig:
     background_val_threshold: float = 0.20  # value (HSV) below this = black background (not rock)
     wood_sat_hratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
     wood_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
+    min_segment_height_px: int = 10  # minimum height (px) for a left/right segment to be kept as core
 
 
 @dataclass
 class SegmentationRulerConfig:
     """Tunable parameters for detecting a depth ruler via OCR on its printed number ticks."""
 
-    downscale_factor: float = 0.5  # Scale images by this factor before OCR
-    text_min_value: int = 1  # Minimal visible number on ruler
-    text_max_value: int = 99  # Maximal visible number on ruler
-    r_error_outliers: float = 0.1  # Allow 10% error for inliers detection
+    downscale_factor: float = 0.5  # scale images by this factor before OCR
+    text_min_value: int = 1  # minimal visible number on ruler
+    text_max_value: int = 99  # maximal visible number on ruler
+    r_error_outliers: float = 0.1  # allow 10% error for inliers detection
 
 
 @dataclass
@@ -36,7 +37,7 @@ class SegmentationTrayMultipleConfig:
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
-    n_min_foreground: int = 10  # Minimum number images required to estimate a foreground
+    n_min_foreground: int = 10  # minimum number images required to estimate a foreground
 
 
 @dataclass

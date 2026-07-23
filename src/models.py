@@ -87,19 +87,19 @@ class ImageSegmentResult:
 
 
 @dataclass
+class CoreSegmentResult(ImageSegmentResult):
+    """TODO."""
+
+    bbox_segments: list[tuple[float, float, float, float]] = []
+
+
+@dataclass
 class TraySegmentResult(ImageSegmentResult):
     """Result of detecting the shared tray/core bbox, with optional debug images for MLflow logging."""
 
     img_background: np.ndarray | None = None  # mean image across the batch, only set by segment_tray_multiple
     img_forground: np.ndarray | None = None  # per-pixel std map used to estimate the bbox (segment_tray_multiple)
     img_downscale_factor: float | None = None  # downscale factor the debug images above are stored at
-
-
-@dataclass
-class CoreSegmentResult(ImageSegmentResult):
-    """Result of a core segmentation that resolves to multiple disjoint sub-regions (e.g. a fragmented core)."""
-
-    bbox_segments: list[tuple[float, float, float, float]]  # bbox of each fragment, in the original image's space
 
 
 @dataclass
@@ -114,7 +114,7 @@ class RulerSegmentResult(ImageSegmentResult):
 class ImageMetadataProcessed(ImageMetadata):
     """Metadata for a processed image with detected regions."""
 
-    core: ImageSegmentResult | None
+    core: CoreSegmentResult | None
     tray: ImageSegmentResult | None
     ruler: RulerSegmentResult | None
 
@@ -122,7 +122,7 @@ class ImageMetadataProcessed(ImageMetadata):
     def from_metadata(
         cls,
         metadata: ImageMetadata,
-        core: ImageSegmentResult | None,
+        core: CoreSegmentResult | None,
         tray: ImageSegmentResult | None,
         ruler: RulerSegmentResult | None,
     ) -> "ImageMetadataProcessed":

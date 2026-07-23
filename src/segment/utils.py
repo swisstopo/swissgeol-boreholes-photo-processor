@@ -19,7 +19,7 @@ from src.config import (
     SegmentationTrayMultipleConfig,
     SegmentationTraySingleConfig,
 )
-from src.models import ImageMetadata, ImageSegmentResult, RulerSegmentResult, TraySegmentResult
+from src.models import CoreSegmentResult, ImageMetadata, ImageSegmentResult, RulerSegmentResult, TraySegmentResult
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
@@ -357,7 +357,7 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
 
 def segment_core_from_tray(
     img_metadata: ImageMetadata, tray: ImageSegmentResult, config: SegmentationCoreConfig
-) -> ImageSegmentResult:
+) -> CoreSegmentResult:
     """Trim the bounding box to exclude the wooden tray and black background around the core.
 
     Trims left/right based on the value (brightness) channel to drop black background, and
@@ -370,7 +370,7 @@ def segment_core_from_tray(
         config (SegmentationCoreConfig): Tunable segmentation parameters.
 
     Returns:
-        ImageSegmentResult: Trimmed bounding box as (left, top, right, bottom), in the
+        CoreSegmentResult: Trimmed bounding box as (left, top, right, bottom), in the
             original image's coordinate space.
 
     Raises:
@@ -382,16 +382,17 @@ def segment_core_from_tray(
 
     hsv = rgb2hsv(img[int(y_min) : int(y_max + 1), int(x_min) : int(x_max + 1)])
 
-    # Remove black background (vertical / horizontal)
-    # TODO: Remove small segments ? See Brigerbad_0103.00-0104.00_vd_p.jpg
+    # Remove black background (vertical)
     # TODO: debug/GBT-KB11_0029.00-0030.00_vd_p.jpg
     # TODO: debug/A1W_0013.00-0014.00_vd_p.jpg
     # TODO: debug/A1W_0014.00-0015.00_vd_p.jpg
+    # Get all segments that are valid and drop short ones
     lr_trims = _find_valid_intervals(
         values=-hsv[:, :, 2].T,
         threshold=-config.background_val_threshold,
         ratio=config.background_val_vratio,
     )
+    lr_trims = [lr_trim for lr_trim in lr_trims if config.min_segment_height_px < lr_trim[1] - lr_trim[0]]
     left_trim_b = np.array(lr_trims)[:, 0].min().item()
     right_trim_b = np.array(lr_trims)[:, 1].max().item()
 
@@ -407,7 +408,7 @@ def segment_core_from_tray(
         ratio=config.background_val_hratio,
     )[0]
 
-    return ImageSegmentResult(
+    return CoreSegmentResult(
         bbox=scale_bbox(
             bbox=(
                 x_min + left_trim_b,
@@ -416,5 +417,17 @@ def segment_core_from_tray(
                 y_min + min(bottom_trim_b, bottom_trim_w),
             ),
             factor=1 / config.downscale_factor,
-        )
+        ),
+        bbox_segments=[
+            scale_bbox(
+                bbox=(
+                    x_min + left_trim,
+                    y_min + max(top_trim_b, top_trim_w),
+                    x_min + right_trim,
+                    y_min + min(bottom_trim_b, bottom_trim_w),
+                ),
+                factor=1 / config.downscale_factor,
+            )
+            for left_trim, right_trim in lr_trims
+        ],
     )

@@ -35,11 +35,11 @@ def log_tray_segment_mlflow(
     if result is None:
         return
 
-    if result.img_background:
+    if result.img_background is not None:
         img_bg_pil = Image.fromarray((result.img_background * 255).astype(np.uint8))
         log_artifact_with_mlflow(img_bg_pil, filename + "-background", suffix, subfolder)
 
-    if result.img_forground and result.img_downscale_factor:
+    if result.img_forground is not None and result.img_downscale_factor is not None:
         img_fg_pil = Image.fromarray((result.img_forground / result.img_forground.max() * 255).astype(np.uint8))
         draw = ImageDraw.Draw(img_fg_pil)
         draw.rectangle(scale_bbox(result.bbox, result.img_downscale_factor), outline="red", width=5)
@@ -63,27 +63,34 @@ def log_image_metadata_processed_mlflow(
         font_size (int): Font size used to draw the ruler's px-per-unit label.
     """
     img_npy = result.load_image()
-    img_pil = Image.fromarray((img_npy * 255).astype(np.uint8))
-    draw = ImageDraw.Draw(img_pil)
+    img_pil = Image.fromarray((img_npy * 255).astype(np.uint8)).convert("RGBA")
+    overlay = Image.new("RGBA", img_pil.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
     font = ImageFont.load_default(size=font_size)
 
     if result.core:
-        draw.rectangle(result.core.bbox, outline="green", width=10)
+        # Draw segments < overall detection
+        for bbox in result.core.bbox_segments:
+            draw.rectangle(bbox, outline=(0, 255, 0, 255), fill=(0, 255, 0, 30), width=2)
+        draw.rectangle(result.core.bbox, outline=(0, 255, 0, 255), width=5)
 
     if result.ruler:
-        draw.rectangle(result.ruler.bbox, outline="blue", width=5)
+        # Draw units < overall detection < reslution text
         for bbox in result.ruler.bbox_units:
-            draw.rectangle(bbox, outline="blue", width=2)
+            draw.rectangle(bbox, outline=(0, 0, 255, 255), fill=(0, 0, 255, 30), width=2)
+        draw.rectangle(result.ruler.bbox, outline=(0, 0, 255, 255), width=5)
         draw.text(
             (result.ruler.bbox[0], result.ruler.bbox[1]),
             f"{result.ruler.px_per_unit:.1f} px/unit",
-            fill=(255, 255, 255),
+            fill=(255, 255, 255, 255),
             font=font,
             anchor="lt",
         )
 
     if result.tray:
-        draw.rectangle(result.tray.bbox, outline="red", width=5)
+        draw.rectangle(result.tray.bbox, outline=(255, 0, 0, 255), width=5)
+
+    img_pil = Image.alpha_composite(img_pil, overlay).convert("RGB")
 
     log_artifact_with_mlflow(img_pil, filename, suffix, subfolder)
 
