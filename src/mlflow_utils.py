@@ -104,6 +104,7 @@ def log_evaluation_results_with_mlflow(
         if checks:
             mlflow.log_metric(f"{name}_acc", sum(c.passed for c in checks) / len(checks))
             mlflow.log_metric(f"{name}_mse", sum((c.measure - c.reference) ** 2 for c in checks) / len(checks))
+            mlflow.log_metric(f"{name}_mre", sum(c.relative_error for c in checks) / len(checks))
 
     predictions = {
         r.filename: {

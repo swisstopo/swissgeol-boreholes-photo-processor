@@ -88,7 +88,7 @@ def test_segment_example(example):
     assert detections[0].core.bbox[2] <= detections[0].tray.bbox[2]
     assert detections[0].core.bbox[3] < detections[0].tray.bbox[3]
 
-    # Ruler detected with proper resoltuion (2% relative error)
+    # Ruler detected with proper resolution (2% relative error)
     assert approx(detections[0].ruler.px_per_unit, rel=0.02) == 100
 
 
