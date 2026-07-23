@@ -42,7 +42,7 @@ def log_tray_segment_mlflow(
     if result.img_foreground is not None and result.img_downscale_factor is not None:
         img_fg_pil = Image.fromarray(
             (result.img_foreground / (result.img_foreground.max() + 1e-16) * 255).astype(np.uint8)
-        )
+        ).convert("RGB")
         draw = ImageDraw.Draw(img_fg_pil)
         draw.rectangle(scale_bbox(result.bbox, result.img_downscale_factor), outline="red", width=5)
         log_artifact_with_mlflow(img_fg_pil, filename + "-foreground", suffix, subfolder)

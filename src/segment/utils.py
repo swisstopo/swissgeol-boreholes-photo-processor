@@ -359,7 +359,7 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
     results = np.array([[g[0], g[-1]] for g in groups])
 
-    return sorted(results.tolist(), key=lambda x: x[1] - x[0], reverse=True)
+    return [tuple(x) for x in sorted(results.tolist(), key=lambda x: x[1] - x[0], reverse=True)]
 
 
 def segment_core_from_tray(
@@ -400,7 +400,7 @@ def segment_core_from_tray(
     lr_trims = [lr_trim for lr_trim in lr_trims if config.min_segment_height_px <= lr_trim[1] - lr_trim[0]]
 
     if len(lr_trims) == 0:
-        return CoreSegmentResult(bbox=tray.bbox, bbox_segments=[tray.bbox])
+        lr_trims = [[0, hsv.shape[1]]]
 
     left_trim_b = np.array(lr_trims)[:, 0].min().item()
     right_trim_b = np.array(lr_trims)[:, 1].max().item()

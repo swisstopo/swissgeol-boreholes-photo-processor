@@ -62,7 +62,7 @@ def segment(
                 else segment_tray_single(img_metadata, config.tray_single)
             )
 
-            # Step 4: Remove wooden tray (up/down)
+            # Step 4: Trim wooden tray (top/bottom) and black background (all sides) around the core
             detection_core = segment_core_from_tray(img_metadata, detection_tray, config=config.core)
 
             detection = ImageMetadataProcessed.from_metadata(

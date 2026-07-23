@@ -133,7 +133,7 @@ def test_segment_trims_saturated_tray_by_default(make_metadata):
 
 
 def test_segment_tray_trim_threshold_is_configurable(make_metadata):
-    """Raising tray_sat_threshold above the tray's saturation disables the trim."""
+    """Raising wood_sat_threshold above the tray's saturation disables the trim."""
     tray_box = (150, 100, 650, 1150)
     core_box = (150, 300, 650, 950)
     metadata = make_metadata(
@@ -190,17 +190,17 @@ def test_segment_core_from_tray_splits_fragmented_core_into_segments(make_metada
     assert sorted(result.bbox_segments) == sorted([left_box, right_box])
 
 
-def test_segment_core_from_tray_drops_thin_slivers(make_metadata):
-    """A bright sliver narrower than min_segment_height_px is dropped and doesn't widen the core bbox."""
+def test_segment_core_from_tray_drops_thin_segments(make_metadata):
+    """A segment thiner than min_segment_height_px is dropped and doesn't widen the core bbox."""
     size = (400, 100)
     core_box = (100, 0, 300, 99)
-    sliver_box = (10, 0, 14, 99)  # 5px wide, well under the default min_segment_height_px of 10
+    segment_box = (10, 0, 14, 99)  # 5px wide, well under the default min_segment_height_px of 10
     metadata = make_metadata(
         15.0,
         16.0,
         lambda draw: (
             draw.rectangle(core_box, fill=(200, 200, 200)),
-            draw.rectangle(sliver_box, fill=(200, 200, 200)),
+            draw.rectangle(segment_box, fill=(200, 200, 200)),
         ),
         size=size,
     )
@@ -208,7 +208,7 @@ def test_segment_core_from_tray_drops_thin_slivers(make_metadata):
 
     result = segment_core_from_tray(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
 
-    assert result.bbox == core_box  # sliver excluded, doesn't pull the left edge out to x=10
+    assert result.bbox == core_box  # segment excluded, doesn't pull the left edge out to x=10
     assert result.bbox_segments is not None
     assert len(result.bbox_segments) == 1
 

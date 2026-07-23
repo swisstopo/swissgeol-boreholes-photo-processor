@@ -25,8 +25,8 @@ def test_from_yaml_empty_file_uses_all_defaults(tmp_path):
     assert config == PipelineConfig()
 
 
-def test_from_yaml_reads_ruler_and_tray_sections(tmp_path):
-    """Ruler and tray sub-config overrides are applied; other nested sections keep their defaults."""
+def test_from_yaml_reads_all_sections(tmp_path):
+    """Every nested sub-config (segmentation.*, stitching, evaluation.*) applies its own overrides independently."""
     path = tmp_path / "config.yaml"
     path.write_text(
         textwrap.dedent(

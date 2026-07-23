@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class SegmentationCoreConfig:
-    """Tunable parameters for trimming the wooden tray off."""
+    """Tunable parameters for trimming the wooden tray and black background off, and filtering thin segments."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     background_val_hratio: float = 0.75  # fraction of dark-background pixels in a row required to trim that row
