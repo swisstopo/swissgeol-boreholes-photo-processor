@@ -90,7 +90,7 @@ class ImageSegmentResult:
 class CoreSegmentResult(ImageSegmentResult):
     """TODO."""
 
-    bbox_segments: list[tuple[float, float, float, float]] = []
+    bbox_segments: list[tuple[float, float, float, float]] | None = None
 
 
 @dataclass

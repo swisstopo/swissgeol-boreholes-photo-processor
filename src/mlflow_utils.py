@@ -70,7 +70,7 @@ def log_image_metadata_processed_mlflow(
 
     if result.core:
         # Draw segments < overall detection
-        for bbox in result.core.bbox_segments:
+        for bbox in result.core.bbox_segments or []:
             draw.rectangle(bbox, outline=(0, 255, 0, 255), fill=(0, 255, 0, 30), width=2)
         draw.rectangle(result.core.bbox, outline=(0, 255, 0, 255), width=5)
 

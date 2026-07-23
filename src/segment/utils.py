@@ -383,9 +383,6 @@ def segment_core_from_tray(
     hsv = rgb2hsv(img[int(y_min) : int(y_max + 1), int(x_min) : int(x_max + 1)])
 
     # Remove black background (vertical)
-    # TODO: debug/GBT-KB11_0029.00-0030.00_vd_p.jpg
-    # TODO: debug/A1W_0013.00-0014.00_vd_p.jpg
-    # TODO: debug/A1W_0014.00-0015.00_vd_p.jpg
     # Get all segments that are valid and drop short ones
     lr_trims = _find_valid_intervals(
         values=-hsv[:, :, 2].T,
