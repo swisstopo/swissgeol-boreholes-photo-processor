@@ -191,7 +191,7 @@ def test_segment_core_from_tray_splits_fragmented_core_into_segments(make_metada
 
 
 def test_segment_core_from_tray_drops_thin_segments(make_metadata):
-    """A segment thiner than min_segment_height_px is dropped and doesn't widen the core bbox."""
+    """A segment thinner than min_segment_height_px is dropped and doesn't widen the core bbox."""
     size = (400, 100)
     core_box = (100, 0, 300, 99)
     segment_box = (10, 0, 14, 99)  # 5px wide, well under the default min_segment_height_px of 10

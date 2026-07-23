@@ -150,7 +150,6 @@ photo's ruler to derive a pixels-per-unit scale (`px_per_unit`), so tick counts 
 actual detected depth rather than an arbitrary scale. Each core is then resized independently using
 its own detected `px_per_unit` (falling back to the batch median if no ruler was detected for that image), and clamped if it would exceed `max_core_width`/`max_core_height`.
 
-
 ## Configuration
 
 Segmentation, stitching and evaluation parameters are set via a YAML config file,
@@ -158,9 +157,9 @@ not CLI flags. A default [config.yaml](config.yaml) is provided at the repositor
 any omitted key falls back to its default (see `src/config.py`).
 
 To speed up segmentation, images are downscaled before each detection step (tray, core-trim,
-and ruler OCR each have their own 'downscale_factor' under 'segmentation.*' in 'config.
-yaml'), and resulting bounding boxes are scaled back up to the original resolution for
-stitching
+and ruler OCR each have their own `downscale_factor` under `segmentation.*` in `config.yaml`),
+and resulting bounding boxes are scaled back up to the original resolution for stitching.
+
 
 The pipeline first tries to derive a single bounding box shared across the whole batch, by
 comparing all images from the (assumed static) camera position and locating the region that

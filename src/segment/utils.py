@@ -401,7 +401,7 @@ def segment_core_from_tray(
     lr_trims = [lr_trim for lr_trim in lr_trims if config.min_segment_height_px <= lr_trim[1] - lr_trim[0]]
 
     if len(lr_trims) == 0:
-        lr_trims = [[0, hsv.shape[1]]]
+        lr_trims = [(0, hsv.shape[1])]
 
     left_trim_b = np.array(lr_trims)[:, 0].min().item()
     right_trim_b = np.array(lr_trims)[:, 1].max().item()

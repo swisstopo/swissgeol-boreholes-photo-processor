@@ -25,8 +25,9 @@ def log_tray_segment_mlflow(
     logs both the mean background image and the annotated foreground image as separate artifacts.
 
     Args:
-        result (TraySegmentResult | None): Result of segment_tray_multiple; must include the
-            img_background/img_foreground debug images.
+        result (TraySegmentResult | None): Result of segment_tray_multiple. If its
+            img_background/img_foreground debug images are unset, the corresponding
+            artifact is skipped.
         filename (str): The filename prefix for the artifacts.
         suffix (str, optional): File extension (including the dot) used when saving the artifacts.
             Defaults to ".jpg".
