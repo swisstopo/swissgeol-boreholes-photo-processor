@@ -8,6 +8,10 @@ import yaml
 from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
 
 
+class SegmentationError(Exception):
+    """Raised when segmentation fails for a single image."""
+
+
 @dataclass
 class SegmentationCoreConfig:
     """Tunable parameters for trimming the wooden tray off."""
@@ -22,9 +26,10 @@ class SegmentationRulerConfig:
     """Tunable parameters for detecting a depth ruler via OCR on its printed number ticks."""
 
     downscale_factor: float = 0.5  # Scale images by this factor before OCR
-    text_min_value: int = 1  # Minimal visible number on ruler
-    text_max_value: int = 99  # Maximal visible number on ruler
+    text_min_value: int = 1  # Minimum visible number on ruler
+    text_max_value: int = 99  # Maximum visible number on ruler
     r_error_outliers: float = 0.1  # Allow 10% error for inliers detection
+    n_min_ruler: int = 10  # images to OCR per shape group before taking the median-scale detection
 
 
 @dataclass
@@ -33,7 +38,8 @@ class SegmentationTrayMultipleConfig:
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
-    n_min_foreground: int = 10  # Minimum number images required to estimate a foreground
+    n_min_foreground: int = 10  # min images required to estimate a foreground; also the sample size drawn per group
+    seed: int = 0  # seed for randomly sampling images from a group
 
 
 @dataclass

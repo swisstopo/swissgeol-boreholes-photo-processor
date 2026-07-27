@@ -5,13 +5,13 @@ import logging
 from tqdm import tqdm
 
 from src.config import SegmentationConfig
-from src.mlflow_utils import log_image_metadata_processed_mlflow
-from src.models import ImageMetadata, ImageMetadataProcessed
+from src.mlflow_utils import log_image_metadata_processed_mlflow, log_segmentation_summary_mlflow
+from src.models import ImageMetadata, ImageMetadataProcessed, SegmentationRecord
 from src.segment.utils import (
     SegmentationError,
     segment_core_from_tray,
-    segment_ruler,
-    segment_tray_multiple,
+    segment_ruler_by_group,
+    segment_tray_by_group,
     segment_tray_single,
 )
 
@@ -26,7 +26,9 @@ def segment(
     """Segment the input images and return a list of processed image metadata objects.
 
     A bounding box is derived from the batch's shared foreground estimate (falling back
-    to per-image thresholding if unavailable).
+    to per-image thresholding if unavailable). The ruler is detected on several images per
+    shape group and the median-scale detection is reused for every image in that group,
+    including images that fall back to per-image tray segmentation.
 
     Args:
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
@@ -39,21 +41,24 @@ def segment(
     """
     config = config or SegmentationConfig()
     detections: list[ImageMetadataProcessed] = []
+    segmentation_records: list[SegmentationRecord] = []
 
-    # Step 1: Try to estimate image foreground (moving part)
-    detection_tray_multi = segment_tray_multiple(imgs_metadata, config.tray_multiple)
+    # Step 1: Try to estimate image foreground (moving part) and ruler, once per shape group
+    tray_by_shape = segment_tray_by_group(imgs_metadata, config.tray_multiple)
+    ruler_by_shape = segment_ruler_by_group(imgs_metadata, config.ruler)
+    foreground_group_by_shape = {shape: idx for idx, shape in enumerate(tray_by_shape)}
+    fallback_count = 0
 
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
-            # Step 2: Try to detect ruler on the image
-            detection_ruler = segment_ruler(img_metadata, config.ruler)
+            shape = img_metadata.shape
 
-            # Step 3: Check if tray already detected, otherwise fallback to single
-            detection_tray = (
-                detection_tray_multi
-                if detection_tray_multi is not None
-                else segment_tray_single(img_metadata, config.tray_single)
-            )
+            # Step 2: Use the group's shared ruler
+            detection_ruler = ruler_by_shape.get(shape)
+
+            # Step 3: Use the group's shared tray if available, otherwise fallback to single
+            shared_tray = tray_by_shape.get(shape)
+            detection_tray = shared_tray or segment_tray_single(img_metadata, config.tray_single)
 
             # Step 4: Remove wooden tray (up/down)
             detection_core = segment_core_from_tray(img_metadata, detection_tray, config=config.core)
@@ -74,7 +79,23 @@ def segment(
 
             detections.append(detection)
 
-        except (SegmentationError, ValueError) as e:
+            foreground_group = foreground_group_by_shape.get(shape)
+            if foreground_group is None:
+                fallback_count += 1
+            segmentation_records.append(
+                SegmentationRecord(
+                    filename=img_metadata.image_path.name,
+                    approach="foreground" if foreground_group is not None else "fallback",
+                    foreground_group=foreground_group,
+                )
+            )
+
+        except SegmentationError as e:
             logger.warning("%s. Skipping.", e)
+
+    logger.info("Segmented %d/%d image(s) using the fallback (per-image) approach.", fallback_count, len(detections))
+
+    if with_mlflow:
+        log_segmentation_summary_mlflow(num_foreground_groups=len(tray_by_shape), images=segmentation_records)
 
     return detections
