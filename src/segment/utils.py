@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from src.config import (
     SegmentationCoreConfig,
+    SegmentationError,
     SegmentationRulerConfig,
     SegmentationTrayMultipleConfig,
     SegmentationTraySingleConfig,
@@ -23,10 +24,6 @@ from src.models import CoreSegmentResult, ImageMetadata, ImageSegmentResult, Rul
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
-
-
-class SegmentationError(Exception):
-    """Raised when segmentation fails for a single image."""
 
 
 def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) -> RulerSegmentResult | None:
@@ -114,6 +111,65 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
         px_per_unit=(1 / config.downscale_factor) * steps_median,
         bbox_units=[tuple(row) for row in bbox_units.tolist()],
     )
+
+
+def segment_ruler_by_group(
+    imgs_metadata: list[ImageMetadata],
+    config: SegmentationRulerConfig,
+) -> dict[tuple[int, int, int], RulerSegmentResult | None]:
+    """Detect the depth ruler once per group of same-shaped images, aggregated over several images.
+
+    Images sharing a shape are assumed to come from the same static camera setup, so the ruler
+    position and scale are shared too. OCR is run on images within a shape group, in order,
+    until config.n_min_ruler detections succeed (or the group is exhausted). The median
+    detection (by px_per_unit) is reused for every image in the group, which is more robust to
+    per-image OCR noise (lighting, thresholding) than trusting a single detection.
+
+    Args:
+        imgs_metadata (list[ImageMetadata]): All images to consider, potentially spanning
+            multiple shapes.
+        config (SegmentationRulerConfig): Tunable segmentation parameters.
+
+    Returns:
+        dict[tuple[int, int, int], RulerSegmentResult | None]: Detected ruler per image
+            shape, or None for groups where no image yielded a ruler detection.
+    """
+    groups = group_images_by_shape(imgs_metadata)
+    results: dict[tuple[int, int, int], RulerSegmentResult | None] = {}
+    for shape, group in groups.items():
+        detections: list[RulerSegmentResult] = []
+        for img_metadata in group:
+            if len(detections) >= config.n_min_ruler:
+                break
+            try:
+                detection = segment_ruler(img_metadata, config)
+            except SegmentationError as e:
+                logger.warning("%s. Skipping.", e)
+                continue
+            if detection is not None:
+                detections.append(detection)
+
+        results[shape] = _aggregate_ruler_detections(detections)
+
+    logger.info("Computed shared ruler for %d/%d shape group(s).", sum(1 for r in results.values() if r), len(groups))
+
+    return results
+
+
+def _aggregate_ruler_detections(detections: list[RulerSegmentResult]) -> RulerSegmentResult | None:
+    """Pick the median-by-scale detection among several, to be robust to per-image OCR noise.
+
+    Args:
+        detections (list[RulerSegmentResult]): Independent ruler detections for images assumed
+            to share the same ruler position and scale.
+
+    Returns:
+        RulerSegmentResult | None: The detection whose px_per_unit is the median of the batch,
+            or None if no detections were given.
+    """
+    if not detections:
+        return None
+    return sorted(detections, key=lambda d: d.px_per_unit)[len(detections) // 2]
 
 
 def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySingleConfig) -> TraySegmentResult:
@@ -349,7 +405,8 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
             length in descending order.
 
     Raises:
-        SegmentationError: If every row is classified as invalid (no valid interval found).
+        SegmentationError: If every row is classified as tray (no non-tray interval found),
+            or if the largest non-tray interval is degenerate (zero height).
     """
     confs_row = (values > threshold).mean(axis=1)
     detections = np.nonzero(confs_row < ratio)[0]
@@ -441,3 +498,58 @@ def segment_core_from_tray(
             for left_trim, right_trim in lr_trims
         ],
     )
+
+
+def group_images_by_shape(imgs_metadata: list[ImageMetadata]) -> dict[tuple[int, int, int], list[ImageMetadata]]:
+    """Group images by their shape (height, width, channels).
+
+    Args:
+        imgs_metadata (list[ImageMetadata]): List of image metadata.
+
+    Returns:
+        dict[tuple[int, int, int], list[ImageMetadata]]: Dictionary where keys are image shapes
+            and values are lists of ImageMetadata with that shape.
+    """
+    grouped: dict[tuple[int, int, int], list[ImageMetadata]] = {}
+    for img_metadata in imgs_metadata:
+        grouped.setdefault(img_metadata.shape, []).append(img_metadata)
+    return grouped
+
+
+def segment_tray_by_group(
+    imgs_metadata: list[ImageMetadata],
+    config: SegmentationTrayMultipleConfig,
+) -> dict[tuple[int, int, int], ImageSegmentResult]:
+    """Estimate a shared tray bounding box per group of same-shaped images.
+
+    Images are grouped by their on-disk shape (read from metadata, without decoding pixel
+    data). Groups with at least ``config.n_min_foreground`` images have their foreground
+    estimated from a random sample of that many images; smaller groups are skipped and left
+    to the per-image fallback (segment_tray_single).
+
+    Args:
+        imgs_metadata (list[ImageMetadata]): All images to consider, potentially spanning
+            multiple shapes.
+        config (SegmentationTrayMultipleConfig): Tunable segmentation parameters.
+
+    Returns:
+        dict[tuple[int, int, int], ImageSegmentResult]: Estimated tray bounding box per image
+            shape, for groups where estimation succeeded.
+    """
+    rng = np.random.default_rng(config.seed)
+    groups = group_images_by_shape(imgs_metadata)
+    results = {}
+    for shape, group in groups.items():
+        if len(group) < config.n_min_foreground:
+            continue
+
+        # subset of images is enough to calculate the foreground mask
+        sample_ids = rng.choice(len(group), size=config.n_min_foreground, replace=False)
+        sampled_imgs = [group[i] for i in sample_ids]
+        result = segment_tray_multiple(sampled_imgs, config)
+        if result is not None:
+            results[shape] = result
+
+    logger.info("Computed shared foreground for %d/%d shape group(s).", len(results), len(groups))
+
+    return results

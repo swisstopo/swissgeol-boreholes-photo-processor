@@ -16,6 +16,10 @@ from src.segment.config import (
 from src.stitching.config import StitchingConfig
 
 
+class SegmentationError(Exception):
+    """Raised when segmentation fails for a single image."""
+
+
 @dataclass
 class PipelineConfig:
     """Top-level configuration for the borehole photo processing pipeline."""

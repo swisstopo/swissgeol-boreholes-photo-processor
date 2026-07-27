@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
-from src.models import ImageMetadataProcessed, TraySegmentResult
+from src.models import ImageMetadataProcessed, SegmentationRecord, TraySegmentResult
 from src.utils import scale_bbox
 
 
@@ -96,6 +96,24 @@ def log_image_metadata_processed_mlflow(
     img_pil = Image.alpha_composite(img_pil, overlay).convert("RGB")
 
     log_artifact_with_mlflow(img_pil, filename, suffix, subfolder)
+
+
+def log_segmentation_summary_mlflow(
+    num_foreground_groups: int,
+    images: list[SegmentationRecord],
+    filename: str = "segmentation_summary.json",
+) -> None:
+    """Log a JSON summary of the segmentation approach used per image.
+
+    Args:
+        num_foreground_groups (int): Number of image-shape groups with a successfully
+            estimated shared foreground.
+        images (list[SegmentationRecord]): Per-image segmentation approach records.
+        filename (str): The filename for the JSON artifact.
+    """
+    mlflow.log_dict(
+        {"num_foreground_groups": num_foreground_groups, "images": [asdict(image) for image in images]}, filename
+    )
 
 
 def log_artifact_with_mlflow(
