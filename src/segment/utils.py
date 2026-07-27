@@ -20,7 +20,7 @@ from src.config import (
     SegmentationTrayMultipleConfig,
     SegmentationTraySingleConfig,
 )
-from src.models import ImageMetadata, ImageSegmentResult, RulerSegmentResult
+from src.models import CoreSegmentResult, ImageMetadata, ImageSegmentResult, RulerSegmentResult, TraySegmentResult
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
@@ -80,11 +80,12 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
     distances_idx = ~np.eye(distances.shape[0], dtype=bool)
     distances = distances[distances_idx].reshape(
+        # Remove diagonal and reshape NxN -> Nx(N-1)
         (
             distances.shape[0],
             distances.shape[1] - 1,
         )
-    )  # Remove diagonal NxN -> Nx(N-1)
+    )
     id_inliers = abs(np.median(distances, axis=1) - steps_median) / steps_median < config.r_error_outliers
 
     if not id_inliers.any():
@@ -135,7 +136,9 @@ def segment_ruler_by_group(
     """
     groups = group_images_by_shape(imgs_metadata)
     results: dict[tuple[int, int, int], RulerSegmentResult | None] = {}
-    for shape, group in groups.items():
+    for i, (shape, group) in enumerate(groups.items()):
+        logger.info(f"Group {i + 1}/{len(groups)} with size {shape}")
+
         detections: list[RulerSegmentResult] = []
         for img_metadata in group:
             if len(detections) >= config.n_min_ruler:
@@ -171,7 +174,7 @@ def _aggregate_ruler_detections(detections: list[RulerSegmentResult]) -> RulerSe
     return sorted(detections, key=lambda d: d.px_per_unit)[len(detections) // 2]
 
 
-def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySingleConfig) -> ImageSegmentResult:
+def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySingleConfig) -> TraySegmentResult:
     """Segment a single image via thresholding when no shared foreground bbox is available.
 
     Args:
@@ -179,8 +182,9 @@ def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySin
         config (SegmentationTraySingleConfig): Tunable segmentation parameters.
 
     Returns:
-        ImageSegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the
-            original image's coordinate space.
+        TraySegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the original image's
+            coordinate space. Background/foreground debug images are left unset (only populated
+            by segment_tray_multiple).
     """
     factor = config.downscale_factor
     binary, grey = _apply_threshold_and_clean(
@@ -200,13 +204,13 @@ def segment_tray_single(img_metadata: ImageMetadata, config: SegmentationTraySin
         min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
     )
 
-    return ImageSegmentResult(bbox=scale_bbox(bbox, factor=1 / factor))
+    return TraySegmentResult(bbox=scale_bbox(bbox, factor=1 / factor))
 
 
 def segment_tray_multiple(
     imgs_metadata: list[ImageMetadata],
     config: SegmentationTrayMultipleConfig,
-) -> ImageSegmentResult | None:
+) -> TraySegmentResult | None:
     """Estimate the foreground mask shared by a batch of images taken from a static camera position.
 
     Loads and downscales every image, then computes the per-pixel standard deviation across the
@@ -218,7 +222,7 @@ def segment_tray_multiple(
         config (SegmentationTrayMultipleConfig): Tunable segmentation parameters.
 
     Returns:
-        ImageSegmentResult | None: Estimated tray bounding box, or None if unavailable.
+        TraySegmentResult | None: Estimated tray bounding box, or None if unavailable.
     """
     imgs_stack: list[np.ndarray] = []
     img_shape: tuple[int, ...] | None = None
@@ -244,12 +248,18 @@ def segment_tray_multiple(
         return None
 
     # Compute STD between images to highlight changes in background
-    fg_img = np.stack(imgs_stack).std(axis=0)
+    bg_imgs = np.stack(imgs_stack)
+    fg_img = bg_imgs.std(axis=0)
     fg_bbox = _estimate_tray_bbox(fg_img)
     if fg_bbox is None:
         return None
 
-    return ImageSegmentResult(bbox=scale_bbox(fg_bbox, factor=1 / config.downscale_factor))
+    return TraySegmentResult(
+        bbox=scale_bbox(fg_bbox, factor=1 / config.downscale_factor),
+        img_background=bg_imgs.mean(axis=0),
+        img_foreground=fg_img,
+        img_downscale_factor=config.downscale_factor,
+    )
 
 
 def _estimate_tray_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] | None:
@@ -380,20 +390,21 @@ def _select_bbox(
     return (min_col, min_row, max_col - 1, max_row - 1)
 
 
-def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) -> tuple[int, int]:
-    """Find the largest contiguous row interval that is not tray, based on a per-pixel value map.
+def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) -> list[tuple[int, int]]:
+    """Find the contiguous row intervals that are valid, based on a per-pixel value map.
 
-    A row is classified as tray if the fraction of its pixels above `threshold` reaches
-    `ratio`. The largest run of consecutive non-tray rows is returned.
+    A row is classified as invalid (tray/background) if the fraction of its pixels above
+    `threshold` reaches `ratio`; consecutive valid rows are grouped into intervals. Pass a
+    transposed value map to find column intervals instead (e.g. to trim left/right).
 
     Args:
         values (np.ndarray): 2D per-pixel value map (e.g. saturation channel) to threshold.
-        threshold (float): Value above which a pixel is considered tray.
-        ratio (float): Fraction of tray pixels in a row required to classify the row as tray.
+        threshold (float): Value above which a pixel is considered tray/background.
+        ratio (float): Fraction of tray/background pixels in a row required to classify the row as invalid.
 
     Returns:
-        tuple[int, int]: Start and end row indices (exclusive of tray) of the largest
-            non-tray interval.
+        list[tuple[int, int]]: Start and end row indices of each valid interval, sorted by
+            length in descending order.
 
     Raises:
         SegmentationError: If every row is classified as tray (no non-tray interval found),
@@ -403,45 +414,96 @@ def _find_non_tray_interval(values: np.ndarray, threshold: float, ratio: float) 
     detections = np.nonzero(confs_row < ratio)[0]
 
     if detections.size == 0:
-        raise SegmentationError("Entire region classified as tray; no non-tray interval found")
+        raise SegmentationError("Entire region classified as invalid; no valid interval found")
 
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
-    result = np.array([[g[0], g[-1]] for g in groups])
-    id_best = np.argmax(result[:, 1] - result[:, 0])
-    top_trim, bottom_trim = result[id_best, 0].item(), result[id_best, 1].item()
+    results = np.array([[g[0], g[-1]] for g in groups])
 
-    if bottom_trim <= top_trim:
-        raise SegmentationError("Largest non-tray interval is degenerate (zero height)")
-
-    return top_trim, bottom_trim
+    return [tuple(x) for x in sorted(results.tolist(), key=lambda x: x[1] - x[0], reverse=True)]
 
 
 def segment_core_from_tray(
-    img_metadata: ImageMetadata, bbox: ImageSegmentResult, config: SegmentationCoreConfig
-) -> ImageSegmentResult:
-    """Vertical trim the bounding box to exclude the wooden tray based on saturation.
+    img_metadata: ImageMetadata, tray: ImageSegmentResult, config: SegmentationCoreConfig
+) -> CoreSegmentResult:
+    """Trim the bounding box to exclude the wooden tray and black background around the core.
+
+    Trims left/right based on the value (brightness) channel to drop black background, and
+    trims top/bottom based on both the saturation channel (wooden tray) and the value channel
+    (black background), keeping the intersection of the two vertical trims.
 
     Args:
         img_metadata (ImageMetadata): Metadata of the image to load and trim.
-        bbox (ImageSegmentResult): Bounding box to trim, in the original image's coordinate space.
-        config (SegmentationCoreConfig): Tunable segmentation parameters (uses `tray_sat_threshold`,
-            `tray_sat_ratio`, and `downscale_factor`).
+        tray (ImageSegmentResult): Bounding box to trim, in the original image's coordinate space.
+        config (SegmentationCoreConfig): Tunable segmentation parameters.
 
     Returns:
-        ImageSegmentResult: Trimmed bounding box as (left, top, right, bottom), in the
-            original image's coordinate space.
+        CoreSegmentResult: bbox is the trimmed bounding box as (left, top, right, bottom), in the
+            original image's coordinate space. bbox_segments holds one bbox per surviving
+            left/right sub-segment.
 
     Raises:
-        SegmentationError: If every row is classified as tray (no non-tray interval found).
+        SegmentationError: If every row or column is classified as tray/background (no valid
+            interval found) for any of the three trim passes.
     """
     img = img_metadata.load_image(factor=config.downscale_factor)
-    x_min, y_min, x_max, y_max = scale_bbox(bbox.bbox, factor=config.downscale_factor)
+    x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 
-    hsv = rgb2hsv(img[int(y_min) : int(y_max + 1), int(x_min) : int(x_max + 1)])
-    top_trim, bottom_trim = _find_non_tray_interval(hsv[:, :, 1], config.tray_sat_threshold, config.tray_sat_ratio)
+    hsv = rgb2hsv(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
 
-    trimmed_bbox = (x_min, y_min + top_trim, x_max, y_min + bottom_trim)
-    return ImageSegmentResult(bbox=scale_bbox(trimmed_bbox, factor=1 / config.downscale_factor))
+    # Remove black background (left/right)
+    # Get all segments that are valid and drop short ones
+    lr_trims = _find_valid_intervals(
+        values=-hsv[:, :, 2].T,
+        threshold=-config.background_val_threshold,
+        ratio=config.background_val_vratio,
+    )
+    lr_trims = [
+        lr_trim
+        for lr_trim in lr_trims
+        if config.downscale_factor * config.min_segment_height_px <= lr_trim[1] - lr_trim[0]
+    ]
+
+    if len(lr_trims) == 0:
+        lr_trims = [(0, hsv.shape[1] - 1)]
+
+    left_trim_background = np.array(lr_trims)[:, 0].min().item()
+    right_trim_background = np.array(lr_trims)[:, 1].max().item()
+
+    # Remove wood / background (top/bottom). If multiple intervals, consider only largest one (first)
+    top_trim_background, bottom_trim_background = _find_valid_intervals(
+        values=hsv[:, :, 1],
+        threshold=config.wood_sat_threshold,
+        ratio=config.wood_sat_hratio,
+    )[0]
+    top_trim_wood, bottom_trim_wood = _find_valid_intervals(
+        values=-hsv[:, :, 2],
+        threshold=-config.background_val_threshold,
+        ratio=config.background_val_hratio,
+    )[0]
+
+    return CoreSegmentResult(
+        bbox=scale_bbox(
+            bbox=(
+                x_min + left_trim_background,
+                y_min + max(top_trim_background, top_trim_wood),
+                x_min + right_trim_background,
+                y_min + min(bottom_trim_background, bottom_trim_wood),
+            ),
+            factor=1 / config.downscale_factor,
+        ),
+        bbox_segments=[
+            scale_bbox(
+                bbox=(
+                    x_min + left_trim,
+                    y_min + max(top_trim_background, top_trim_wood),
+                    x_min + right_trim,
+                    y_min + min(bottom_trim_background, bottom_trim_wood),
+                ),
+                factor=1 / config.downscale_factor,
+            )
+            for left_trim, right_trim in lr_trims
+        ],
+    )
 
 
 def group_images_by_shape(imgs_metadata: list[ImageMetadata]) -> dict[tuple[int, int, int], list[ImageMetadata]]:
@@ -463,7 +525,7 @@ def group_images_by_shape(imgs_metadata: list[ImageMetadata]) -> dict[tuple[int,
 def segment_tray_by_group(
     imgs_metadata: list[ImageMetadata],
     config: SegmentationTrayMultipleConfig,
-) -> dict[tuple[int, int, int], ImageSegmentResult]:
+) -> dict[tuple[int, int, int], TraySegmentResult]:
     """Estimate a shared tray bounding box per group of same-shaped images.
 
     Images are grouped by their on-disk shape (read from metadata, without decoding pixel
@@ -477,13 +539,15 @@ def segment_tray_by_group(
         config (SegmentationTrayMultipleConfig): Tunable segmentation parameters.
 
     Returns:
-        dict[tuple[int, int, int], ImageSegmentResult]: Estimated tray bounding box per image
+        dict[tuple[int, int, int], TraySegmentResult]: Estimated tray bounding box per image
             shape, for groups where estimation succeeded.
     """
     rng = np.random.default_rng(config.seed)
     groups = group_images_by_shape(imgs_metadata)
     results = {}
-    for shape, group in groups.items():
+    for i, (shape, group) in enumerate(groups.items()):
+        logger.info(f"Group {i + 1}/{len(groups)} with size {shape}")
+
         if len(group) < config.n_min_foreground:
             continue
 

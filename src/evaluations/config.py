@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 class CoreCheckConfig:
     """Common tunable parameters shared by all per-core consistency checks (width, length, ...)."""
 
-    relative_tolerance: float = 0.0  # flag if the deviation from the expected/reference value exceeds this
+    relative_tolerance: float  # flag if the deviation from the expected/reference value exceeds this
     min_samples: int = 5  # below this, skip the check (median/ratio unreliable with too few points)
 
 
@@ -15,14 +15,14 @@ class CoreCheckConfig:
 class CoreWidthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core width check evaluation."""
 
-    relative_tolerance: float = 0.25
+    relative_tolerance: float = 0.25  # flag if |width - batch_median| / batch_median exceeds this
 
 
 @dataclass
 class CoreLengthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core length check evaluation."""
 
-    relative_tolerance: float = 0.05
+    relative_tolerance: float = 0.05  # ~5% buffer on the length-to-depth ratio vs. the batch median
     max_depth_range: float = 1.00  # Cap height scale to 1 meter (no image with more than 1m core)
 
 

@@ -84,6 +84,9 @@ class ImageMetadata:
 
         Returns:
             np.ndarray: RGB image array with float values in [0, 1].
+
+        Raises:
+            ValueError: If the image is not a 3-channel RGB array, or has an unsupported dtype.
         """
         return load_image(str(self.image_path), factor)
 
@@ -101,7 +104,23 @@ class SegmentationRecord:
 class ImageSegmentResult:
     """Class to represent the result of detecting a region in an image."""
 
-    bbox: tuple[float, float, float, float]  # (left, upper, right, lower)
+    bbox: tuple[float, float, float, float]  # (left, top, right, bottom)
+
+
+@dataclass
+class CoreSegmentResult(ImageSegmentResult):
+    """Result of detecting core bbox, with core bbox segments for MLflow logging."""
+
+    bbox_segments: list[tuple[float, float, float, float]] | None = None
+
+
+@dataclass
+class TraySegmentResult(ImageSegmentResult):
+    """Result of detecting the shared tray/core bbox, with optional debug images for MLflow logging."""
+
+    img_background: np.ndarray | None = None  # mean image across the batch, only set by segment_tray_multiple
+    img_foreground: np.ndarray | None = None  # per-pixel std map used to estimate the bbox (segment_tray_multiple)
+    img_downscale_factor: float | None = None  # downscale factor the debug images above are stored at
 
 
 @dataclass
@@ -116,7 +135,7 @@ class RulerSegmentResult(ImageSegmentResult):
 class ImageMetadataProcessed(ImageMetadata):
     """Metadata for a processed image with detected regions."""
 
-    core: ImageSegmentResult | None
+    core: CoreSegmentResult | None
     tray: ImageSegmentResult | None
     ruler: RulerSegmentResult | None
 
@@ -124,7 +143,7 @@ class ImageMetadataProcessed(ImageMetadata):
     def from_metadata(
         cls,
         metadata: ImageMetadata,
-        core: ImageSegmentResult | None,
+        core: CoreSegmentResult | None,
         tray: ImageSegmentResult | None,
         ruler: RulerSegmentResult | None,
     ) -> "ImageMetadataProcessed":
@@ -132,7 +151,7 @@ class ImageMetadataProcessed(ImageMetadata):
 
         Args:
             metadata (ImageMetadata): The original image metadata.
-            core (ImageSegmentResult | None): Detected core bounding box, if any.
+            core (CoreSegmentResult | None): Detected core bounding box, if any.
             tray (ImageSegmentResult | None): Detected tray bounding box, if any.
             ruler (RulerSegmentResult | None): Detected ruler bounding box, if any.
 

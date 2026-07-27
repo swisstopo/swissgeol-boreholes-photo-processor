@@ -4,7 +4,7 @@ from pathlib import Path
 
 from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
 from src.evaluations.core import evaluate_detections
-from src.models import ImageMetadataProcessed, ImageSegmentResult, RulerSegmentResult
+from src.models import CoreSegmentResult, ImageMetadataProcessed, RulerSegmentResult
 
 
 def _make_detection(width: float, length: float, depth_start: float, interval: float = 1.0) -> ImageMetadataProcessed:
@@ -16,7 +16,7 @@ def _make_detection(width: float, length: float, depth_start: float, interval: f
         depth_start=depth_start,
         depth_end=depth_end,
         image_path=Path(f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"),
-        core=ImageSegmentResult(bbox=(left, 0.0, left + length, width)),
+        core=CoreSegmentResult(bbox=(left, 0.0, left + length, width)),
         tray=None,
         ruler=RulerSegmentResult(px_per_unit=100, bbox=(0.0, 0.0, 0.0, 0.0), bbox_units=[]),
     )

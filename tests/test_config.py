@@ -4,7 +4,15 @@ import textwrap
 
 import pytest
 
-from src.config import PipelineConfig, SegmentationConfig, SegmentationCoreConfig, StitchingConfig
+from src.config import (
+    PipelineConfig,
+    SegmentationCoreConfig,
+    SegmentationRulerConfig,
+    SegmentationTrayMultipleConfig,
+    SegmentationTraySingleConfig,
+    StitchingConfig,
+)
+from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig
 
 
 def test_from_yaml_empty_file_uses_all_defaults(tmp_path):
@@ -17,25 +25,42 @@ def test_from_yaml_empty_file_uses_all_defaults(tmp_path):
     assert config == PipelineConfig()
 
 
-def test_from_yaml_reads_both_sections(tmp_path):
-    """Keys present in the file override defaults; every other key keeps its dataclass default."""
+def test_from_yaml_reads_all_sections(tmp_path):
+    """Every nested sub-config (segmentation.*, stitching, evaluation.*) applies its own overrides independently."""
     path = tmp_path / "config.yaml"
     path.write_text(
         textwrap.dedent(
             """
             segmentation:
               core:
-                tray_sat_threshold: 0.5
+                wood_sat_threshold: 0.5
+              ruler:
+                text_max_value: 50
+              tray_multiple:
+                n_min_foreground: 50
+              tray_single:
+                min_bbox_height: 200
             stitching:
-              num_cores_per_image: 3
+              max_core_width: 900
+              max_core_height: 5000
+            evaluation:
+              core_width:
+                min_samples: 100
+              core_length:
+                min_samples: 101
             """
         )
     )
 
     config = PipelineConfig.from_yaml(path)
 
-    assert config.segmentation == SegmentationConfig(core=SegmentationCoreConfig(tray_sat_threshold=0.5))
-    assert config.stitching == StitchingConfig(num_cores_per_image=3)
+    assert config.segmentation.core == SegmentationCoreConfig(wood_sat_threshold=0.5)
+    assert config.segmentation.ruler == SegmentationRulerConfig(text_max_value=50)
+    assert config.segmentation.tray_multiple == SegmentationTrayMultipleConfig(n_min_foreground=50)
+    assert config.segmentation.tray_single == SegmentationTraySingleConfig(min_bbox_height=200)
+    assert config.stitching == StitchingConfig(max_core_width=900, max_core_height=5000)
+    assert config.evaluation.core_width == CoreWidthCheckConfig(min_samples=100)
+    assert config.evaluation.core_length == CoreLengthCheckConfig(min_samples=101)
 
 
 def test_from_yaml_unknown_key_raises(tmp_path):
