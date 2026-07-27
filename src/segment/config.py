@@ -13,7 +13,7 @@ class SegmentationCoreConfig:
     background_val_threshold: float = 0.20  # value (HSV) below this = black background (not rock)
     wood_sat_hratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
     wood_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
-    min_segment_height_px: int = 10  # minimum height (px) for a left/right segment to be kept as core
+    min_segment_height_px: int = 100  # minimum height (px) for a left/right segment to be kept as core
 
 
 @dataclass

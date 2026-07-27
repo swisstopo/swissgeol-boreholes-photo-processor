@@ -32,7 +32,7 @@ segmentation:
     background_val_threshold: 0.20 # value (HSV) below this = black background (not rock)
     wood_sat_hratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
     wood_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
-    min_segment_height_px: 10 # minimum height (px) for a left/right segment to be kept as core
+    min_segment_height_px: 100 # minimum height (px) for a left/right segment to be kept as core
 
 stitching:
   font_size: 100 # font size (px) used for borehole ID, depth labels, and ruler tick labels

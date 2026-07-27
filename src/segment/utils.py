@@ -136,7 +136,9 @@ def segment_ruler_by_group(
     """
     groups = group_images_by_shape(imgs_metadata)
     results: dict[tuple[int, int, int], RulerSegmentResult | None] = {}
-    for shape, group in groups.items():
+    for i, (shape, group) in enumerate(groups.items()):
+        logger.info(f"Group {i + 1}/{len(groups)} with size {shape}")
+
         detections: list[RulerSegmentResult] = []
         for img_metadata in group:
             if len(detections) >= config.n_min_ruler:
@@ -455,21 +457,25 @@ def segment_core_from_tray(
         threshold=-config.background_val_threshold,
         ratio=config.background_val_vratio,
     )
-    lr_trims = [lr_trim for lr_trim in lr_trims if config.min_segment_height_px <= lr_trim[1] - lr_trim[0]]
+    lr_trims = [
+        lr_trim
+        for lr_trim in lr_trims
+        if config.downscale_factor * config.min_segment_height_px <= lr_trim[1] - lr_trim[0]
+    ]
 
     if len(lr_trims) == 0:
-        lr_trims = [(0, hsv.shape[1])]
+        lr_trims = [(0, hsv.shape[1] - 1)]
 
-    left_trim_b = np.array(lr_trims)[:, 0].min().item()
-    right_trim_b = np.array(lr_trims)[:, 1].max().item()
+    left_trim_background = np.array(lr_trims)[:, 0].min().item()
+    right_trim_background = np.array(lr_trims)[:, 1].max().item()
 
     # Remove wood / background (top/bottom). If multiple intervals, consider only largest one (first)
-    top_trim_b, bottom_trim_b = _find_valid_intervals(
+    top_trim_background, bottom_trim_background = _find_valid_intervals(
         values=hsv[:, :, 1],
         threshold=config.wood_sat_threshold,
         ratio=config.wood_sat_hratio,
     )[0]
-    top_trim_w, bottom_trim_w = _find_valid_intervals(
+    top_trim_wood, bottom_trim_wood = _find_valid_intervals(
         values=-hsv[:, :, 2],
         threshold=-config.background_val_threshold,
         ratio=config.background_val_hratio,
@@ -478,10 +484,10 @@ def segment_core_from_tray(
     return CoreSegmentResult(
         bbox=scale_bbox(
             bbox=(
-                x_min + left_trim_b,
-                y_min + max(top_trim_b, top_trim_w),
-                x_min + right_trim_b,
-                y_min + min(bottom_trim_b, bottom_trim_w),
+                x_min + left_trim_background,
+                y_min + max(top_trim_background, top_trim_wood),
+                x_min + right_trim_background,
+                y_min + min(bottom_trim_background, bottom_trim_wood),
             ),
             factor=1 / config.downscale_factor,
         ),
@@ -489,9 +495,9 @@ def segment_core_from_tray(
             scale_bbox(
                 bbox=(
                     x_min + left_trim,
-                    y_min + max(top_trim_b, top_trim_w),
+                    y_min + max(top_trim_background, top_trim_wood),
                     x_min + right_trim,
-                    y_min + min(bottom_trim_b, bottom_trim_w),
+                    y_min + min(bottom_trim_background, bottom_trim_wood),
                 ),
                 factor=1 / config.downscale_factor,
             )
@@ -519,7 +525,7 @@ def group_images_by_shape(imgs_metadata: list[ImageMetadata]) -> dict[tuple[int,
 def segment_tray_by_group(
     imgs_metadata: list[ImageMetadata],
     config: SegmentationTrayMultipleConfig,
-) -> dict[tuple[int, int, int], ImageSegmentResult]:
+) -> dict[tuple[int, int, int], TraySegmentResult]:
     """Estimate a shared tray bounding box per group of same-shaped images.
 
     Images are grouped by their on-disk shape (read from metadata, without decoding pixel
@@ -533,13 +539,15 @@ def segment_tray_by_group(
         config (SegmentationTrayMultipleConfig): Tunable segmentation parameters.
 
     Returns:
-        dict[tuple[int, int, int], ImageSegmentResult]: Estimated tray bounding box per image
+        dict[tuple[int, int, int], TraySegmentResult]: Estimated tray bounding box per image
             shape, for groups where estimation succeeded.
     """
     rng = np.random.default_rng(config.seed)
     groups = group_images_by_shape(imgs_metadata)
     results = {}
-    for shape, group in groups.items():
+    for i, (shape, group) in enumerate(groups.items()):
+        logger.info(f"Group {i + 1}/{len(groups)} with size {shape}")
+
         if len(group) < config.n_min_foreground:
             continue
 
