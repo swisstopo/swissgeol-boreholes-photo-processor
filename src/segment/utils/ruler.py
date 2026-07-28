@@ -128,8 +128,8 @@ class ProcessRulerGroupByShape(ProcessGroupByShape[RulerSegmentResult, RulerSegm
         """Pick the median-scale ruler detection from the group.
 
         Args:
-            processed_items (list[RulerSegmentResult]): Per-image ruler detections for one
-                shape group.
+            processed_items (list[RulerSegmentResult]): Per-image ruler detections for one shape
+                group. OCR hit-rate is low so processed_items might contain fewer samples than expected.
 
         Returns:
             RulerSegmentResult | None: The detection whose `px_per_unit` is the median across

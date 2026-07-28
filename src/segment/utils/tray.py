@@ -230,7 +230,7 @@ class ProcessTrayGroupByShape(ProcessGroupByShape[TraySegmentResult, np.ndarray]
         """
         unique_shapes = set([item.shape for item in processed_items])
 
-        # At least n_min images for  and consistent shapes
+        # At least n_min_foreground images, and all of consistent shape
         if len(processed_items) < self.config.n_min_foreground or len(unique_shapes) != 1:
             return None
 

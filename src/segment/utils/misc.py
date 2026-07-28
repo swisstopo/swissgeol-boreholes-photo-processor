@@ -54,7 +54,7 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
                 for it to be processed; smaller groups are skipped. Also the number of images
                 sampled per group. Defaults to 10.
             n_workers (int, optional): Number of worker processes used to run `_preprocess` in
-                parallel. Defaults to 1.
+                parallel. Defaults to 1
             seed (int, optional): Seed for the random sampling of images within each group.
                 Defaults to 0.
         """
@@ -89,17 +89,17 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         """
         ...
 
-    def _run_group(self, imgs_metadata: list[ImageMetadata]) -> K | None:
+    def _run_group(self, executor: ProcessPoolExecutor, imgs_metadata: list[ImageMetadata]) -> K | None:
         """Preprocess every image in a shape group (in parallel) and aggregate the results.
 
         Args:
+            executor (ProcessPoolExecutor): Pool shared across all shape groups in `run`.
             imgs_metadata (list[ImageMetadata]): Images to preprocess and aggregate.
 
         Returns:
             K | None: The aggregated result for the group, or None.
         """
-        with ProcessPoolExecutor(self.n_workers) as executor:
-            processed_items = list(executor.map(self._preprocess, imgs_metadata))
+        processed_items = list(executor.map(self._preprocess, imgs_metadata))
 
         # Remove unwanted detections
         processed_items = [item for item in processed_items if item is not None]
@@ -120,14 +120,17 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         groups = group_images_by_shape(imgs_metadata)
         results = {}
 
-        # For each group get samples
-        for shape, group in tqdm(groups.items(), desc="Computing groups ..."):
-            if len(group) < self.min_group_size:
-                continue
+        # Reuse a single pool across all shape groups instead of paying its startup cost per group
+        with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
+            for shape, group in tqdm(groups.items(), desc="Computing groups ..."):
+                if len(group) < self.min_group_size:
+                    continue
 
-            # Subset of images is enough to calculate the foreground mask
-            sample_ids = rng.choice(len(group), size=self.min_group_size, replace=False)
-            if result := self._run_group([group[i] for i in sample_ids]):
-                results[shape] = result
+                # Subset of images is enough to calculate the foreground mask
+                sample_ids = rng.choice(len(group), size=self.min_group_size, replace=False)
+                result = self._run_group(executor, [group[i] for i in sample_ids])
+
+                if result is not None:
+                    results[shape] = result
 
         return results

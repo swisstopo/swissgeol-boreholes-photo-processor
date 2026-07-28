@@ -159,7 +159,7 @@ def test_segment_tray_trim_threshold_is_configurable(make_metadata):
     assert detections[0].tray.bbox == tray_box
 
 
-def test_segment_core_from_tray_trims_black_background_left_right(make_metadata):
+def test_segment_core_trims_black_background_left_right(make_metadata):
     """Black background left/right of a full-height, unsaturated core is trimmed via the value channel alone."""
     size = (400, 100)
     core_box = (100, 0, 300, 99)
@@ -333,7 +333,7 @@ def test_group_images_by_shape_groups_by_dimensions(make_metadata):
     assert grouped[large[0].shape] == large
 
 
-def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
+def test_process_tray_group_by_shape_estimates_independently_per_shape(make_metadata):
     """Each image-shape group gets its own independently estimated shared-foreground bbox."""
     fills = [50, 90, 130, 170, 210]
 
@@ -366,7 +366,7 @@ def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
         assert int(y_min) > core_box[1] - 1  # bottom half is moving, not upper
 
 
-def test_segment_ruler_by_group_skips_shape_group_below_n_min(make_metadata):
+def test_process_ruler_group_by_shape_skips_shape_group_below_n_min(make_metadata):
     """A shape group smaller than n_min_ruler is skipped, not OCR'd and aggregated."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
 
@@ -377,7 +377,7 @@ def test_segment_ruler_by_group_skips_shape_group_below_n_min(make_metadata):
     assert results == {}
 
 
-def test_segment_ruler_by_group_picks_median_scale_detection():
+def test_process_ruler_group_by_shape_picks_median_scale_detection():
     """Among several detections, the one with the median px_per_unit is kept, not the first or last."""
     detections = [
         RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=9.0, bbox_units=[]),
@@ -391,7 +391,7 @@ def test_segment_ruler_by_group_picks_median_scale_detection():
     assert result.px_per_unit == 7.0  # median of 9.0, 5.0, 7.0
 
 
-def test_segment_ruler_by_group_skips_shape_group_when_no_image_detects_a_ruler(make_metadata):
+def test_process_ruler_group_by_shape_skips_shape_group_when_no_image_detects_a_ruler(make_metadata):
     """A shape group where no image yields a ruler detection is dropped from the results, like tray."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(2)]
 

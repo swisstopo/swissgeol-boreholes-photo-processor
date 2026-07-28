@@ -164,6 +164,9 @@ The pipeline groups images by their on-disk shape (height, width, channels) and,
 group with at least `10` images, derives a shared bounding box by comparing images from the
 (assumed static) camera position and locating the region that changes between shots (the
 core/tray). Groups with fewer than `10` images fall back to per-image thresholding instead.
+Per-image preprocessing for these shape groups (tray detection and ruler OCR) runs in parallel
+across `segmentation.tray_group.n_workers` / `segmentation.ruler.n_workers` worker processes,
+with `seed` controlling which images are sampled from each group.
 
 To use a different config file, pass `--config <path>` (see below).
 

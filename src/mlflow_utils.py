@@ -103,26 +103,40 @@ def log_segmentation_summary_mlflow(
 ) -> None:
     """Log a summary of the segmentation approach used per image.
 
+    Computes and logs, as MLflow metrics: the fraction of images that fell back to per-image
+    (single) tray/ruler segmentation (p_tray_single, p_ruler_single), and the number of
+    distinct shape groups that used the shared tray/ruler approach (n_tray_groups,
+    n_ruler_groups). Also dumps the full per-image results as a JSON artifact. Images with
+    no `records` (e.g. never processed) are excluded from the metric computation.
+
     Args:
         images (list[ImageMetadataProcessed]): Per-image processed results.
         filename (str): The filename for the JSON artifact.
     """
     records = [image.records for image in images if image.records]
-    n_tray_single = [record.tray_approach == "single" for record in records]
-    n_ruler_single = [record.ruler_approach == "single" for record in records]
+    tray_single_flags = [record.tray_approach == "single" for record in records]
+    ruler_single_flags = [record.ruler_approach == "single" for record in records]
 
-    n_tray_groups = len(set(record.ruler_group or 0 for record in records)) - 1
+    n_tray_groups = len(set(record.tray_group or 0 for record in records)) - 1
     n_ruler_groups = len(set(record.ruler_group or 0 for record in records)) - 1
 
     mlflow.log_metrics(
         {
-            "p_tray_single": sum(n_tray_single) / (len(n_tray_single) + 1e-16),
-            "p_ruler_single": sum(n_ruler_single) / (len(n_ruler_single) + 1e-16),
+            "p_tray_single": sum(tray_single_flags) / (len(tray_single_flags) + 1e-16),
+            "p_ruler_single": sum(ruler_single_flags) / (len(ruler_single_flags) + 1e-16),
             "n_tray_groups": n_tray_groups,
             "n_ruler_groups": n_ruler_groups,
         }
     )
-    mlflow.log_dict({"results": [asdict(image) for image in images]}, filename)
+
+    mlflow.log_dict(
+        {
+            "results": [
+                {"filename": image.image_path.name, **asdict(image.records)} for image in images if image.records
+            ]
+        },
+        filename,
+    )
 
 
 def log_artifact_with_mlflow(

@@ -57,7 +57,7 @@ def segment(
                 subfolder="debug",
             )
 
-    # Worker for function
+    # TODO: Worker for function
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
             shape = img_metadata.shape

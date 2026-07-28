@@ -26,7 +26,7 @@ class SegmentationRulerConfig:
     r_error_outliers: float = 0.1  # allow 10% error for outliers detection
     n_min_ruler: int = 10  # images to OCR per shape group before taking the median-scale detection
     seed: int = 0  # seed for randomly sampling images from a group
-    n_workers: int = 4  # number of worker processes used to segment images in parallel.
+    n_workers: int = 4  # number of worker processes used to segment images in parallel
 
 
 @dataclass
@@ -37,7 +37,7 @@ class SegmentationTrayGroupConfig:
     foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
     n_min_foreground: int = 10  # minimum number images required to estimate a foreground
     seed: int = 0  # seed for randomly sampling images from a group
-    n_workers: int = 4  # number of worker processes used to segment images in parallel.
+    n_workers: int = 4  # number of worker processes used to segment images in parallel
 
 
 @dataclass
