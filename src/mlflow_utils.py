@@ -117,8 +117,8 @@ def log_segmentation_summary_mlflow(
     tray_single_flags = [record.tray_approach == "single" for record in records]
     ruler_single_flags = [record.ruler_approach == "single" for record in records]
 
-    n_tray_groups = len(set(record.tray_group or 0 for record in records)) - 1
-    n_ruler_groups = len(set(record.ruler_group or 0 for record in records)) - 1
+    n_tray_groups = len(set(record.tray_group for record in records if record.tray_group is not None))
+    n_ruler_groups = len(set(record.ruler_group for record in records if record.ruler_group is not None))
 
     mlflow.log_metrics(
         {

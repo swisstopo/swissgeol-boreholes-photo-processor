@@ -171,7 +171,7 @@ def test_segment_core_trims_black_background_left_right(make_metadata):
     assert result.bbox == core_box
 
 
-def test_segment_core_from_tray_splits_fragmented_core_into_segments(make_metadata):
+def test_segment_core_splits_fragmented_core_into_segments(make_metadata):
     """A core split in two by a black gap yields two bbox_segments and a bbox spanning their union."""
     size = (400, 100)
     left_box = (50, 0, 150, 99)
@@ -195,7 +195,7 @@ def test_segment_core_from_tray_splits_fragmented_core_into_segments(make_metada
     assert sorted(result.bbox_segments) == sorted([left_box, right_box])
 
 
-def test_segment_core_from_tray_drops_thin_segments(make_metadata):
+def test_segment_core_drops_thin_segments(make_metadata):
     """A segment thinner than min_segment_height_px is dropped and doesn't widen the core bbox."""
     size = (400, 100)
     core_box = (100, 0, 300, 99)

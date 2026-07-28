@@ -46,8 +46,8 @@ def segment(
     tray_by_shape = ProcessTrayGroupByShape(config.tray_group).run(imgs_metadata)
     ruler_by_shape = ProcessRulerGroupByShape(config.ruler).run(imgs_metadata)
 
-    tray_group_by_shape = {shape: idx + 1 for idx, shape in enumerate(tray_by_shape)}
-    ruler_group_by_shape = {shape: idx + 1 for idx, shape in enumerate(ruler_by_shape)}
+    tray_group_by_shape = {shape: idx for idx, shape in enumerate(tray_by_shape)}
+    ruler_group_by_shape = {shape: idx for idx, shape in enumerate(ruler_by_shape)}
 
     if with_mlflow:
         for (tray_h, tray_w, _), tray_result in tray_by_shape.items():
@@ -57,7 +57,7 @@ def segment(
                 subfolder="debug",
             )
 
-    # TODO: Worker for function
+    # TODO(#37): parallelize this per-image loop (tray fallback + ruler OCR + core trim)
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
             shape = img_metadata.shape
