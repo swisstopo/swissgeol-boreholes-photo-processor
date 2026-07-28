@@ -2,11 +2,12 @@
 # All keys are optional; omitted keys fall back to the defaults in src/config.py.
 
 segmentation:
-  tray_multiple:
+  tray_group:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     foreground_blur_sigma: 5.0 # gaussian blur applied to each image for foreground detection.
     n_min_foreground: 10 # minimum number images required to estimate a foreground
     seed: 0 # seed for randomly sampling images from a group
+    n_workers: 8 # number of worker processes used to segment images in parallel.
 
   tray_single:
     closing_disk: 20 # radius for binary_closing (fills gaps)
@@ -24,6 +25,8 @@ segmentation:
     text_max_value: 99 # maximal visible number on ruler
     r_error_outliers: 0.1 # allow 10% error for outliers detection
     n_min_ruler: 10 # images to OCR per shape group before taking the median-scale detection
+    seed: 0 # seed for randomly sampling images from a group
+    n_workers: 4 # number of worker processes used to segment images in parallel.
 
   core:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)

@@ -95,9 +95,10 @@ class ImageMetadata:
 class SegmentationRecord:
     """Per-image record of which segmentation approach was used, for the mlflow summary log."""
 
-    filename: str
-    approach: Literal["foreground", "fallback"]
-    foreground_group: int | None
+    tray_approach: Literal["group", "single"]
+    tray_group: int | None
+    ruler_approach: Literal["group", "single"]
+    ruler_group: int | None
 
 
 @dataclass
@@ -118,8 +119,8 @@ class CoreSegmentResult(ImageSegmentResult):
 class TraySegmentResult(ImageSegmentResult):
     """Result of detecting the shared tray/core bbox, with optional debug images for MLflow logging."""
 
-    img_background: np.ndarray | None = None  # mean image across the batch, only set by segment_tray_multiple
-    img_foreground: np.ndarray | None = None  # per-pixel std map used to estimate the bbox (segment_tray_multiple)
+    img_background: np.ndarray | None = None  # mean image across the batch
+    img_foreground: np.ndarray | None = None  # per-pixel std map used to estimate the bbox
     img_downscale_factor: float | None = None  # downscale factor the debug images above are stored at
 
 
@@ -135,17 +136,19 @@ class RulerSegmentResult(ImageSegmentResult):
 class ImageMetadataProcessed(ImageMetadata):
     """Metadata for a processed image with detected regions."""
 
-    core: CoreSegmentResult | None
-    tray: ImageSegmentResult | None
-    ruler: RulerSegmentResult | None
+    core: CoreSegmentResult | None = None
+    tray: ImageSegmentResult | None = None
+    ruler: RulerSegmentResult | None = None
+    records: SegmentationRecord | None = None
 
     @classmethod
     def from_metadata(
         cls,
         metadata: ImageMetadata,
-        core: CoreSegmentResult | None,
-        tray: ImageSegmentResult | None,
-        ruler: RulerSegmentResult | None,
+        core: CoreSegmentResult | None = None,
+        tray: ImageSegmentResult | None = None,
+        ruler: RulerSegmentResult | None = None,
+        records: SegmentationRecord | None = None,
     ) -> "ImageMetadataProcessed":
         """Construct an ImageMetadataProcessed from an existing ImageMetadata.
 
@@ -154,6 +157,8 @@ class ImageMetadataProcessed(ImageMetadata):
             core (CoreSegmentResult | None): Detected core bounding box, if any.
             tray (ImageSegmentResult | None): Detected tray bounding box, if any.
             ruler (RulerSegmentResult | None): Detected ruler bounding box, if any.
+            records (SegmentationRecord | None): Record of which segmentation approach (group vs.
+                single image) was used for the tray and ruler detections, for the mlflow summary log.
 
         Returns:
             ImageMetadataProcessed: A new instance containing the original metadata and the processing result.
@@ -166,6 +171,7 @@ class ImageMetadataProcessed(ImageMetadata):
             core=core,
             tray=tray,
             ruler=ruler,
+            records=records,
         )
 
     def load_core(self) -> Image.Image:

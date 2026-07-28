@@ -4,21 +4,16 @@ import logging
 
 from tqdm import tqdm
 
-from src.config import SegmentationConfig
+from src.config import SegmentationConfig, SegmentationError
 from src.mlflow_utils import (
     log_image_metadata_processed_mlflow,
     log_segmentation_summary_mlflow,
     log_tray_segment_mlflow,
 )
 from src.models import ImageMetadata, ImageMetadataProcessed, SegmentationRecord
-from src.segment.utils import (
-    SegmentationError,
-    segment_core_from_tray,
-    segment_ruler,
-    segment_ruler_by_group,
-    segment_tray_by_group,
-    segment_tray_single,
-)
+from src.segment.utils.core import segment_core
+from src.segment.utils.ruler import ProcessRulerGroupByShape, segment_ruler
+from src.segment.utils.tray import ProcessTrayGroupByShape, segment_tray
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +41,13 @@ def segment(
     """
     config = config or SegmentationConfig()
     detections: list[ImageMetadataProcessed] = []
-    records: list[SegmentationRecord] = []
 
     # Step 1: Try to estimate image foreground (moving part) and ruler, once per shape group
-    tray_by_shape = segment_tray_by_group(imgs_metadata, config.tray_multiple)
-    ruler_by_shape = segment_ruler_by_group(imgs_metadata, config.ruler)
-    foreground_group_by_shape = {shape: idx for idx, shape in enumerate(tray_by_shape)}
+    tray_by_shape = ProcessTrayGroupByShape(config.tray_group).run(imgs_metadata)
+    ruler_by_shape = ProcessRulerGroupByShape(config.ruler).run(imgs_metadata)
+
+    tray_group_by_shape = {shape: idx + 1 for idx, shape in enumerate(tray_by_shape)}
+    ruler_group_by_shape = {shape: idx + 1 for idx, shape in enumerate(ruler_by_shape)}
 
     if with_mlflow:
         for (tray_h, tray_w, _), tray_result in tray_by_shape.items():
@@ -61,6 +57,7 @@ def segment(
                 subfolder="debug",
             )
 
+    # Worker for function
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting images"):
         try:
             shape = img_metadata.shape
@@ -71,28 +68,26 @@ def segment(
 
             # Step 3: Use the group's shared tray if available, otherwise fallback to single
             shared_tray = tray_by_shape.get(shape)
-            detection_tray = shared_tray or segment_tray_single(img_metadata, config.tray_single)
+            detection_tray = shared_tray or segment_tray(img_metadata, config.tray_single)
 
             # Step 4: Trim wooden tray (top/bottom) and black background (all sides) around the core
-            detection_core = segment_core_from_tray(img_metadata, detection_tray, config=config.core)
+            detection_core = segment_core(img_metadata, detection_tray, config=config.core)
 
+            # Step 5: Save detections and records
             detection = ImageMetadataProcessed.from_metadata(
                 metadata=img_metadata,
                 core=detection_core,
                 tray=detection_tray,
                 ruler=detection_ruler,
+                records=SegmentationRecord(
+                    tray_approach="single" if shared_tray is None else "group",
+                    tray_group=tray_group_by_shape.get(shape),
+                    ruler_approach="single" if shared_ruler is None else "group",
+                    ruler_group=ruler_group_by_shape.get(shape),
+                ),
             )
 
-            # Step 5: Save detections and records
-            foreground_group = foreground_group_by_shape.get(shape)
             detections.append(detection)
-            records.append(
-                SegmentationRecord(
-                    filename=img_metadata.image_path.name,
-                    approach="foreground" if foreground_group is not None else "fallback",
-                    foreground_group=foreground_group,
-                )
-            )
 
             if with_mlflow:
                 log_image_metadata_processed_mlflow(
@@ -104,10 +99,7 @@ def segment(
         except SegmentationError as e:
             logger.warning("%s. Skipping.", e)
 
-    fallback_count = sum([record.approach == "fallback" for record in records])
-    logger.info("Segmented %d/%d image(s) using the fallback (per-image) approach.", fallback_count, len(records))
-
     if with_mlflow:
-        log_segmentation_summary_mlflow(num_foreground_groups=len(tray_by_shape), images=records)
+        log_segmentation_summary_mlflow(detections)
 
     return detections
