@@ -96,9 +96,9 @@ class SegmentationRecord:
     """Per-image record of which segmentation approach was used, for the mlflow summary log."""
 
     tray_approach: Literal["group", "single"]
-    tray_group: int | None
+    tray_group: str | None
     ruler_approach: Literal["group", "single"]
-    ruler_group: int | None
+    ruler_group: str | None
 
 
 @dataclass

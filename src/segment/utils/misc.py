@@ -44,8 +44,8 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
     def __init__(
         self,
         min_group_size: int = 10,
-        n_workers: int = 1,
         seed: int = 0,
+        n_workers: int = 1,
     ):
         """Configure the sampling and parallelism used when processing shape groups.
 
@@ -53,10 +53,10 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
             min_group_size (int, optional): Minimum number of images required in a shape group
                 for it to be processed; smaller groups are skipped. Also the number of images
                 sampled per group. Defaults to 10.
-            n_workers (int, optional): Number of worker processes used to run `_preprocess` in
-                parallel. Defaults to 1
             seed (int, optional): Seed for the random sampling of images within each group.
                 Defaults to 0.
+            n_workers (int, optional): Number of worker processes used to run `_preprocess` in
+                parallel. Defaults to 1
         """
         super().__init__()
 

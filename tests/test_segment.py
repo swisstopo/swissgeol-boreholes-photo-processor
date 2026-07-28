@@ -370,9 +370,7 @@ def test_process_ruler_group_by_shape_skips_shape_group_below_n_min(make_metadat
     """A shape group smaller than n_min_ruler is skipped, not OCR'd and aggregated."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
 
-    results = ProcessRulerGroupByShape(
-        SegmentationRulerConfig(downscale_factor=1, n_min_ruler=5, n_workers=1),
-    ).run(imgs)
+    results = ProcessRulerGroupByShape(config=SegmentationRulerConfig(downscale_factor=1, n_min_ruler=5)).run(imgs)
 
     assert results == {}
 

@@ -37,7 +37,7 @@ def log_tray_segment_mlflow(
 
     if result.img_background is not None:
         img_bg_pil = Image.fromarray((result.img_background * 255).astype(np.uint8))
-        log_artifact_with_mlflow(img_bg_pil, filename + "-background", suffix, subfolder)
+        log_artifact_with_mlflow(img_bg_pil, filename + "_background", suffix, subfolder)
 
     if result.img_foreground is not None and result.img_downscale_factor is not None:
         img_fg_pil = Image.fromarray(
@@ -45,7 +45,7 @@ def log_tray_segment_mlflow(
         ).convert("RGB")
         draw = ImageDraw.Draw(img_fg_pil)
         draw.rectangle(scale_bbox(result.bbox, result.img_downscale_factor), outline="red", width=5)
-        log_artifact_with_mlflow(img_fg_pil, filename + "-foreground", suffix, subfolder)
+        log_artifact_with_mlflow(img_fg_pil, filename + "_foreground", suffix, subfolder)
 
 
 def log_image_metadata_processed_mlflow(
@@ -99,7 +99,7 @@ def log_image_metadata_processed_mlflow(
 
 def log_segmentation_summary_mlflow(
     images: list[ImageMetadataProcessed],
-    filename: str = "segmentation_summary.json",
+    filename: str,
 ) -> None:
     """Log a summary of the segmentation approach used per image.
 
@@ -198,4 +198,4 @@ def log_evaluation_results_with_mlflow(
         }
         for r in results
     }
-    mlflow.log_dict(predictions, f"{folder_name}.json")
+    mlflow.log_dict(predictions, f"{folder_name}_evaluation.json")

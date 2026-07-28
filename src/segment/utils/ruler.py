@@ -104,13 +104,15 @@ class ProcessRulerGroupByShape(ProcessGroupByShape[RulerSegmentResult, RulerSegm
     def __init__(
         self,
         config: SegmentationRulerConfig,
+        n_workers: int = 1,
     ):
         """Configure the ruler group segmentation.
 
         Args:
             config (SegmentationRulerConfig): Tunable segmentation parameters.
+            n_workers (int): TODO
         """
-        super().__init__(min_group_size=config.n_min_ruler, n_workers=config.n_workers, seed=config.seed)
+        super().__init__(min_group_size=config.n_min_ruler, seed=config.seed, n_workers=n_workers)
         self.config = config
 
     def _preprocess(self, img_metadata: ImageMetadata) -> RulerSegmentResult | None:

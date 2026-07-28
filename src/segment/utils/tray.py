@@ -190,13 +190,15 @@ class ProcessTrayGroupByShape(ProcessGroupByShape[TraySegmentResult, np.ndarray]
     def __init__(
         self,
         config: SegmentationTrayGroupConfig,
+        n_workers: int = 1,
     ):
         """Configure the tray group segmentation.
 
         Args:
+            n_workers (int): TODO
             config (SegmentationTrayGroupConfig): Tunable segmentation parameters.
         """
-        super().__init__(min_group_size=config.n_min_foreground, n_workers=config.n_workers, seed=config.seed)
+        super().__init__(min_group_size=config.n_min_foreground, seed=config.seed, n_workers=n_workers)
         self.config = config
 
     def _preprocess(self, img_metadata: ImageMetadata) -> np.ndarray | None:
