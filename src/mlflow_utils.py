@@ -1,5 +1,6 @@
 """Utility functions for MLflow."""
 
+import csv
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
@@ -94,13 +95,35 @@ def log_artifact_with_mlflow(
         )
 
 
+def _summarize_checks(results: list[CoreCheckResult]) -> dict[str, tuple[float, float] | None]:
+    """Compute each check's pass-rate and mean relative error across a folder's results.
+
+    Args:
+        results (list[CoreCheckResult]): Per-file merged core check results for one folder.
+
+    Returns:
+        dict[str, tuple[float, float] | None]: Maps "width"/"length" to (pass_rate, mean_relative_error),
+            or None when the check was skipped for every file in the folder.
+    """
+    checks_by_name = {
+        "width": [r.width for r in results if r.width is not None],
+        "length": [r.length for r in results if r.length is not None],
+    }
+    return {
+        name: (sum(c.passed for c in checks) / len(checks), sum(c.relative_error for c in checks) / len(checks))
+        if checks
+        else None
+        for name, checks in checks_by_name.items()
+    }
+
+
 def log_evaluation_results_with_mlflow(
     results: list[CoreCheckResult],
     folder_name: str,
 ) -> None:
     """Log evaluation results to MLflow.
 
-    Logs the width and length pass-rate and mean squared error as separate metrics, and
+    Logs the width and length pass-rate and mean relative error as separate metrics, and
     dumps every file's full width/length results as a single JSON artifact, keyed by filename --
     useful for inspecting a specific core's width and length results side by side, not just the
     ones that got flagged. The artifact is named after the folder so batch runs don't clobber
@@ -114,14 +137,11 @@ def log_evaluation_results_with_mlflow(
     if not results:
         return
 
-    checks_by_name = {
-        "width": [r.width for r in results if r.width is not None],
-        "length": [r.length for r in results if r.length is not None],
-    }
-    for name, checks in checks_by_name.items():
-        if checks:
-            mlflow.log_metric(f"{name}_acc", sum(c.passed for c in checks) / len(checks))
-            mlflow.log_metric(f"{name}_mre", sum(c.relative_error for c in checks) / len(checks))
+    for name, summary in _summarize_checks(results).items():
+        if summary is not None:
+            acc, mre = summary
+            mlflow.log_metric(f"{name}_acc", acc)
+            mlflow.log_metric(f"{name}_mre", mre)
 
     predictions = {
         r.filename: {
@@ -131,3 +151,40 @@ def log_evaluation_results_with_mlflow(
         for r in results
     }
     mlflow.log_dict(predictions, f"{folder_name}.json")
+
+
+def write_evaluation_summary_csv(
+    results: list[CoreCheckResult],
+    folder_name: str,
+    count: int,
+    csv_path: Path,
+) -> None:
+    """Append one folder's width/length pass-rate and mean relative error to a summary CSV.
+
+    Writes the header row if the file doesn't exist yet, otherwise appends. Used to track
+    evaluation quality across all folders of a batch run in a single, easy-to-skim file.
+
+    Args:
+        results (list[CoreCheckResult]): Per-file merged core check results for one folder.
+        folder_name (str): Name of the input folder these results belong to.
+        count (int): Number of images processed in this folder.
+        csv_path (Path): Path to the summary CSV file to append to.
+    """
+    if not results:
+        return
+
+    summaries = _summarize_checks(results)
+    fieldnames = ["folder", "count", "width_acc", "width_mre", "length_acc", "length_mre"]
+    row: dict[str, str | int | float] = {"folder": folder_name, "count": count}
+    for name in ("width", "length"):
+        summary = summaries[name]
+        row[f"{name}_acc"] = summary[0] if summary is not None else ""
+        row[f"{name}_mre"] = summary[1] if summary is not None else ""
+
+    write_header = not csv_path.exists()
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_path.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)

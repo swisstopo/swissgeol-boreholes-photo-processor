@@ -6,13 +6,15 @@ import logging
 from pathlib import Path
 
 import mlflow
+import tifffile
 from tqdm import tqdm
 
-from src.config import PipelineConfig
+from src.config import PipelineConfig, SegmentationError
 from src.evaluations.core import evaluate_detections
 from src.mlflow_utils import (
     log_artifact_with_mlflow,
     log_evaluation_results_with_mlflow,
+    write_evaluation_summary_csv,
 )
 from src.models import ImageMetadata, ImageMetadataProcessed
 from src.segment.segment import segment
@@ -41,6 +43,7 @@ def run(
     config: PipelineConfig,
     with_mlflow: bool = False,
     nested: bool = False,
+    summary_csv_path: Path | None = None,
 ) -> None:
     """Process borehole photos from input to output directory.
 
@@ -50,15 +53,21 @@ def run(
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
         nested (bool): Whether to start a nested MLflow run under an existing active run.
+        summary_csv_path (Path | None): If set, append this folder's evaluation summary
+            (pass-rate and mean relative error per check) as a row to this CSV file.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory and parse filename metadata
         imgs_metadata: list[ImageMetadata] = []
         for f in input_dir.iterdir():
+            if f.name.startswith("._"):
+                continue  # macOS AppleDouble sidecar file (resource fork), not real image data
             if f.suffix.lower() == ".tif":
                 try:
-                    imgs_metadata.append(ImageMetadata.from_path(f))
-                except ValueError as e:
+                    metadata = ImageMetadata.from_path(f)
+                    _ = metadata.shape  # validate the file is readable before segmentation runs
+                    imgs_metadata.append(metadata)
+                except (ValueError, SegmentationError, tifffile.TiffFileError) as e:
                     logging.warning("Skipping %s: %s", f.name, e)
         imgs_metadata.sort(key=lambda m: m.depth_start)
         logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
@@ -72,6 +81,10 @@ def run(
         if with_mlflow:
             results = evaluate_detections(detections, config.evaluation)
             log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
+            if summary_csv_path is not None:
+                write_evaluation_summary_csv(
+                    results, folder_name=input_dir.name, count=len(detections), csv_path=summary_csv_path
+                )
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -108,6 +121,7 @@ def batch_run(
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
         subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
         logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
+        summary_csv_path = output_dir / "summary.csv" if with_mlflow else None
         for subdir in tqdm(subdirs, desc="Processing folders"):
             run(
                 input_dir=subdir,
@@ -115,12 +129,12 @@ def batch_run(
                 config=config,
                 with_mlflow=with_mlflow,
                 nested=True,
+                summary_csv_path=summary_csv_path,
             )
 
 
 def main() -> None:
     """Parse CLI arguments and run the pipeline."""
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description="Process borehole photos from input to output directory.")
     parser.add_argument("--input", type=Path, required=True, help="Path to the input directory.")
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
@@ -139,6 +153,13 @@ def main() -> None:
         parser.error(f"Input path is not a directory: {args.input}")
     if not args.config.exists():
         parser.error(f"Config file does not exist: {args.config}")
+
+    args.output.mkdir(parents=True, exist_ok=True)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
+    file_handler = logging.FileHandler(args.output / "run.log")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
 
     config = PipelineConfig.from_yaml(args.config)
 
