@@ -46,7 +46,7 @@ class PipelineConfig:
         raw_evaluation = dict(raw.pop("evaluation", None) or {})
         return cls(
             segmentation=SegmentationConfig(
-                n_workers=raw_segmentation.pop("n_workers", None) or 4,
+                n_workers=raw_segmentation.pop("n_workers", 4),
                 core=SegmentationCoreConfig(**(raw_segmentation.pop("core", None) or {})),
                 ruler=SegmentationRulerConfig(**(raw_segmentation.pop("ruler", None) or {})),
                 tray_group=SegmentationTrayGroupConfig(**(raw_segmentation.pop("tray_group", None) or {})),

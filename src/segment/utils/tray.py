@@ -200,8 +200,8 @@ class ProcessTrayGroupByShape(ProcessGroupByShape[TraySegmentResult, np.ndarray]
         """Configure the tray group segmentation.
 
         Args:
-            n_workers (int): TODO
             config (SegmentationTrayGroupConfig): Tunable segmentation parameters.
+            n_workers (int): Number of worker processes used to run `_preprocess` in parallel.
         """
         super().__init__(min_group_size=config.n_min_foreground, seed=config.seed, n_workers=n_workers)
         self.config = config

@@ -115,9 +115,9 @@ def log_segmentation_results_with_mlflow(
         {
             "time": {
                 "overall": time,
-                "tray": ImageSegmentResult.apporach_to_json([detection.tray for detection in detections]),
-                "ruler": ImageSegmentResult.apporach_to_json([detection.ruler for detection in detections]),
-                "core": ImageSegmentResult.apporach_to_json([detection.core for detection in detections]),
+                "tray": ImageSegmentResult.approach_to_json([detection.tray for detection in detections]),
+                "ruler": ImageSegmentResult.approach_to_json([detection.ruler for detection in detections]),
+                "core": ImageSegmentResult.approach_to_json([detection.core for detection in detections]),
             },
             "detections": [detection.to_dict() for detection in detections],
         },

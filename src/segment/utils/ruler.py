@@ -114,7 +114,7 @@ class ProcessRulerGroupByShape(ProcessGroupByShape[RulerSegmentResult, RulerSegm
 
         Args:
             config (SegmentationRulerConfig): Tunable segmentation parameters.
-            n_workers (int): TODO
+            n_workers (int): Number of worker processes used to run `_preprocess` in parallel.
         """
         super().__init__(min_group_size=config.n_min_ruler, seed=config.seed, n_workers=n_workers)
         self.config = config

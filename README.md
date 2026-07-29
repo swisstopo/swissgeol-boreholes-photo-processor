@@ -165,7 +165,9 @@ group with at least `10` images, derives a shared bounding box by comparing imag
 (assumed static) camera position and locating the region that changes between shots (the
 core/tray). Groups with fewer than `10` images fall back to per-image thresholding instead.
 Per-image preprocessing for these shape groups (tray detection and ruler OCR) runs in parallel
-across `segmentation.n_workers` worker processes, with `seed` controlling which images are sampled from each group.
+across `segmentation.n_workers` worker processes, with `seed` controlling which images are sampled
+from each group. The main segmentation step then re-uses the same worker pool to detect the
+ruler/tray/core for every image in the batch in parallel.
 
 To use a different config file, pass `--config <path>` (see below).
 
