@@ -2,7 +2,9 @@
 
 import argparse
 import contextlib
+import datetime
 import logging
+import tempfile
 from pathlib import Path
 
 import mlflow
@@ -44,6 +46,7 @@ def run(
     with_mlflow: bool = False,
     nested: bool = False,
     summary_csv_path: Path | None = None,
+    log_path: Path | None = None,
 ) -> None:
     """Process borehole photos from input to output directory.
 
@@ -55,6 +58,8 @@ def run(
         nested (bool): Whether to start a nested MLflow run under an existing active run.
         summary_csv_path (Path | None): If set, append this folder's evaluation summary
             (pass-rate and mean relative error per check) as a row to this CSV file.
+        log_path (Path | None): If set, upload this run's log file to MLflow once processing
+            completes. Only meaningful for a top-level (non-nested) run.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory and parse filename metadata
@@ -102,12 +107,18 @@ def run(
             img.save(output_dir / f"{stem}.tif")
         logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
+        if with_mlflow and not nested and log_path is not None:
+            for handler in logging.root.handlers:
+                handler.flush()
+            mlflow.log_artifact(str(log_path))
+
 
 def batch_run(
     input_dir: Path,
     output_dir: Path,
     config: PipelineConfig,
     with_mlflow: bool = False,
+    log_path: Path | None = None,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -117,20 +128,30 @@ def batch_run(
         output_dir (Path): Path to the directory where processed images will be written.
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
+        log_path (Path | None): If set, upload the batch's log file to MLflow once processing
+            completes.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
         subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
         logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
-        summary_csv_path = output_dir / "summary.csv" if with_mlflow else None
-        for subdir in tqdm(subdirs, desc="Processing folders"):
-            run(
-                input_dir=subdir,
-                output_dir=output_dir / subdir.name,
-                config=config,
-                with_mlflow=with_mlflow,
-                nested=True,
-                summary_csv_path=summary_csv_path,
-            )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            summary_csv_path = Path(tmp_dir) / "summary.csv" if with_mlflow else None
+            for subdir in tqdm(subdirs, desc="Processing folders"):
+                run(
+                    input_dir=subdir,
+                    output_dir=output_dir / subdir.name,
+                    config=config,
+                    with_mlflow=with_mlflow,
+                    nested=True,
+                    summary_csv_path=summary_csv_path,
+                )
+            if with_mlflow and summary_csv_path is not None and summary_csv_path.exists():
+                mlflow.log_artifact(str(summary_csv_path))
+
+        if with_mlflow and log_path is not None:
+            for handler in logging.root.handlers:
+                handler.flush()
+            mlflow.log_artifact(str(log_path))
 
 
 def main() -> None:
@@ -155,9 +176,15 @@ def main() -> None:
         parser.error(f"Config file does not exist: {args.config}")
 
     args.output.mkdir(parents=True, exist_ok=True)
+
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = logs_dir / f"{args.input.name}_{timestamp}.log"
+
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(logging.Formatter("%(message)s"))
-    file_handler = logging.FileHandler(args.output / "run.log")
+    file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
 
@@ -165,9 +192,21 @@ def main() -> None:
 
     has_subdirs = any(p.is_dir() for p in args.input.iterdir())
     if has_subdirs:
-        batch_run(input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow)
+        batch_run(
+            input_dir=args.input,
+            output_dir=args.output,
+            config=config,
+            with_mlflow=args.mlflow,
+            log_path=log_path if args.mlflow else None,
+        )
     else:
-        run(input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow)
+        run(
+            input_dir=args.input,
+            output_dir=args.output,
+            config=config,
+            with_mlflow=args.mlflow,
+            log_path=log_path if args.mlflow else None,
+        )
 
 
 if __name__ == "__main__":

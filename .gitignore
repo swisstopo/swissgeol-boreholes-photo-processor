@@ -24,3 +24,6 @@ tests/output/
 # mlflow
 mlruns/
 mlflow.db
+
+# logs
+logs/
