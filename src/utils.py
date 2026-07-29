@@ -1,33 +1,12 @@
 """Shared package utilities."""
 
-import time
-from functools import cache, lru_cache, wraps
+from functools import cache, lru_cache
 
 import numpy as np
 import tifffile
 from skimage.transform import rescale
 
 from src.config import SegmentationError
-
-
-def measure_time():
-    """TODO.
-
-    Args:
-        logger (_type_, optional): _description_. Defaults to print.
-    """
-
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            start = time.perf_counter()
-            result = func(*args, **kwargs)
-            elapsed = time.perf_counter() - start
-            return result, elapsed
-
-        return wrapper
-
-    return decorator
 
 
 # Store up to 4 different image (downscaled) in memory

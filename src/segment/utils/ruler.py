@@ -1,5 +1,7 @@
 """Ruler detection: per-image OCR and aggregation across a shape group."""
 
+from timeit import default_timer as timer
+
 import numpy as np
 import pytesseract
 from skimage.color import rgb2gray
@@ -27,6 +29,7 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
             pixel-per-unit scale, and the per-number bounding boxes, or None if no ruler
             numbers were detected.
     """
+    t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
 
     # OCR performs better on binarized images
@@ -95,6 +98,7 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
         ),
         px_per_unit=(1 / config.downscale_factor) * steps_median,
         bbox_units=[tuple(row) for row in bbox_units.tolist()],
+        time=timer() - t_start,
     )
 
 

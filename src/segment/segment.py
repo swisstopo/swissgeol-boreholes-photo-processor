@@ -3,6 +3,7 @@
 import logging
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
+from timeit import default_timer as timer
 
 import mlflow
 from tqdm import tqdm
@@ -10,14 +11,18 @@ from tqdm import tqdm
 from src.config import SegmentationConfig, SegmentationError
 from src.mlflow_utils import (
     log_image_metadata_processed_mlflow,
-    log_segmentation_summary_mlflow,
+    log_segmentation_results_with_mlflow,
     log_tray_segment_mlflow,
 )
-from src.models import ImageMetadata, ImageMetadataProcessed, RulerSegmentResult, SegmentationRecord, TraySegmentResult
+from src.models import (
+    ImageMetadata,
+    ImageMetadataProcessed,
+    RulerSegmentResult,
+    TraySegmentResult,
+)
 from src.segment.utils.core import segment_core
 from src.segment.utils.ruler import ProcessRulerGroupByShape, segment_ruler
 from src.segment.utils.tray import ProcessTrayGroupByShape, segment_tray
-from src.utils import measure_time
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +77,6 @@ def segment_single(
             core=detection_core,
             tray=detection_tray,
             ruler=detection_ruler,
-            records=SegmentationRecord(
-                tray_approach="single" if shared_tray is None else "group",
-                tray_group=str(shape) if shared_tray else None,
-                ruler_approach="single" if shared_ruler is None else "group",
-                ruler_group=str(shape) if shared_ruler else None,
-            ),
         )
 
         if with_mlflow:
@@ -95,7 +94,6 @@ def segment_single(
     return detection
 
 
-@measure_time()
 def segment_all(
     imgs_metadata: list[ImageMetadata],
     ruler_by_shape: dict[tuple[int, int, int], RulerSegmentResult],
@@ -166,21 +164,21 @@ def segment(
         imgs_metadata if any images failed to segment.
     """
     config = config or SegmentationConfig()
-    detections: list[ImageMetadataProcessed] = []
+    t_start = timer()
 
     # Step 1: Try to estimate image foreground (moving part) and ruler, once per shape group
-    tray_by_shape, time_tray = ProcessTrayGroupByShape(config.tray_group, config.n_workers).run(imgs_metadata)
-    ruler_by_shape, time_ruler = ProcessRulerGroupByShape(config.ruler, config.n_workers).run(imgs_metadata)
+    tray_by_shape = ProcessTrayGroupByShape(config.tray_group, config.n_workers).run(imgs_metadata)
+    ruler_by_shape = ProcessRulerGroupByShape(config.ruler, config.n_workers).run(imgs_metadata)
 
     if with_mlflow:
         for (tray_h, tray_w, _), tray_result in tray_by_shape.items():
             log_tray_segment_mlflow(
                 result=tray_result,
-                filename=f"{imgs_metadata[0].borehole_id}_segmentation_{tray_h}x{tray_w}",
+                filename=f"segmentation_{tray_h}x{tray_w}",
                 subfolder="debug",
             )
 
-    detections, time_segment = segment_all(
+    detections = segment_all(
         imgs_metadata=imgs_metadata,
         ruler_by_shape=ruler_by_shape,
         tray_by_shape=tray_by_shape,
@@ -189,10 +187,6 @@ def segment(
     )
 
     if with_mlflow:
-        log_segmentation_summary_mlflow(
-            detections, filename=f"{imgs_metadata[0].borehole_id}_segmentation_summary.json"
-        )
+        log_segmentation_results_with_mlflow(detections, time=timer() - t_start)
 
-    time_total = time_ruler + time_tray + time_segment
-    logging.info(f"Segmention {time_total=:.2f}s ({time_ruler=:.2f}s, {time_tray=:.2f}s, {time_segment=:.2f}s)")
     return detections

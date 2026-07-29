@@ -1,6 +1,7 @@
 """Tray/core bbox detection: per-image fallback and shared-foreground estimation across a batch."""
 
 import logging
+from timeit import default_timer as timer
 
 import numpy as np
 from skimage.color import rgb2gray
@@ -163,6 +164,7 @@ def segment_tray(img_metadata: ImageMetadata, config: SegmentationTraySingleConf
         TraySegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the original image's
             coordinate space. Background/foreground debug images are left unset.
     """
+    t_start = timer()
     factor = config.downscale_factor
     binary, grey = _apply_threshold_and_clean(
         img_metadata.load_image(factor=factor),
@@ -181,7 +183,10 @@ def segment_tray(img_metadata: ImageMetadata, config: SegmentationTraySingleConf
         min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
     )
 
-    return TraySegmentResult(bbox=scale_bbox(bbox, factor=1 / factor))
+    return TraySegmentResult(
+        bbox=scale_bbox(bbox, factor=1 / factor),
+        time=timer() - t_start,
+    )
 
 
 class ProcessTrayGroupByShape(ProcessGroupByShape[TraySegmentResult, np.ndarray]):

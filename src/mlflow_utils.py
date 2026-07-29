@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
-from src.models import ImageMetadataProcessed, TraySegmentResult
+from src.models import ImageMetadataProcessed, ImageSegmentResult, TraySegmentResult
 from src.utils import scale_bbox
 
 
@@ -78,7 +78,7 @@ def log_image_metadata_processed_mlflow(
 
     if result.ruler is not None:
         # Draw units < overall detection < resolution text
-        for bbox in result.ruler.bbox_units:
+        for bbox in result.ruler.bbox_units or []:
             draw.rectangle(bbox, outline=(0, 0, 255, 255), fill=(0, 0, 255, 30), width=2)
         draw.rectangle(result.ruler.bbox, outline=(0, 0, 255, 255), width=5)
         draw.text(
@@ -97,45 +97,31 @@ def log_image_metadata_processed_mlflow(
     log_artifact_with_mlflow(img_pil, filename, suffix, subfolder)
 
 
-def log_segmentation_summary_mlflow(
-    images: list[ImageMetadataProcessed],
-    filename: str,
+def log_segmentation_results_with_mlflow(
+    detections: list[ImageMetadataProcessed],
+    time: float,
 ) -> None:
-    """Log a summary of the segmentation approach used per image.
+    """Log a summary of the segmentation timing and approach breakdown to MLflow.
 
-    Computes and logs, as MLflow metrics: the fraction of images that fell back to per-image
-    (single) tray/ruler segmentation (p_tray_single, p_ruler_single), and the number of
-    distinct shape groups that used the shared tray/ruler approach (n_tray_groups,
-    n_ruler_groups). Also dumps the full per-image results as a JSON artifact. Images with
-    no `records` (e.g. never processed) are excluded from the metric computation.
+    Dumps a single JSON artifact ("segmentation_summary.json") containing the overall
+    time for the run, a per-approach (single vs. shared group) count/timing breakdown
+    for the tray, ruler, and core detectors, and every image's full detection result.
 
     Args:
-        images (list[ImageMetadataProcessed]): Per-image processed results.
-        filename (str): The filename for the JSON artifact.
+        detections (list[ImageMetadataProcessed]): Per-image processed results.
+        time (float): Overall wall-clock time, in seconds, for the segmentation run.
     """
-    records = [image.records for image in images if image.records]
-    tray_single_flags = [record.tray_approach == "single" for record in records]
-    ruler_single_flags = [record.ruler_approach == "single" for record in records]
-
-    n_tray_groups = len(set(record.tray_group for record in records if record.tray_group is not None))
-    n_ruler_groups = len(set(record.ruler_group for record in records if record.ruler_group is not None))
-
-    mlflow.log_metrics(
-        {
-            "p_tray_single": sum(tray_single_flags) / (len(tray_single_flags) + 1e-16),
-            "p_ruler_single": sum(ruler_single_flags) / (len(ruler_single_flags) + 1e-16),
-            "n_tray_groups": n_tray_groups,
-            "n_ruler_groups": n_ruler_groups,
-        }
-    )
-
     mlflow.log_dict(
         {
-            "results": [
-                {"filename": image.image_path.name, **asdict(image.records)} for image in images if image.records
-            ]
+            "time": {
+                "overall": time,
+                "tray": ImageSegmentResult.apporach_to_json([detection.tray for detection in detections]),
+                "ruler": ImageSegmentResult.apporach_to_json([detection.ruler for detection in detections]),
+                "core": ImageSegmentResult.apporach_to_json([detection.core for detection in detections]),
+            },
+            "detections": [detection.to_dict() for detection in detections],
         },
-        filename,
+        "segmentation_summary.json",
     )
 
 
@@ -164,20 +150,14 @@ def log_artifact_with_mlflow(
 
 def log_evaluation_results_with_mlflow(
     results: list[CoreCheckResult],
-    folder_name: str,
 ) -> None:
     """Log evaluation results to MLflow.
 
     Logs the width and length pass-rate and mean squared error as separate metrics, and
-    dumps every file's full width/length results as a single JSON artifact, keyed by filename --
-    useful for inspecting a specific core's width and length results side by side, not just the
-    ones that got flagged. The artifact is named after the folder so batch runs don't clobber
-    each other's results.
+    dumps every file's full width/length results as a single JSON artifact.
 
     Args:
         results (list[CoreCheckResult]): Per-file merged core check results.
-        folder_name (str): Name of the input folder these results belong to, used as the
-            JSON artifact's filename.
     """
     if not results:
         return
@@ -198,4 +178,4 @@ def log_evaluation_results_with_mlflow(
         }
         for r in results
     }
-    mlflow.log_dict(predictions, f"{folder_name}_evaluation.json")
+    mlflow.log_dict(predictions, "evaluation.json")

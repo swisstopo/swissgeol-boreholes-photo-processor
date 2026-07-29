@@ -1,6 +1,7 @@
 """Core bbox detection: trimming the wooden tray and black background around the core."""
 
 from itertools import groupby
+from timeit import default_timer as timer
 
 import numpy as np
 from skimage.color import rgb2hsv
@@ -65,6 +66,7 @@ def segment_core(
         SegmentationError: If every row or column is classified as tray/background (no valid
             interval found) for any of the three trim passes.
     """
+    t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
     x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 
@@ -123,4 +125,5 @@ def segment_core(
             )
             for left_trim, right_trim in lr_trims
         ],
+        time=timer() - t_start,
     )

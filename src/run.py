@@ -10,11 +10,8 @@ from tqdm import tqdm
 
 from src.config import PipelineConfig
 from src.evaluations.core import evaluate_detections
-from src.mlflow_utils import (
-    log_artifact_with_mlflow,
-    log_evaluation_results_with_mlflow,
-)
-from src.models import ImageMetadata, ImageMetadataProcessed
+from src.mlflow_utils import log_artifact_with_mlflow, log_evaluation_results_with_mlflow
+from src.models import ImageMetadata
 from src.segment.segment import segment
 from src.stitching.stitching import stitching
 
@@ -64,14 +61,12 @@ def run(
         logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
 
         # segmentation
-        detections: list[ImageMetadataProcessed] = segment(
-            imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow
-        )
+        detections = segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow)
 
         # evaluation of detection
         if with_mlflow:
-            results = evaluate_detections(detections, config.evaluation)
-            log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
+            evaluations = evaluate_detections(detections, config.evaluation)
+            log_evaluation_results_with_mlflow(evaluations)
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)

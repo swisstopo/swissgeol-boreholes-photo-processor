@@ -2,15 +2,15 @@
 
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+from timeit import default_timer as timer
 from typing import Generic, TypeVar
 
 import numpy as np
 from tqdm import tqdm
 
-from src.models import ImageMetadata
-from src.utils import measure_time
+from src.models import ApporachType, ImageMetadata, ImageSegmentResult
 
-K = TypeVar("K")
+K = TypeVar("K", bound=ImageSegmentResult)
 T = TypeVar("T")
 
 
@@ -107,7 +107,6 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
 
         return self._aggregate(processed_items)
 
-    @measure_time()
     def run(self, imgs_metadata: list[ImageMetadata]) -> dict[tuple[int, int, int], K]:
         """Group images by shape, sample, and aggregate a result per shape.
 
@@ -130,9 +129,14 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
 
                 # Subset of images is enough to calculate the foreground mask
                 sample_ids = rng.choice(len(group), size=self.min_group_size, replace=False)
+
+                # Measure execution time
+                t_start = timer()
                 result = self._run_group(executor, [group[i] for i in sample_ids])
 
                 if result is not None:
+                    result.time = timer() - t_start
+                    result.approach = ApporachType.GROUP
                     results[shape] = result
 
         return results
