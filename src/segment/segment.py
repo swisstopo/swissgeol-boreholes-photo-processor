@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from timeit import default_timer as timer
 
+import mlflow
 from tqdm import tqdm
 
 from src.config import SegmentationConfig, SegmentationError
@@ -31,6 +32,8 @@ def segment_single(
     ruler_by_shape: dict[tuple[int, int, int], RulerSegmentResult],
     tray_by_shape: dict[tuple[int, int, int], TraySegmentResult],
     config: SegmentationConfig,
+    with_mlflow: bool = False,
+    run_id: str | None = None,
 ) -> ImageMetadataProcessed | None:
     """Segment a single image: locate its ruler, tray and core, and assemble the result.
 
@@ -43,6 +46,10 @@ def segment_single(
             detection per image shape, computed once per shape group. Used when this
             image's shape has an entry; otherwise the tray is detected for this image alone.
         config (SegmentationConfig): Tunable segmentation parameters.
+        with_mlflow (bool, optional): Whether to log debug artifacts for this image to
+            MLflow. Defaults to False.
+        run_id (str | None, optional): MLflow run to attach logged artifacts to. Only used
+            when `with_mlflow` is True. Defaults to None.
 
     Returns:
         ImageMetadataProcessed | None: The processed image metadata with its core, tray,
@@ -72,6 +79,14 @@ def segment_single(
             ruler=detection_ruler,
         )
 
+        if with_mlflow:
+            with mlflow.start_run(run_id=run_id):
+                log_image_metadata_processed_mlflow(
+                    result=detection,
+                    filename=f"{img_metadata.image_path.stem}",
+                    subfolder="debug",
+                )
+
     except SegmentationError as e:
         logger.warning("%s. Skipping.", e)
         return None
@@ -84,6 +99,7 @@ def segment_all(
     ruler_by_shape: dict[tuple[int, int, int], RulerSegmentResult],
     tray_by_shape: dict[tuple[int, int, int], TraySegmentResult],
     config: SegmentationConfig,
+    with_mlflow: bool = False,
 ) -> list[ImageMetadataProcessed]:
     """Segment every image in the batch, in parallel, reusing per-shape ruler/tray detections.
 
@@ -94,16 +110,24 @@ def segment_all(
         tray_by_shape (dict[tuple[int, int, int], TraySegmentResult]): Shared tray detection per
             image shape, computed once per shape group.
         config (SegmentationConfig): Tunable segmentation parameters.
+        with_mlflow (bool, optional): Whether to log debug artifacts to MLflow for each image.
+            Defaults to False.
 
     Returns:
         list[ImageMetadataProcessed]: Processed image metadata for every image that segmented
         successfully. May be shorter than `imgs_metadata` if any images failed to segment.
     """
+    # Setup up worker with fixed / non iterable items
+    active_run = mlflow.active_run()
+    run_id = active_run.info.run_id if with_mlflow and active_run is not None else None
+
     worker = partial(
         segment_single,
         tray_by_shape=tray_by_shape,
         ruler_by_shape=ruler_by_shape,
         config=config,
+        with_mlflow=with_mlflow,
+        run_id=run_id,
     )
 
     with ProcessPoolExecutor(max_workers=config.n_workers) as executor:
@@ -159,16 +183,10 @@ def segment(
         ruler_by_shape=ruler_by_shape,
         tray_by_shape=tray_by_shape,
         config=config,
+        with_mlflow=with_mlflow,
     )
 
     if with_mlflow:
-        for detection in detections:
-            log_image_metadata_processed_mlflow(
-                result=detection,
-                filename=f"{detection.borehole_id}",
-                subfolder="debug",
-            )
-
         log_segmentation_results_with_mlflow(detections, time=timer() - t_start)
 
     return detections
