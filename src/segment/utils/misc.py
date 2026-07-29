@@ -8,7 +8,7 @@ from typing import Generic, TypeVar
 import numpy as np
 from tqdm import tqdm
 
-from src.models import ApporoachType, ImageMetadata, ImageSegmentResult
+from src.models import ApproachType, ImageMetadata, ImageSegmentResult
 
 K = TypeVar("K", bound=ImageSegmentResult)
 T = TypeVar("T")
@@ -136,7 +136,7 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
 
                 if result is not None:
                     result.time = timer() - t_start
-                    result.approach = ApporoachType.GROUP
+                    result.approach = ApproachType.GROUP
                     results[shape] = result
 
         return results

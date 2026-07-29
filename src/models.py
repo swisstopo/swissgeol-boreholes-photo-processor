@@ -96,7 +96,7 @@ class ImageMetadata:
         return asdict(self)
 
 
-class ApporoachType(IntEnum):
+class ApproachType(IntEnum):
     """Approach used to detect a region: per-image (SINGLE) or shared across a shape group (GROUP)."""
 
     SINGLE = 0
@@ -109,7 +109,7 @@ class ImageSegmentResult:
 
     bbox: tuple[float, float, float, float]  # (left, top, right, bottom)
     time: float | None = None  # Processing time
-    approach: ApporoachType = ApporoachType.SINGLE  # Type of approach used
+    approach: ApproachType = ApproachType.SINGLE  # Type of approach used
 
     @staticmethod
     def approach_to_json(results: list["ImageSegmentResult | None"]) -> dict[str, float]:
@@ -127,13 +127,12 @@ class ImageSegmentResult:
                 processing time for single- and group-approach detections (time_single_avg,
                 time_group_avg).
         """
-        ids_group = {id(result) for result in results if result and result.approach == ApporoachType.GROUP}
-        ts_group = set([result.time or 0 for result in results if result and result.approach == ApporoachType.GROUP])
-        ts_single = [result.time or 0 for result in results if result and result.approach == ApporoachType.SINGLE]
+        ts_group = set([result.time or 0 for result in results if result and result.approach == ApproachType.GROUP])
+        ts_single = [result.time or 0 for result in results if result and result.approach == ApproachType.SINGLE]
         n_fail = sum([result is None for result in results])
 
         return {
-            "n_group": len(ids_group),
+            "n_group": len(ts_group),
             "n_as_fail": n_fail,
             "n_as_single": len(ts_single),
             "n_as_group": len(results) - len(ts_single) - n_fail,

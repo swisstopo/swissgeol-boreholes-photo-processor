@@ -188,10 +188,11 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 **With MLflow tracking**
 
 ```bash
-uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlflow
+uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlflow --debug
 ```
 
-- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server. Segmentation debug images (per-image core/tray/ruler) are logged under a `debug` subfolder of each run's artifacts.
+- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server.
+- `--debug`: Additionally log per-image and per-shape-group debug images (core/tray/ruler overlays) under a `debug` subfolder of each run's artifacts. Only has an effect when `--mlflow` is also set.
 
 
 To view logged artifacts, start the MLflow UI:
