@@ -1,6 +1,7 @@
 """Utility functions for MLflow."""
 
 import csv
+import logging
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
@@ -11,6 +12,17 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
 from src.models import ImageMetadataProcessed, SegmentationRecord
+
+
+def upload_log_to_mlflow(log_path: Path) -> None:
+    """Flush all logging handlers and upload the log file to MLflow as an artifact.
+
+    Args:
+        log_path (Path): Path to the log file to upload.
+    """
+    for handler in logging.root.handlers:
+        handler.flush()
+    mlflow.log_artifact(str(log_path))
 
 
 def log_image_metadata_processed_mlflow(

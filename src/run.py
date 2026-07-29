@@ -16,6 +16,7 @@ from src.evaluations.core import evaluate_detections
 from src.mlflow_utils import (
     log_artifact_with_mlflow,
     log_evaluation_results_with_mlflow,
+    upload_log_to_mlflow,
     write_evaluation_summary_csv,
 )
 from src.models import ImageMetadata, ImageMetadataProcessed
@@ -37,17 +38,6 @@ def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> conte
     if with_mlflow:
         return mlflow.start_run(run_name=run_name, nested=nested)
     return contextlib.nullcontext()
-
-
-def _upload_log_to_mlflow(log_path: Path) -> None:
-    """Flush all logging handlers and upload the log file to MLflow as an artifact.
-
-    Args:
-        log_path (Path): Path to the log file to upload.
-    """
-    for handler in logging.root.handlers:
-        handler.flush()
-    mlflow.log_artifact(str(log_path))
 
 
 def run(
@@ -119,7 +109,7 @@ def run(
         logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
         if with_mlflow and not nested and log_path is not None:
-            _upload_log_to_mlflow(log_path)
+            upload_log_to_mlflow(log_path)
 
 
 def batch_run(
@@ -158,7 +148,7 @@ def batch_run(
                 mlflow.log_artifact(str(summary_csv_path))
 
         if with_mlflow and log_path is not None:
-            _upload_log_to_mlflow(log_path)
+            upload_log_to_mlflow(log_path)
 
 
 def main() -> None:
