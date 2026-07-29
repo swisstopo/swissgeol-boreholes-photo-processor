@@ -37,6 +37,7 @@ def run(
     output_dir: Path,
     config: PipelineConfig,
     with_mlflow: bool = False,
+    debug: bool = False,
     nested: bool = False,
 ) -> None:
     """Process borehole photos from input to output directory.
@@ -46,6 +47,8 @@ def run(
         output_dir (Path): Path to the directory where processed images will be written.
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
+        debug (bool): Whether to additionally log debug images (e.g. per-image tray/ruler
+            detections) to MLflow. Only applies when with_mlflow is True.
         nested (bool): Whether to start a nested MLflow run under an existing active run.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
@@ -61,7 +64,7 @@ def run(
         logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
 
         # segmentation
-        detections = segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow)
+        detections = segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug)
 
         # evaluation of detection
         if with_mlflow:
@@ -90,6 +93,7 @@ def batch_run(
     output_dir: Path,
     config: PipelineConfig,
     with_mlflow: bool = False,
+    debug: bool = False,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -99,6 +103,8 @@ def batch_run(
         output_dir (Path): Path to the directory where processed images will be written.
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
+        debug (bool): Whether to additionally log debug images (e.g. per-image tray/ruler
+            detections) to MLflow. Only applies when with_mlflow is True.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
         subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
@@ -109,6 +115,7 @@ def batch_run(
                 output_dir=output_dir / subdir.name,
                 config=config,
                 with_mlflow=with_mlflow,
+                debug=debug,
                 nested=True,
             )
 
@@ -120,6 +127,7 @@ def main() -> None:
     parser.add_argument("--input", type=Path, required=True, help="Path to the input directory.")
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
     parser.add_argument("--mlflow", action="store_true", help="Whether to log artifacts to MLflow.")
+    parser.add_argument("--debug", action="store_true", help="Whether to log debug images to MLflow.")
     parser.add_argument(
         "--config",
         type=Path,
@@ -139,9 +147,11 @@ def main() -> None:
 
     has_subdirs = any(p.is_dir() for p in args.input.iterdir())
     if has_subdirs:
-        batch_run(input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow)
+        batch_run(
+            input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow, debug=args.debug
+        )
     else:
-        run(input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow)
+        run(input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow, debug=args.debug)
 
 
 if __name__ == "__main__":

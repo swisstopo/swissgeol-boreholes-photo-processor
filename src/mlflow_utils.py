@@ -6,6 +6,7 @@ from pathlib import Path
 
 import mlflow
 import numpy as np
+from mlflow.tracking import MlflowClient
 from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
@@ -54,6 +55,7 @@ def log_image_metadata_processed_mlflow(
     suffix: str = ".jpg",
     subfolder: str | None = None,
     font_size: int = 30,
+    run_id: str | None = None,
 ) -> None:
     """Log a processed image to MLflow with core/tray/ruler bounding boxes overlaid.
 
@@ -63,6 +65,9 @@ def log_image_metadata_processed_mlflow(
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
         font_size (int): Font size used to draw the ruler's px-per-unit label.
+        run_id (str | None): If set, log the artifact directly to this run via MlflowClient
+            instead of the active run. Safe to call concurrently from multiple processes
+            against the same run_id, unlike `mlflow.start_run`/`end_run`. Defaults to None.
     """
     img_npy = result.load_image()
     img_pil = Image.fromarray((img_npy * 255).astype(np.uint8)).convert("RGBA")
@@ -94,7 +99,7 @@ def log_image_metadata_processed_mlflow(
 
     img_pil = Image.alpha_composite(img_pil, overlay).convert("RGB")
 
-    log_artifact_with_mlflow(img_pil, filename, suffix, subfolder)
+    log_artifact_with_mlflow(img_pil, filename, suffix, subfolder, run_id=run_id)
 
 
 def log_segmentation_results_with_mlflow(
@@ -130,6 +135,7 @@ def log_artifact_with_mlflow(
     filename: str,
     suffix: str = ".jpg",
     subfolder: str | None = None,
+    run_id: str | None = None,
 ) -> None:
     """Log an image artifact to MLflow.
 
@@ -138,14 +144,17 @@ def log_artifact_with_mlflow(
         filename (str): The filename prefix for the artifact.
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
+        run_id (str | None): If set, log the artifact directly to this run via MlflowClient
+            instead of the active run. Safe to call concurrently from multiple processes
+            against the same run_id, unlike `mlflow.start_run`/`end_run`. Defaults to None.
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         artifact_path = Path(tmp_dir) / f"{filename}{suffix}"
         img.save(artifact_path)
-        mlflow.log_artifact(
-            local_path=str(artifact_path),
-            artifact_path=subfolder,
-        )
+        if run_id is not None:
+            MlflowClient().log_artifact(run_id=run_id, local_path=str(artifact_path), artifact_path=subfolder)
+        else:
+            mlflow.log_artifact(local_path=str(artifact_path), artifact_path=subfolder)
 
 
 def log_evaluation_results_with_mlflow(

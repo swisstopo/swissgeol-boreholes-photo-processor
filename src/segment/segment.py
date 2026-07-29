@@ -33,6 +33,7 @@ def segment_single(
     tray_by_shape: dict[tuple[int, int, int], TraySegmentResult],
     config: SegmentationConfig,
     with_mlflow: bool = False,
+    debug: bool = False,
     run_id: str | None = None,
 ) -> ImageMetadataProcessed | None:
     """Segment a single image: locate its ruler, tray and core, and assemble the result.
@@ -46,8 +47,9 @@ def segment_single(
             detection per image shape, computed once per shape group. Used when this
             image's shape has an entry; otherwise the tray is detected for this image alone.
         config (SegmentationConfig): Tunable segmentation parameters.
-        with_mlflow (bool, optional): Whether to log debug artifacts for this image to
-            MLflow. Defaults to False.
+        with_mlflow (bool, optional): Whether to log artifacts to MLflow. Defaults to False.
+        debug (bool, optional): Whether to additionally log debug artifacts for this image
+            to MLflow. Only applies when `with_mlflow` is True. Defaults to False.
         run_id (str | None, optional): MLflow run to attach logged artifacts to. Only used
             when `with_mlflow` is True. Defaults to None.
 
@@ -79,13 +81,13 @@ def segment_single(
             ruler=detection_ruler,
         )
 
-        if with_mlflow:
-            with mlflow.start_run(run_id=run_id):
-                log_image_metadata_processed_mlflow(
-                    result=detection,
-                    filename=f"{img_metadata.image_path.stem}",
-                    subfolder="debug",
-                )
+        if with_mlflow and debug:
+            log_image_metadata_processed_mlflow(
+                result=detection,
+                filename=f"{img_metadata.image_path.stem}",
+                subfolder="debug",
+                run_id=run_id,
+            )
 
     except SegmentationError as e:
         logger.warning("%s. Skipping.", e)
@@ -100,6 +102,7 @@ def segment_all(
     tray_by_shape: dict[tuple[int, int, int], TraySegmentResult],
     config: SegmentationConfig,
     with_mlflow: bool = False,
+    debug: bool = False,
 ) -> list[ImageMetadataProcessed]:
     """Segment every image in the batch, in parallel, reusing per-shape ruler/tray detections.
 
@@ -110,8 +113,10 @@ def segment_all(
         tray_by_shape (dict[tuple[int, int, int], TraySegmentResult]): Shared tray detection per
             image shape, computed once per shape group.
         config (SegmentationConfig): Tunable segmentation parameters.
-        with_mlflow (bool, optional): Whether to log debug artifacts to MLflow for each image.
+        with_mlflow (bool, optional): Whether to log artifacts to MLflow for each image.
             Defaults to False.
+        debug (bool, optional): Whether to additionally log debug artifacts to MLflow for
+            each image. Only applies when `with_mlflow` is True. Defaults to False.
 
     Returns:
         list[ImageMetadataProcessed]: Processed image metadata for every image that segmented
@@ -127,6 +132,7 @@ def segment_all(
         ruler_by_shape=ruler_by_shape,
         config=config,
         with_mlflow=with_mlflow,
+        debug=debug,
         run_id=run_id,
     )
 
@@ -146,6 +152,7 @@ def segment(
     imgs_metadata: list[ImageMetadata],
     config: SegmentationConfig | None = None,
     with_mlflow: bool = False,
+    debug: bool = False,
 ) -> list[ImageMetadataProcessed]:
     """Segment the input images and return a list of processed image metadata objects.
 
@@ -158,6 +165,8 @@ def segment(
         imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
         config (SegmentationConfig | None): Tunable segmentation parameters. Defaults to SegmentationConfig().
         with_mlflow (bool): Whether to log artifacts to MLflow.
+        debug (bool): Whether to additionally log debug images (e.g. per-shape tray/ruler
+            detections) to MLflow. Only applies when with_mlflow is True.
 
     Returns:
         list[ImageMetadataProcessed]: A list of processed image metadata objects. May be shorter than
@@ -170,7 +179,7 @@ def segment(
     tray_by_shape = ProcessTrayGroupByShape(config.tray_group, config.n_workers).run(imgs_metadata)
     ruler_by_shape = ProcessRulerGroupByShape(config.ruler, config.n_workers).run(imgs_metadata)
 
-    if with_mlflow:
+    if with_mlflow and debug:
         for (tray_h, tray_w, _), tray_result in tray_by_shape.items():
             log_tray_segment_mlflow(
                 result=tray_result,
@@ -184,6 +193,7 @@ def segment(
         tray_by_shape=tray_by_shape,
         config=config,
         with_mlflow=with_mlflow,
+        debug=debug,
     )
 
     if with_mlflow:
