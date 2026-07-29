@@ -148,11 +148,10 @@ since a median over too few points isn't a reliable reference.
 batch's run in batch mode) and logs: per-image debug overlays (core/tray/ruler bboxes),
 a segmentation approach summary (shared-foreground vs. per-image fallback, per image),
 evaluation metrics/predictions, the stitched output images, the evaluation `summary.csv`
-(batch mode only), and the run's log file. The log file and `summary.csv` are written to
-a throwaway temp location and uploaded as MLflow artifacts rather than kept in the output
-directory — MLflow is the source of truth for run diagnostics when it's enabled. Without
-`--mlflow`, the run log still persists locally under `logs/` (gitignored) since there's no
-other durable record of the run in that case.
+(batch mode only), and the run's log file. `summary.csv` is written to a throwaway temp
+location and only exists as an MLflow artifact. The run's log file, by contrast, always
+persists locally under `logs/` (gitignored) regardless of `--mlflow` — enabling `--mlflow`
+additionally uploads a copy of it as an MLflow artifact once processing completes.
 
 ## Assumptions & edge cases
 

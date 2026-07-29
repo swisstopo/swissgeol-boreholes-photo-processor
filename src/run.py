@@ -39,6 +39,17 @@ def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> conte
     return contextlib.nullcontext()
 
 
+def _upload_log_to_mlflow(log_path: Path) -> None:
+    """Flush all logging handlers and upload the log file to MLflow as an artifact.
+
+    Args:
+        log_path (Path): Path to the log file to upload.
+    """
+    for handler in logging.root.handlers:
+        handler.flush()
+    mlflow.log_artifact(str(log_path))
+
+
 def run(
     input_dir: Path,
     output_dir: Path,
@@ -108,9 +119,7 @@ def run(
         logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
         if with_mlflow and not nested and log_path is not None:
-            for handler in logging.root.handlers:
-                handler.flush()
-            mlflow.log_artifact(str(log_path))
+            _upload_log_to_mlflow(log_path)
 
 
 def batch_run(
@@ -149,9 +158,7 @@ def batch_run(
                 mlflow.log_artifact(str(summary_csv_path))
 
         if with_mlflow and log_path is not None:
-            for handler in logging.root.handlers:
-                handler.flush()
-            mlflow.log_artifact(str(log_path))
+            _upload_log_to_mlflow(log_path)
 
 
 def main() -> None:
