@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 
 from src.models import ImageMetadata
+from src.utils import measure_time
 
 K = TypeVar("K")
 T = TypeVar("T")
@@ -106,6 +107,7 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
 
         return self._aggregate(processed_items)
 
+    @measure_time()
     def run(self, imgs_metadata: list[ImageMetadata]) -> dict[tuple[int, int, int], K]:
         """Group images by shape, sample, and aggregate a result per shape.
 
