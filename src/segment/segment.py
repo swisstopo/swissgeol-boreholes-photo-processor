@@ -2,6 +2,7 @@
 
 import logging
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import replace
 from functools import partial
 from timeit import default_timer as timer
 
@@ -125,10 +126,17 @@ def segment_all(
     active_run = mlflow.active_run()
     run_id = active_run.info.run_id if with_mlflow and active_run is not None else None
 
+    # Workers only need the bbox: drop the debug background/foreground images so they aren't
+    # repickled and shipped through IPC for every single image in the batch.
+    tray_by_shape_light = {
+        shape: replace(tray_result, img_background=None, img_foreground=None, img_downscale_factor=None)
+        for shape, tray_result in tray_by_shape.items()
+    }
+
     # Set up worker with fixed / non-iterable items
     worker = partial(
         segment_single,
-        tray_by_shape=tray_by_shape,
+        tray_by_shape=tray_by_shape_light,
         ruler_by_shape=ruler_by_shape,
         config=config,
         with_mlflow=with_mlflow,
