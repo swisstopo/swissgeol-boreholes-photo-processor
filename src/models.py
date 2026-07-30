@@ -147,8 +147,9 @@ class ImageSegmentResult:
 
 @dataclass
 class CoreSegmentResult(ImageSegmentResult):
-    """Result of detecting core bbox, with core bbox segments for MLflow logging."""
+    """Result of detecting the core bbox (bbox is used downstream for cropping/evaluation/stitching)."""
 
+    # Per-segment bboxes before merging into `bbox`; kept only for MLflow debug visualization.
     bbox_segments: list[tuple[float, float, float, float]] | None = None
 
 
