@@ -54,8 +54,8 @@ def segment_single(
             when `with_mlflow` is True. Defaults to None.
 
     Returns:
-        ImageMetadataProcessed | None: The processed image metadata with its core, tray,
-        ruler detections and segmentation records, or None if segmentation failed.
+        ImageMetadataProcessed | None: The processed image metadata with its core, tray, and
+        ruler detections, or None if segmentation failed.
     """
     detection = None
 
@@ -122,10 +122,10 @@ def segment_all(
         list[ImageMetadataProcessed]: Processed image metadata for every image that segmented
         successfully. May be shorter than `imgs_metadata` if any images failed to segment.
     """
-    # Setup up worker with fixed / non iterable items
     active_run = mlflow.active_run()
     run_id = active_run.info.run_id if with_mlflow and active_run is not None else None
 
+    # Set up worker with fixed / non-iterable items
     worker = partial(
         segment_single,
         tray_by_shape=tray_by_shape,

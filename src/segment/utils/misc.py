@@ -123,11 +123,11 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
 
         # Reuse a single pool across all shape groups instead of paying its startup cost per group
         with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
-            for shape, group in tqdm(groups.items(), desc="Computing groups ..."):
+            for shape, group in tqdm(groups.items(), desc="Computing shape groups ..."):
                 if len(group) < self.min_group_size:
                     continue
 
-                # Subset of images is enough to calculate the foreground mask
+                # A fixed-size sample per group is selected for estimation and aggregation
                 sample_ids = rng.choice(len(group), size=self.min_group_size, replace=False)
 
                 # Measure execution time

@@ -112,7 +112,7 @@ class ImageSegmentResult:
     approach: ApproachType = ApproachType.SINGLE  # Type of approach used
 
     @staticmethod
-    def approach_to_json(results: list["ImageSegmentResult | None"]) -> dict[str, float]:
+    def approach_to_json(results: list["ImageSegmentResult | None"]) -> dict[str, int | float]:
         """Summarize per-approach detection counts and average timing across a batch.
 
         Args:
@@ -121,7 +121,7 @@ class ImageSegmentResult:
                 detection failed.
 
         Returns:
-            dict[str, float]: Counts of images that failed (n_as_fail), used the per-image
+            dict[str, int | float]: Counts of images that failed (n_as_fail), used the per-image
                 single approach (n_as_single), or used a shared group approach (n_as_group);
                 the number of distinct group detections reused (n_group); and the average
                 processing time for single- and group-approach detections (time_single_avg,
@@ -137,7 +137,7 @@ class ImageSegmentResult:
             "n_as_single": len(ts_single),
             "n_as_group": len(results) - len(ts_single) - n_fail,
             "time_single_avg": sum(ts_single) / (len(ts_single) + 1e-16),
-            "time_group_avg": sum(ts_group) / (len(ts_group) + 1e-16),
+            "time_group_total_avg": sum(ts_group) / (len(ts_group) + 1e-16),
         }
 
     def to_dict(self) -> dict:
