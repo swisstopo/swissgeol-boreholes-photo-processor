@@ -1,6 +1,7 @@
 """Utility functions for MLflow."""
 
 import csv
+import io
 import logging
 import tempfile
 from dataclasses import asdict
@@ -212,6 +213,7 @@ def log_evaluation_results_with_mlflow(
     if not results:
         return
 
+    mlflow.log_metric("count", len(results))
     for name, summary in _summarize_checks(results).items():
         if summary is not None:
             acc, mre = summary
@@ -228,38 +230,41 @@ def log_evaluation_results_with_mlflow(
     mlflow.log_dict(predictions, f"{folder_name}.json")
 
 
-def write_evaluation_summary_csv(
-    results: list[CoreCheckResult],
-    folder_name: str,
-    count: int,
-    csv_path: Path,
-) -> None:
-    """Append one folder's width/length pass-rate and mean relative error to a summary CSV.
+def log_batch_evaluation_summary_csv(parent_run_id: str) -> None:
+    """Aggregate each child run's evaluation metrics into one summary CSV artifact on the parent run.
 
-    Writes the header row if the file doesn't exist yet, otherwise appends. Used to track
-    evaluation quality across all folders of a batch run in a single, easy-to-skim file.
+    Reads the "count"/"width_acc"/"width_mre"/"length_acc"/"length_mre" metrics that
+    `log_evaluation_results_with_mlflow` already logged on each nested per-folder run, rather
+    than recomputing or re-logging anything, and writes one row per folder (sorted by folder
+    name for a deterministic order) directly as a CSV artifact.
 
     Args:
-        results (list[CoreCheckResult]): Per-file merged core check results for one folder.
-        folder_name (str): Name of the input folder these results belong to.
-        count (int): Number of images processed in this folder.
-        csv_path (Path): Path to the summary CSV file to append to.
+        parent_run_id (str): Run ID of the batch's top-level MLflow run.
     """
-    if not results:
+    client = MlflowClient()
+    parent_run = client.get_run(parent_run_id)
+    child_runs = client.search_runs(
+        experiment_ids=[parent_run.info.experiment_id],
+        filter_string=f"tags.mlflow.parentRunId = '{parent_run_id}'",
+    )
+
+    metric_names = ["count", "width_acc", "width_mre", "length_acc", "length_mre"]
+    rows = sorted(
+        (
+            {
+                "folder": run.data.tags.get("mlflow.runName", ""),
+                **{name: run.data.metrics.get(name, "") for name in metric_names},
+            }
+            for run in child_runs
+            if run.data.metrics
+        ),
+        key=lambda row: row["folder"],
+    )
+    if not rows:
         return
 
-    summaries = _summarize_checks(results)
-    fieldnames = ["folder", "count", "width_acc", "width_mre", "length_acc", "length_mre"]
-    row: dict[str, str | int | float] = {"folder": folder_name, "count": count}
-    for name in ("width", "length"):
-        summary = summaries[name]
-        row[f"{name}_acc"] = summary[0] if summary is not None else ""
-        row[f"{name}_mre"] = summary[1] if summary is not None else ""
-
-    write_header = not csv_path.exists()
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if write_header:
-            writer.writeheader()
-        writer.writerow(row)
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=["folder", *metric_names])
+    writer.writeheader()
+    writer.writerows(rows)
+    mlflow.log_text(buffer.getvalue(), "summary.csv")

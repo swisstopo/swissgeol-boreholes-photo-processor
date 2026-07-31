@@ -3,8 +3,8 @@
 import argparse
 import contextlib
 import datetime
+import glob
 import logging
-import tempfile
 from pathlib import Path
 
 import mlflow
@@ -15,16 +15,18 @@ from src.config import PipelineConfig, SegmentationError
 from src.evaluations.core import evaluate_detections
 from src.mlflow_utils import (
     log_artifact_with_mlflow,
+    log_batch_evaluation_summary_csv,
     log_evaluation_results_with_mlflow,
     upload_log_to_mlflow,
-    write_evaluation_summary_csv,
 )
 from src.models import ImageMetadata
 from src.segment.segment import segment
 from src.stitching.stitching import stitching
 
 
-def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
+def _mlflow_run(
+    run_name: str, with_mlflow: bool, nested: bool = False
+) -> contextlib.AbstractContextManager[mlflow.ActiveRun | None]:
     """Context manager for MLflow run.
 
     Args:
@@ -33,7 +35,8 @@ def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> conte
         nested (bool): Whether to start a nested MLflow run.
 
     Returns:
-        contextlib.AbstractContextManager: A context manager for the MLflow run.
+        contextlib.AbstractContextManager[mlflow.ActiveRun | None]: A context manager for the
+            MLflow run, yielding the active run when with_mlflow is True, else None.
     """
     if with_mlflow:
         return mlflow.start_run(run_name=run_name, nested=nested)
@@ -47,7 +50,6 @@ def run(
     with_mlflow: bool = False,
     debug: bool = False,
     nested: bool = False,
-    summary_csv_path: Path | None = None,
     log_path: Path | None = None,
 ) -> None:
     """Process borehole photos from input to output directory.
@@ -60,17 +62,13 @@ def run(
         debug (bool): Whether to additionally log debug images (e.g. per-image tray/ruler
             detections) to MLflow. Only applies when with_mlflow is True.
         nested (bool): Whether to start a nested MLflow run under an existing active run.
-        summary_csv_path (Path | None): If set, append this folder's evaluation summary
-            (pass-rate and mean relative error per check) as a row to this CSV file.
         log_path (Path | None): If set, upload this run's log file to MLflow once processing
             completes. Only meaningful for a top-level (non-nested) run.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory and parse filename metadata
         imgs_metadata: list[ImageMetadata] = []
-        for f in input_dir.iterdir():
-            if f.name.startswith("._"):
-                continue  # macOS AppleDouble sidecar file (resource fork), not real image data
+        for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
             if f.suffix.lower() == ".tif":
                 try:
                     metadata = ImageMetadata.from_path(f)
@@ -88,10 +86,6 @@ def run(
         if with_mlflow:
             results = evaluate_detections(detections, config.evaluation)
             log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
-            if summary_csv_path is not None:
-                write_evaluation_summary_csv(
-                    results, folder_name=input_dir.name, count=len(detections), csv_path=summary_csv_path
-                )
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -134,26 +128,23 @@ def batch_run(
         log_path (Path | None): If set, upload the batch's log file to MLflow once processing
             completes.
     """
-    with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
+    with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
         subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
         logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            summary_csv_path = Path(tmp_dir) / "summary.csv" if with_mlflow else None
-            for subdir in tqdm(subdirs, desc="Processing folders"):
-                run(
-                    input_dir=subdir,
-                    output_dir=output_dir / subdir.name,
-                    config=config,
-                    with_mlflow=with_mlflow,
-                    debug=debug,
-                    nested=True,
-                    summary_csv_path=summary_csv_path,
-                )
-            if with_mlflow and summary_csv_path is not None and summary_csv_path.exists():
-                mlflow.log_artifact(str(summary_csv_path))
+        for subdir in tqdm(subdirs, desc="Processing folders"):
+            run(
+                input_dir=subdir,
+                output_dir=output_dir / subdir.name,
+                config=config,
+                with_mlflow=with_mlflow,
+                debug=debug,
+                nested=True,
+            )
 
-        if with_mlflow and log_path is not None:
-            upload_log_to_mlflow(log_path)
+        if active_run is not None:
+            log_batch_evaluation_summary_csv(active_run.info.run_id)
+            if log_path is not None:
+                upload_log_to_mlflow(log_path)
 
 
 def main() -> None:
