@@ -11,6 +11,7 @@ segmentation:
     seed: 0 # seed for randomly sampling images from a group
 
   tray_single:
+    block_size: 4000 # Pixel neighborhood used to calculate the threshold.
     closing_disk: 50 # radius for binary_closing (fills gaps)
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     edge_margin_bottom: 5 # ignore bottom edge of image (ruler)

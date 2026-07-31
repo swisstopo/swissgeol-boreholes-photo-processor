@@ -53,6 +53,7 @@ def _apply_threshold_and_clean(
     min_object_size: int,
     opening_disk: int,
     closing_disk: int,
+    block_size: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Apply thresholding to the input image and return a cleaned binary mask.
 
@@ -61,6 +62,7 @@ def _apply_threshold_and_clean(
         min_object_size (int): Minimum size of objects to be retained.
         opening_disk (int): Size of the disk for binary opening.
         closing_disk (int): Size of the disk for binary closing.
+        block_size (int): Pixel neighborhood used to calculate the threshold.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: The cleaned binary mask, and the grayscale image it
@@ -68,7 +70,7 @@ def _apply_threshold_and_clean(
     """
     # Look for optimal threshold
     img_gray = rgb2gray(img)
-    local_thresh = threshold_local(img_gray, block_size=501)
+    local_thresh = threshold_local(img_gray, block_size=(2 * (block_size // 2) + 1))
 
     # morphology: smooth region boundaries and remove small objects
     cleaned = opening(img_gray > local_thresh, footprint=disk(opening_disk))
@@ -211,6 +213,7 @@ def segment_tray(
         min_object_size=max(1, round(config.min_object_size * factor**2)),  # factor**2 for area-based configs
         opening_disk=max(1, round(config.opening_disk * factor)),
         closing_disk=max(1, round(config.closing_disk * factor)),
+        block_size=max(1, round(config.block_size * factor)),
     )
 
     bbox = _select_bbox(
