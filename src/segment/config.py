@@ -25,10 +25,11 @@ class SegmentationRulerConfig:
     text_max_value: int = 99  # maximal visible number on ruler
     r_error_outliers: float = 0.1  # allow 10% error for outliers detection
     n_min_ruler: int = 10  # images to OCR per shape group before taking the median-scale detection
+    seed: int = 0  # seed for randomly sampling images from a group
 
 
 @dataclass
-class SegmentationTrayMultipleConfig:
+class SegmentationTrayGroupConfig:
     """Tunable parameters for estimating a shared tray/core bounding box across a batch of images."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
@@ -55,7 +56,8 @@ class SegmentationTraySingleConfig:
 class SegmentationConfig:
     """Tunable parameters for the segmentation step."""
 
+    n_workers: int = 4  # number of worker processes used to segment images in parallel
     core: SegmentationCoreConfig = field(default_factory=SegmentationCoreConfig)
     ruler: SegmentationRulerConfig = field(default_factory=SegmentationRulerConfig)
-    tray_multiple: SegmentationTrayMultipleConfig = field(default_factory=SegmentationTrayMultipleConfig)
+    tray_group: SegmentationTrayGroupConfig = field(default_factory=SegmentationTrayGroupConfig)
     tray_single: SegmentationTraySingleConfig = field(default_factory=SegmentationTraySingleConfig)

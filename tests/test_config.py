@@ -8,7 +8,7 @@ from src.config import (
     PipelineConfig,
     SegmentationCoreConfig,
     SegmentationRulerConfig,
-    SegmentationTrayMultipleConfig,
+    SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
     StitchingConfig,
 )
@@ -36,7 +36,7 @@ def test_from_yaml_reads_all_sections(tmp_path):
                 wood_sat_threshold: 0.5
               ruler:
                 text_max_value: 50
-              tray_multiple:
+              tray_group:
                 n_min_foreground: 50
               tray_single:
                 min_bbox_height: 200
@@ -56,7 +56,7 @@ def test_from_yaml_reads_all_sections(tmp_path):
 
     assert config.segmentation.core == SegmentationCoreConfig(wood_sat_threshold=0.5)
     assert config.segmentation.ruler == SegmentationRulerConfig(text_max_value=50)
-    assert config.segmentation.tray_multiple == SegmentationTrayMultipleConfig(n_min_foreground=50)
+    assert config.segmentation.tray_group == SegmentationTrayGroupConfig(n_min_foreground=50)
     assert config.segmentation.tray_single == SegmentationTraySingleConfig(min_bbox_height=200)
     assert config.stitching == StitchingConfig(max_core_width=900, max_core_height=5000)
     assert config.evaluation.core_width == CoreWidthCheckConfig(min_samples=100)

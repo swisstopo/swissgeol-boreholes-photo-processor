@@ -164,6 +164,8 @@ The pipeline groups images by their on-disk shape (height, width, channels) and,
 group with at least `10` images, derives a shared bounding box by comparing images from the
 (assumed static) camera position and locating the region that changes between shots (the
 core/tray). Groups with fewer than `10` images fall back to per-image thresholding instead.
+Per-image preprocessing for these shape groups (tray detection and ruler OCR) runs in parallel
+across `segmentation.n_workers` worker processes, controlling which images are sampled from each group.
 
 To use a different config file, pass `--config <path>` (see below).
 
@@ -184,10 +186,11 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 **With MLflow tracking**
 
 ```bash
-uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlflow
+uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --mlflow --debug
 ```
 
-- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server. Segmentation debug images (per-image core/tray/ruler) are logged under a `debug` subfolder of each run's artifacts.
+- `--mlflow`: Enable MLflow artifact logging. By default logs to `./mlruns`; set `MLFLOW_TRACKING_URI` for a remote server.
+- `--debug`: Additionally log per-image and per-shape-group debug images (core/tray/ruler overlays) under a `debug` subfolder of each run's artifacts. Only has an effect when `--mlflow` is also set.
 
 
 To view logged artifacts, start the MLflow UI:
