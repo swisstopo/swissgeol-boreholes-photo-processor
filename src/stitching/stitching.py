@@ -58,7 +58,8 @@ def stitching_batch(
     Returns:
         Image.Image: The stitched image for this batch of cores.
     """
-    n_core_width = config.num_cores_per_image * config.max_core_width
+    core_config = config.core
+    n_core_width = core_config.num_cores_per_image * core_config.max_core_width
 
     # Load all core crops up front so we can identify outliers before resizing
     cores_img = [core.load_core() for core in cores]
@@ -67,61 +68,61 @@ def stitching_batch(
     cores_img = _resize_images(
         images=cores_img,
         scales=[
-            (config.max_core_height / shared_ruler_steps)
+            (core_config.max_core_height / shared_ruler_steps)
             / ((s.ruler.px_per_unit if s.ruler else None) or fallback_scale)
             for s in cores
         ],
-        max_core_height=config.max_core_height,
-        max_core_width=config.max_core_width,
+        max_core_height=core_config.max_core_height,
+        max_core_width=core_config.max_core_width,
     )
 
     canvas_width = (
-        2 * config.ruler_width  # Ruler
-        + 4 * config.padding_horizontal  # Padding
+        2 * core_config.ruler_width  # Ruler
+        + 4 * core_config.padding_horizontal  # Padding
         + n_core_width  # Cores
     )
-    canvas_height = 5 * config.padding_vertical + config.max_core_height
+    canvas_height = 5 * core_config.padding_vertical + core_config.max_core_height
     canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
 
     # Drawing
     v_core_width = sum([img.width for img in cores_img])  # Width of all core
-    v_core_width = v_core_width * (config.num_cores_per_image / len(cores_img))  # Add extra width if core is missing
-    n_padding_horizontal = (n_core_width - v_core_width) / max((config.num_cores_per_image - 1), 1)
+    v_core_width = v_core_width * (core_config.num_cores_per_image / len(cores_img))  # Add width if core is missing
+    n_padding_horizontal = (n_core_width - v_core_width) / max((core_config.num_cores_per_image - 1), 1)
     canvas = _draw_cores(
         canvas=canvas,
         cores=cores_img,
         labels_range=[(core.depth_start, core.depth_end) for core in cores],
-        loc=(2 * config.padding_horizontal + config.ruler_width, 3 * config.padding_vertical),
+        loc=(2 * core_config.padding_horizontal + core_config.ruler_width, 3 * core_config.padding_vertical),
         padding_horizontal=int(n_padding_horizontal),
-        padding_vertical=config.padding_vertical,
-        max_core_height=config.max_core_height,
-        font_size=config.font_size,
+        padding_vertical=core_config.padding_vertical,
+        max_core_height=core_config.max_core_height,
+        font_size=core_config.font_size,
     )
 
     canvas = _draw_borehole_label(
         canvas,
         borehole_id=shared_core_id,
-        loc=(config.padding_horizontal, config.padding_vertical),
-        font_size=config.font_size,
+        loc=(core_config.padding_horizontal, core_config.padding_vertical),
+        font_size=core_config.font_size,
     )
 
     canvas = _draw_ruler(
         canvas,
-        loc=(config.padding_horizontal, 3 * config.padding_vertical),
-        size=(config.ruler_width, config.max_core_height),
+        loc=(core_config.padding_horizontal, 3 * core_config.padding_vertical),
+        size=(core_config.ruler_width, core_config.max_core_height),
         n_major=shared_ruler_steps,
-        font_size=round(config.font_size / 2),
+        font_size=round(core_config.font_size / 2),
     )
 
     canvas = _draw_ruler(
         canvas,
         loc=(
-            3 * config.padding_horizontal + config.ruler_width + n_core_width,
-            3 * config.padding_vertical,
+            3 * core_config.padding_horizontal + core_config.ruler_width + n_core_width,
+            3 * core_config.padding_vertical,
         ),
-        size=(config.ruler_width, config.max_core_height),
+        size=(core_config.ruler_width, core_config.max_core_height),
         n_major=shared_ruler_steps,
-        font_size=round(config.font_size / 2),
+        font_size=round(core_config.font_size / 2),
         horizontal_flip=True,
     )
 
@@ -163,9 +164,9 @@ def stitching(
     # Estimate ruler span over all cores
     canvas_ruler_steps = np.ceil(max(original_heights / original_scales)).astype(int).item()
 
-    for i in range(0, len(imgs), config.num_cores_per_image):
+    for i in range(0, len(imgs), config.core.num_cores_per_image):
         yield stitching_batch(
-            cores=imgs[i : i + config.num_cores_per_image],
+            cores=imgs[i : i + config.core.num_cores_per_image],
             shared_ruler_steps=canvas_ruler_steps,
             shared_core_id=imgs[0].borehole_id,
             fallback_scale=fallback_scale,
