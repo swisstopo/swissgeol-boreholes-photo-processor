@@ -20,7 +20,7 @@ from src.segment.segment import segment
 from src.segment.utils.core import segment_core
 from src.segment.utils.misc import group_images_by_shape
 from src.segment.utils.ruler import ProcessRulerGroupByShape
-from src.segment.utils.tray import ProcessTrayGroupByShape
+from src.segment.utils.tray import ProcessTrayGroupByShape, _bbox_skimage_intersection
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
@@ -116,7 +116,7 @@ def test_segment_detects_core_bbox(make_metadata):
 
 
 def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
-    """Raising wood_sat_threshold above the tray's saturation disables the trim."""
+    """Wood tray saturation trimming is configurable."""
     tray_box = (150, 100, 650, 1150)
     core_box = (150, 300, 650, 950)
     metadata = make_metadata(
@@ -382,3 +382,9 @@ def test_process_ruler_group_by_shape_skips_shape_group_when_no_image_detects_a_
     ).run(imgs)
 
     assert results == {}
+
+
+def test_bbox_skimage_intersection():
+    """Test proper image intersection for overlapping bbox."""
+    assert _bbox_skimage_intersection((0, 0, 10, 10), (5, 5, 15, 15)) is True
+    assert _bbox_skimage_intersection((0, 0, 10, 10), (10, 10, 20, 20)) is False

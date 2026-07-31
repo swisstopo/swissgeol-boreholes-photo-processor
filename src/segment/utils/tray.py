@@ -26,7 +26,7 @@ from src.utils import scale_bbox
 logger = logging.getLogger(__name__)
 
 
-def bbox_skimage_interserction(
+def _bbox_skimage_intersection(
     bboxA: tuple[float, float, float, float], bboxB: tuple[float, float, float, float]
 ) -> bool:
     """Check whether two skimage-style bounding boxes overlap.
@@ -40,12 +40,12 @@ def bbox_skimage_interserction(
     Returns:
         bool: True if the two bounding boxes overlap, False otherwise.
     """
-    xA = max(bboxA[0], bboxB[0])
-    yA = max(bboxA[1], bboxB[1])
-    xB = min(bboxA[2], bboxB[2])
-    yB = min(bboxA[3], bboxB[3])
+    min_row = max(bboxA[0], bboxB[0])
+    min_col = max(bboxA[1], bboxB[1])
+    max_row = min(bboxA[2], bboxB[2])
+    max_col = min(bboxA[3], bboxB[3])
 
-    return abs(max((xB - xA, 0)) * max((yB - yA), 0)) != 0
+    return max((max_row - min_row, 0)) * max((max_col - min_col), 0) != 0
 
 
 def _apply_threshold_and_clean(
@@ -109,7 +109,7 @@ def _select_bbox(
         edge_margin_top (int): Ignore top edge of image (ruler).
         edge_margin_bottom (int): Ignore bottom edge of image (ruler).
         min_size_for_bottom (int): Minimum area for a candidate core to touch the bottom edge of the image.
-        exclude_area (tuple[float, float, float, float] | None): TODO.
+        exclude_area (tuple[float, float, float, float] | None): Bounding box to exclude from candidate selection.
 
     Returns:
         tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
@@ -134,11 +134,11 @@ def _select_bbox(
 
     # If exclusion area, remove bbox overlapping
     if exclude_area is not None:
-        bbox_skimage_exclude = (int(exclude_area[1]), int(exclude_area[0]), int(exclude_area[3]), int(exclude_area[2]))
+        x_min, y_min, x_max, y_max = exclude_area
         candidates = [
             candidate
             for candidate in candidates
-            if not bbox_skimage_interserction(bbox_skimage_exclude, candidate.bbox)
+            if not _bbox_skimage_intersection((int(y_min), int(x_min), int(y_max), int(x_max)), candidate.bbox)
         ]
 
     if not candidates:
@@ -200,7 +200,8 @@ def segment_tray(
     Args:
         img_metadata (ImageMetadata): Metadata of the image to load and segment.
         config (SegmentationTraySingleConfig): Tunable segmentation parameters.
-        ruler (RulerSegmentResult | None): TODO.
+        ruler (RulerSegmentResult | None): Detected ruler bbox to exclude from tray candidate selection.
+
 
     Returns:
         TraySegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the original image's

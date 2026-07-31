@@ -93,13 +93,13 @@ def segment_core(
 
     # Remove wood / background (top/bottom). If multiple intervals, consider only largest one (first)
     top_trim_wood, bottom_trim_wood = _find_valid_intervals(
-        values=np.concatenate([hsv[:, lr[0] : lr[1], 1] for lr in lr_trims], axis=1),
+        values=np.concatenate([hsv[:, lr[0] : lr[1] + 1, 1] for lr in lr_trims], axis=1),
         threshold=config.wood_sat_threshold,
         ratio=config.wood_sat_hratio,
     )[0]
 
     top_trim_background, bottom_trim_background = _find_valid_intervals(
-        values=-np.concatenate([hsv[:, lr[0] : lr[1], 2] for lr in lr_trims], axis=1),
+        values=-np.concatenate([hsv[:, lr[0] : lr[1] + 1, 2] for lr in lr_trims], axis=1),
         threshold=-config.background_val_threshold,
         ratio=config.background_val_hratio,
     )[0]
