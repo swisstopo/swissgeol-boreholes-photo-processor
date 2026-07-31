@@ -27,23 +27,23 @@ logger = logging.getLogger(__name__)
 
 
 def _bbox_skimage_intersection(
-    bboxA: tuple[float, float, float, float], bboxB: tuple[float, float, float, float]
+    bbox_a: tuple[float, float, float, float], bbox_b: tuple[float, float, float, float]
 ) -> bool:
     """Check whether two skimage-style bounding boxes overlap.
 
     Args:
-        bboxA (tuple[float, float, float, float]): First bounding box in skimage
+        bbox_a (tuple[float, float, float, float]): First bounding box in skimage
             regionprops format (min_row, min_col, max_row, max_col).
-        bboxB (tuple[float, float, float, float]): Second bounding box in skimage
+        bbox_b (tuple[float, float, float, float]): Second bounding box in skimage
             regionprops format (min_row, min_col, max_row, max_col).
 
     Returns:
         bool: True if the two bounding boxes overlap, False otherwise.
     """
-    min_row = max(bboxA[0], bboxB[0])
-    min_col = max(bboxA[1], bboxB[1])
-    max_row = min(bboxA[2], bboxB[2])
-    max_col = min(bboxA[3], bboxB[3])
+    min_row = max(bbox_a[0], bbox_b[0])
+    min_col = max(bbox_a[1], bbox_b[1])
+    max_row = min(bbox_a[2], bbox_b[2])
+    max_col = min(bbox_a[3], bbox_b[3])
 
     return max((max_row - min_row, 0)) * max((max_col - min_col), 0) != 0
 
@@ -88,7 +88,7 @@ def _select_bbox(
     edge_margin_top: int,
     edge_margin_bottom: int,
     min_size_for_bottom: int,
-    exclude_area: tuple[float, float, float, float] | None,
+    avoid_area: tuple[float, float, float, float] | None,
 ) -> tuple[int, int, int, int]:
     """Select the bounding box of the core region from the list of region properties.
 
@@ -99,7 +99,8 @@ def _select_bbox(
     - Union of all candidate bboxes is used to handle fragmented cores
 
     Fallback:
-    - If no candidate regions are found, the largest region is selected as the core region.
+    - If no candidate regions are found, the largest region is selected as the core region even if
+    region overlaps with `avoid_area`.
 
     Args:
         img_mask (np.ndarray): Binary mask of candidate core regions.
@@ -109,7 +110,7 @@ def _select_bbox(
         edge_margin_top (int): Ignore top edge of image (ruler).
         edge_margin_bottom (int): Ignore bottom edge of image (ruler).
         min_size_for_bottom (int): Minimum area for a candidate core to touch the bottom edge of the image.
-        exclude_area (tuple[float, float, float, float] | None): Bounding box to exclude from candidate selection.
+        avoid_area (tuple[float, float, float, float] | None): Bounding box to avoid if possible from candidate.
 
     Returns:
         tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
@@ -133,8 +134,8 @@ def _select_bbox(
     ]
 
     # If exclusion area, remove bbox overlapping
-    if exclude_area is not None:
-        x_min, y_min, x_max, y_max = exclude_area
+    if avoid_area is not None:
+        x_min, y_min, x_max, y_max = avoid_area
         candidates = [
             candidate
             for candidate in candidates
@@ -202,7 +203,6 @@ def segment_tray(
         config (SegmentationTraySingleConfig): Tunable segmentation parameters.
         ruler (RulerSegmentResult | None): Detected ruler bbox to exclude from tray candidate selection.
 
-
     Returns:
         TraySegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the original image's
             coordinate space. Background/foreground debug images are left unset.
@@ -225,7 +225,7 @@ def segment_tray(
         edge_margin_top=round(config.edge_margin_top * factor),
         edge_margin_bottom=round(config.edge_margin_bottom * factor),
         min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
-        exclude_area=scale_bbox(ruler.bbox, config.downscale_factor) if ruler is not None else None,
+        avoid_area=scale_bbox(ruler.bbox, config.downscale_factor) if ruler is not None else None,
     )
 
     return TraySegmentResult(

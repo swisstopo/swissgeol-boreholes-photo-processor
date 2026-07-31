@@ -43,7 +43,7 @@ class SegmentationTraySingleConfig:
     """Tunable parameters for segmenting a single image via thresholding when no shared bbox is available."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    block_size: int = 4000  # pixel neighborhood used to calculate the threshold.
+    block_size: int = 4000  # pixel neighborhood used to calculate the threshold
     closing_disk: int = 50  # radius for binary_closing (fills gaps)
     edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
     edge_margin_top: int = 100  # ignore top edge of image (ruler)
