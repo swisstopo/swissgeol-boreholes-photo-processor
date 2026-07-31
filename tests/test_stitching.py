@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from src.config import StitchingConfig
-from src.models import ImageMetadata, ImageMetadataProcessed, ImageSegmentResult, RulerSegmentResult
+from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed, RulerSegmentResult
 from src.stitching.stitching import stitching
 
 RED = (255, 0, 0)
@@ -37,7 +37,7 @@ def make_processed(tmp_path):
             depth_end=depth_end,
             image_path=image_path,
         )
-        core = ImageSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])))
+        core = CoreSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])))
         ruler = RulerSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])), px_per_unit=100, bbox_units=[])
         return ImageMetadataProcessed.from_metadata(metadata=metadata, core=core, tray=core, ruler=ruler)
 

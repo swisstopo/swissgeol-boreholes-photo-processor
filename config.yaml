@@ -2,10 +2,13 @@
 # All keys are optional; omitted keys fall back to the defaults in src/config.py.
 
 segmentation:
-  tray_multiple:
+  n_workers: 4 # number of worker processes used to segment images in parallel
+
+  tray_group:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    foreground_blur_sigma: 5.0 # Gaussian blur applied to each image for foreground detection.
-    n_min_foreground: 10 # Minimum number images required to estimate a foreground
+    foreground_blur_sigma: 5.0 # gaussian blur applied to each image for foreground detection.
+    n_min_foreground: 10 # minimum number images required to estimate a foreground
+    seed: 0 # seed for randomly sampling images from a group
 
   tray_single:
     closing_disk: 20 # radius for binary_closing (fills gaps)
@@ -19,15 +22,20 @@ segmentation:
 
   ruler:
     downscale_factor: 0.5 # scale images by this factor before OCR
-    text_min_value: 1 # Minimal visible number on ruler
-    text_max_value: 99 # Maximal visible number on ruler
-    r_error_outliers: 0.1 # Allow 10% error for inliers detection
+    text_min_value: 1 # minimal visible number on ruler
+    text_max_value: 99 # maximal visible number on ruler
+    r_error_outliers: 0.1 # allow 10% error for outliers detection
     n_min_ruler: 10 # images to OCR per shape group before taking the median-scale detection
+    seed: 0 # seed for randomly sampling images from a group
 
   core:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    tray_sat_ratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
-    tray_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
+    background_val_hratio: 0.75 # fraction of dark-background pixels in a row required to trim that row
+    background_val_vratio: 0.90 # fraction of dark-background pixels in a column required to trim that column
+    background_val_threshold: 0.20 # value (HSV) below this = black background (not rock)
+    wood_sat_hratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
+    wood_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
+    min_segment_height_px: 100 # minimum height (px) for a left/right segment to be kept as core
 
 stitching:
   font_size: 100 # font size (px) used for borehole ID, depth labels, and ruler tick labels

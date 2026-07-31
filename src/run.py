@@ -19,7 +19,7 @@ from src.mlflow_utils import (
     upload_log_to_mlflow,
     write_evaluation_summary_csv,
 )
-from src.models import ImageMetadata, ImageMetadataProcessed
+from src.models import ImageMetadata
 from src.segment.segment import segment
 from src.stitching.stitching import stitching
 
@@ -45,6 +45,7 @@ def run(
     output_dir: Path,
     config: PipelineConfig,
     with_mlflow: bool = False,
+    debug: bool = False,
     nested: bool = False,
     summary_csv_path: Path | None = None,
     log_path: Path | None = None,
@@ -56,6 +57,8 @@ def run(
         output_dir (Path): Path to the directory where processed images will be written.
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
+        debug (bool): Whether to additionally log debug images (e.g. per-image tray/ruler
+            detections) to MLflow. Only applies when with_mlflow is True.
         nested (bool): Whether to start a nested MLflow run under an existing active run.
         summary_csv_path (Path | None): If set, append this folder's evaluation summary
             (pass-rate and mean relative error per check) as a row to this CSV file.
@@ -79,9 +82,7 @@ def run(
         logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
 
         # segmentation
-        detections: list[ImageMetadataProcessed] = segment(
-            imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow
-        )
+        detections = segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug)
 
         # evaluation of detection
         if with_mlflow:
@@ -117,6 +118,7 @@ def batch_run(
     output_dir: Path,
     config: PipelineConfig,
     with_mlflow: bool = False,
+    debug: bool = False,
     log_path: Path | None = None,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
@@ -127,6 +129,8 @@ def batch_run(
         output_dir (Path): Path to the directory where processed images will be written.
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
+        debug (bool): Whether to additionally log debug images (e.g. per-image tray/ruler
+            detections) to MLflow. Only applies when with_mlflow is True.
         log_path (Path | None): If set, upload the batch's log file to MLflow once processing
             completes.
     """
@@ -141,6 +145,7 @@ def batch_run(
                     output_dir=output_dir / subdir.name,
                     config=config,
                     with_mlflow=with_mlflow,
+                    debug=debug,
                     nested=True,
                     summary_csv_path=summary_csv_path,
                 )
@@ -157,6 +162,7 @@ def main() -> None:
     parser.add_argument("--input", type=Path, required=True, help="Path to the input directory.")
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
     parser.add_argument("--mlflow", action="store_true", help="Whether to log artifacts to MLflow.")
+    parser.add_argument("--debug", action="store_true", help="Whether to log debug images to MLflow.")
     parser.add_argument(
         "--config",
         type=Path,
@@ -194,6 +200,7 @@ def main() -> None:
             output_dir=args.output,
             config=config,
             with_mlflow=args.mlflow,
+            debug=args.debug,
             log_path=log_path if args.mlflow else None,
         )
     else:
@@ -202,6 +209,7 @@ def main() -> None:
             output_dir=args.output,
             config=config,
             with_mlflow=args.mlflow,
+            debug=args.debug,
             log_path=log_path if args.mlflow else None,
         )
 

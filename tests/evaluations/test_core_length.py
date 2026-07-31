@@ -4,7 +4,7 @@ from pathlib import Path
 
 from src.evaluations.config import CoreLengthCheckConfig
 from src.evaluations.core import EvaluationLengthCompute
-from src.models import ImageMetadataProcessed, ImageSegmentResult, RulerSegmentResult
+from src.models import CoreSegmentResult, ImageMetadataProcessed, RulerSegmentResult
 
 # Depth intervals (in metres) with varied, exactly-representable values.
 _INTERVALS_M = [0.5, 0.75, 1.0, 1.25, 1.5]
@@ -24,7 +24,7 @@ def _make_detection(length: float, depth_start: float, interval: float) -> Image
         depth_start=depth_start,
         depth_end=depth_end,
         image_path=Path(f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"),
-        core=ImageSegmentResult(bbox=(left, 0.0, left + length, 900.0)),
+        core=CoreSegmentResult(bbox=(left, 0.0, left + length, 900.0)),
         tray=None,
         ruler=RulerSegmentResult(px_per_unit=100, bbox=(0.0, 0.0, 0.0, 0.0), bbox_units=[]),
     )

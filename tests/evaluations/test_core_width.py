@@ -6,7 +6,7 @@ import pytest
 
 from src.evaluations.config import CoreWidthCheckConfig
 from src.evaluations.core import EvaluationWidthCompute
-from src.models import ImageMetadataProcessed, ImageSegmentResult, RulerSegmentResult
+from src.models import CoreSegmentResult, ImageMetadataProcessed, RulerSegmentResult
 
 
 def _make_detection(width: float, depth_start: float) -> ImageMetadataProcessed:
@@ -21,7 +21,7 @@ def _make_detection(width: float, depth_start: float) -> ImageMetadataProcessed:
         depth_start=depth_start,
         depth_end=depth_end,
         image_path=Path(f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"),
-        core=ImageSegmentResult(bbox=(100.0, 0.0, 1000.0, width)),
+        core=CoreSegmentResult(bbox=(100.0, 0.0, 1000.0, width)),
         tray=None,
         ruler=RulerSegmentResult(px_per_unit=100, bbox=(0.0, 0.0, 0.0, 0.0), bbox_units=[]),
     )

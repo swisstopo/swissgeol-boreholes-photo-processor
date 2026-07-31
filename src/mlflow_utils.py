@@ -8,10 +8,47 @@ from pathlib import Path
 
 import mlflow
 import numpy as np
+from mlflow.tracking import MlflowClient
 from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
-from src.models import ImageMetadataProcessed, SegmentationRecord
+from src.models import ImageMetadataProcessed, ImageSegmentResult, TraySegmentResult
+from src.utils import scale_bbox
+
+
+def log_tray_segment_mlflow(
+    result: TraySegmentResult | None,
+    filename: str,
+    suffix: str = ".jpg",
+    subfolder: str | None = None,
+) -> None:
+    """Log the debug background/foreground images used to estimate a shared tray bbox to MLflow.
+
+    Draws the estimated bbox on the foreground (per-pixel std) image for visual inspection, and
+    logs both the mean background image and the annotated foreground image as separate artifacts.
+
+    Args:
+        result (TraySegmentResult | None): If its img_background/img_foreground debug images
+            are unset, the corresponding artifact is skipped.
+        filename (str): The filename prefix for the artifacts.
+        suffix (str, optional): File extension (including the dot) used when saving the artifacts.
+            Defaults to ".jpg".
+        subfolder (str | None, optional): Optional subfolder for image logging. Defaults to None.
+    """
+    if result is None:
+        return
+
+    if result.img_background is not None:
+        img_bg_pil = Image.fromarray((result.img_background * 255).astype(np.uint8))
+        log_artifact_with_mlflow(img_bg_pil, filename + "_background", suffix, subfolder)
+
+    if result.img_foreground is not None and result.img_downscale_factor is not None:
+        img_fg_pil = Image.fromarray(
+            (result.img_foreground / (result.img_foreground.max() + 1e-16) * 255).astype(np.uint8)
+        ).convert("RGB")
+        draw = ImageDraw.Draw(img_fg_pil)
+        draw.rectangle(scale_bbox(result.bbox, result.img_downscale_factor), outline="red", width=5)
+        log_artifact_with_mlflow(img_fg_pil, filename + "_foreground", suffix, subfolder)
 
 
 def upload_log_to_mlflow(log_path: Path) -> None:
@@ -31,6 +68,7 @@ def log_image_metadata_processed_mlflow(
     suffix: str = ".jpg",
     subfolder: str | None = None,
     font_size: int = 30,
+    run_id: str | None = None,
 ) -> None:
     """Log a processed image to MLflow with core/tray/ruler bounding boxes overlaid.
 
@@ -40,47 +78,68 @@ def log_image_metadata_processed_mlflow(
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
         font_size (int): Font size used to draw the ruler's px-per-unit label.
+        run_id (str | None): If set, log the artifact directly to this run via MlflowClient
+            instead of the active run. Safe to call concurrently from multiple processes
+            against the same run_id, unlike `mlflow.start_run`/`end_run`. Defaults to None.
     """
     img_npy = result.load_image()
-    img_pil = Image.fromarray((img_npy * 255).astype(np.uint8))
-    draw = ImageDraw.Draw(img_pil)
+    img_pil = Image.fromarray((img_npy * 255).astype(np.uint8)).convert("RGBA")
+    overlay = Image.new("RGBA", img_pil.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
     font = ImageFont.load_default(size=font_size)
 
-    if result.core:
-        draw.rectangle(result.core.bbox, outline="green", width=5)
-    if result.ruler:
-        draw.rectangle(result.ruler.bbox, outline="blue", width=5)
-        for bbox in result.ruler.bbox_units:
-            draw.rectangle(bbox, outline="blue", width=2)
+    if result.core is not None:
+        # Draw segments < overall detection
+        for bbox in result.core.bbox_segments or []:
+            draw.rectangle(bbox, outline=(0, 255, 0, 255), fill=(0, 255, 0, 30), width=2)
+        draw.rectangle(result.core.bbox, outline=(0, 255, 0, 255), width=5)
+
+    if result.ruler is not None:
+        # Draw units < overall detection < resolution text
+        for bbox in result.ruler.bbox_units or []:
+            draw.rectangle(bbox, outline=(0, 0, 255, 255), fill=(0, 0, 255, 30), width=2)
+        draw.rectangle(result.ruler.bbox, outline=(0, 0, 255, 255), width=5)
         draw.text(
             (result.ruler.bbox[0], result.ruler.bbox[1]),
             f"{result.ruler.px_per_unit:.1f} px/unit",
-            fill=(255, 255, 255),
+            fill=(255, 255, 255, 255),
             font=font,
             anchor="lt",
         )
 
-    if result.tray:
-        draw.rectangle(result.tray.bbox, outline="red", width=5)
+    if result.tray is not None:
+        draw.rectangle(result.tray.bbox, outline=(255, 0, 0, 255), width=5)
 
-    log_artifact_with_mlflow(img_pil, filename, suffix, subfolder)
+    img_pil = Image.alpha_composite(img_pil, overlay).convert("RGB")
+
+    log_artifact_with_mlflow(img_pil, filename, suffix, subfolder, run_id=run_id)
 
 
-def log_segmentation_summary_mlflow(
-    num_foreground_groups: int,
-    images: list[SegmentationRecord],
-    filename: str = "segmentation_summary.json",
+def log_segmentation_results_with_mlflow(
+    detections: list[ImageMetadataProcessed],
+    time: float,
 ) -> None:
-    """Log a JSON summary of the segmentation approach used per image.
+    """Log a summary of the segmentation timing and approach breakdown to MLflow.
+
+    Dumps a single JSON artifact ("segmentation_summary.json") containing the overall
+    time for the run, a per-approach (single vs. shared group) count/timing breakdown
+    for the tray, ruler, and core detectors, and every image's full detection result.
 
     Args:
-        num_foreground_groups (int): Number of image-shape groups with a successfully
-            estimated shared foreground.
-        images (list[SegmentationRecord]): Per-image segmentation approach records.
-        filename (str): The filename for the JSON artifact.
+        detections (list[ImageMetadataProcessed]): Per-image processed results.
+        time (float): Overall wall-clock time, in seconds, for the segmentation run.
     """
     mlflow.log_dict(
-        {"num_foreground_groups": num_foreground_groups, "images": [asdict(image) for image in images]}, filename
+        {
+            "time": {
+                "overall": time,
+                "tray": ImageSegmentResult.approach_to_json([detection.tray for detection in detections]),
+                "ruler": ImageSegmentResult.approach_to_json([detection.ruler for detection in detections]),
+                "core": ImageSegmentResult.approach_to_json([detection.core for detection in detections]),
+            },
+            "detections": [detection.to_dict() for detection in detections],
+        },
+        "segmentation_summary.json",
     )
 
 
@@ -89,6 +148,7 @@ def log_artifact_with_mlflow(
     filename: str,
     suffix: str = ".jpg",
     subfolder: str | None = None,
+    run_id: str | None = None,
 ) -> None:
     """Log an image artifact to MLflow.
 
@@ -97,14 +157,17 @@ def log_artifact_with_mlflow(
         filename (str): The filename prefix for the artifact.
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
+        run_id (str | None): If set, log the artifact directly to this run via MlflowClient
+            instead of the active run. Safe to call concurrently from multiple processes
+            against the same run_id, unlike `mlflow.start_run`/`end_run`. Defaults to None.
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         artifact_path = Path(tmp_dir) / f"{filename}{suffix}"
         img.save(artifact_path)
-        mlflow.log_artifact(
-            local_path=str(artifact_path),
-            artifact_path=subfolder,
-        )
+        if run_id is not None:
+            MlflowClient().log_artifact(run_id=run_id, local_path=str(artifact_path), artifact_path=subfolder)
+        else:
+            mlflow.log_artifact(local_path=str(artifact_path), artifact_path=subfolder)
 
 
 def _summarize_checks(results: list[CoreCheckResult]) -> dict[str, tuple[float, float] | None]:

@@ -7,24 +7,20 @@ import numpy as np
 import pytest
 import tifffile
 from PIL import Image, ImageDraw
-from pytest import approx
 
-import src.segment.utils as segment_utils
 from src.config import (
     SegmentationConfig,
     SegmentationCoreConfig,
     SegmentationRulerConfig,
-    SegmentationTrayMultipleConfig,
+    SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
 )
-from src.models import ImageMetadata, RulerSegmentResult
+from src.models import ImageMetadata, RulerSegmentResult, TraySegmentResult
 from src.segment.segment import segment
-from src.segment.utils import (
-    group_images_by_shape,
-    segment_ruler_by_group,
-    segment_tray_by_group,
-    segment_tray_multiple,
-)
+from src.segment.utils.core import segment_core
+from src.segment.utils.misc import group_images_by_shape
+from src.segment.utils.ruler import ProcessRulerGroupByShape
+from src.segment.utils.tray import ProcessTrayGroupByShape
 
 _IMG_SIZE = (800, 1200)
 _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray backdrop
@@ -97,7 +93,7 @@ def test_segment_example(example):
     assert detections[0].core.bbox[3] < detections[0].tray.bbox[3]
 
     # Ruler detected with proper resolution (2% relative error)
-    assert approx(detections[0].ruler.px_per_unit, rel=0.02) == 100
+    assert pytest.approx(detections[0].ruler.px_per_unit, rel=0.02) == 100
 
 
 def test_segment_detects_core_bbox(make_metadata):
@@ -142,7 +138,7 @@ def test_segment_trims_saturated_tray_by_default(make_metadata):
 
 
 def test_segment_tray_trim_threshold_is_configurable(make_metadata):
-    """Raising tray_sat_threshold above the tray's saturation disables the trim."""
+    """Raising wood_sat_threshold above the tray's saturation disables the trim."""
     tray_box = (150, 100, 650, 1150)
     core_box = (150, 300, 650, 950)
     metadata = make_metadata(
@@ -155,12 +151,71 @@ def test_segment_tray_trim_threshold_is_configurable(make_metadata):
         [metadata],
         config=SegmentationConfig(
             tray_single=SegmentationTraySingleConfig(downscale_factor=1),
-            core=SegmentationCoreConfig(downscale_factor=1, tray_sat_threshold=1.1),
+            core=SegmentationCoreConfig(downscale_factor=1, wood_sat_threshold=1.1),
         ),
     )
 
     assert detections[0].tray is not None
     assert detections[0].tray.bbox == tray_box
+
+
+def test_segment_core_trims_black_background_left_right(make_metadata):
+    """Black background left/right of a full-height, unsaturated core is trimmed via the value channel alone."""
+    size = (400, 100)
+    core_box = (100, 0, 300, 99)
+    metadata = make_metadata(15.0, 16.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)), size=size)
+    tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
+
+    result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+
+    assert result.bbox == core_box
+
+
+def test_segment_core_splits_fragmented_core_into_segments(make_metadata):
+    """A core split in two by a black gap yields two bbox_segments and a bbox spanning their union."""
+    size = (400, 100)
+    left_box = (50, 0, 150, 99)
+    right_box = (250, 0, 350, 99)
+    metadata = make_metadata(
+        15.0,
+        16.0,
+        lambda draw: (
+            draw.rectangle(left_box, fill=(200, 200, 200)),
+            draw.rectangle(right_box, fill=(200, 200, 200)),
+        ),
+        size=size,
+    )
+    tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
+
+    result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+
+    assert result.bbox == (left_box[0], 0, right_box[2], 99)
+    assert result.bbox_segments is not None
+    assert len(result.bbox_segments) == 2
+    assert sorted(result.bbox_segments) == sorted([left_box, right_box])
+
+
+def test_segment_core_drops_thin_segments(make_metadata):
+    """A segment thinner than min_segment_height_px is dropped and doesn't widen the core bbox."""
+    size = (400, 100)
+    core_box = (100, 0, 300, 99)
+    segment_box = (10, 0, 14, 99)  # 5px wide, well under the default min_segment_height_px of 10
+    metadata = make_metadata(
+        15.0,
+        16.0,
+        lambda draw: (
+            draw.rectangle(core_box, fill=(200, 200, 200)),
+            draw.rectangle(segment_box, fill=(200, 200, 200)),
+        ),
+        size=size,
+    )
+    tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
+
+    result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+
+    assert result.bbox == core_box  # segment excluded, doesn't pull the left edge out to x=10
+    assert result.bbox_segments is not None
+    assert len(result.bbox_segments) == 1
 
 
 def test_segment_skips_image_with_no_detectable_regions(make_metadata):
@@ -226,26 +281,23 @@ def test_estimate_foreground_returns_none_below_n_min(make_metadata):
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(4)]
 
     assert (
-        segment_tray_multiple(
-            imgs,
-            config=SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=10),
-        )
-        is None
+        ProcessTrayGroupByShape(
+            SegmentationTrayGroupConfig(downscale_factor=1, n_min_foreground=10),
+        ).run(imgs)
+        == {}
     )
 
 
-def test_estimate_foreground_returns_none_on_inconsistent_image_sizes(make_metadata):
-    """A batch with a mismatched image size can't be stacked into a single std map."""
+def test_estimate_foreground_skips_shape_group_below_n_min(make_metadata):
+    """A shape group with too few images is dropped, but a sufficient one still succeeds."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(100, 100)) for i in range(10)]
     imgs.append(make_metadata(25.0, 26.0, size=(50, 50)))
 
-    assert (
-        segment_tray_multiple(
-            imgs,
-            config=SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=10),
-        )
-        is None
-    )
+    results = ProcessTrayGroupByShape(
+        SegmentationTrayGroupConfig(downscale_factor=1, n_min_foreground=10),
+    ).run(imgs)
+
+    assert set(results.keys()) == {(100, 100, 3)}
 
 
 def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
@@ -257,13 +309,14 @@ def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
         for i, f in enumerate(fills)
     ]
 
-    tray = segment_tray_multiple(
-        imgs,
-        config=SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=5),
-    )
-    assert tray is not None
+    results = ProcessTrayGroupByShape(
+        SegmentationTrayGroupConfig(downscale_factor=1, n_min_foreground=5),
+    ).run(imgs)
 
-    x_min, y_min, x_max, _ = tray.bbox
+    assert results is not None
+    assert set(results.keys()) == {(100, 100, 3)}
+
+    x_min, y_min, x_max, _ = results[(100, 100, 3)].bbox
     assert int(x_max) - int(x_min) + 1 == 100  # Spans left to right
     assert int(y_min) > 50  # Bottom half is moving, not upper
 
@@ -280,7 +333,7 @@ def test_group_images_by_shape_groups_by_dimensions(make_metadata):
     assert grouped[large[0].shape] == large
 
 
-def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
+def test_process_tray_group_by_shape_estimates_independently_per_shape(make_metadata):
     """Each image-shape group gets its own independently estimated shared-foreground bbox."""
     fills = [50, 90, 130, 170, 210]
 
@@ -300,10 +353,9 @@ def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
     group_a, core_box_a = make_group((100, 100), 15.0)
     group_b, core_box_b = make_group((60, 60), 30.0)
 
-    results = segment_tray_by_group(
-        group_a + group_b,
-        SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=5),
-    )
+    results = ProcessTrayGroupByShape(
+        SegmentationTrayGroupConfig(downscale_factor=1, n_min_foreground=5),
+    ).run(group_a + group_b)
 
     shape_a, shape_b = group_a[0].shape, group_b[0].shape
     assert set(results) == {shape_a, shape_b}
@@ -314,134 +366,35 @@ def test_segment_tray_by_group_estimates_independently_per_shape(make_metadata):
         assert int(y_min) > core_box[1] - 1  # bottom half is moving, not upper
 
 
-def test_segment_ruler_by_group_aggregates_all_available_images_below_quota(make_metadata, monkeypatch):
-    """A shape group smaller than n_min_ruler has every image OCR'd and aggregated."""
+def test_process_ruler_group_by_shape_skips_shape_group_below_n_min(make_metadata):
+    """A shape group smaller than n_min_ruler is skipped, not OCR'd and aggregated."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
-    fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
-    calls = []
 
-    def fake_segment_ruler(img_metadata, config):
-        calls.append(img_metadata.image_path)
-        return fake_ruler
+    results = ProcessRulerGroupByShape(config=SegmentationRulerConfig(downscale_factor=1, n_min_ruler=5)).run(imgs)
 
-    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
-
-    results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
-
-    assert results == {imgs[0].shape: fake_ruler}
-    assert calls == [img.image_path for img in imgs]
+    assert results == {}
 
 
-def test_segment_ruler_by_group_tries_next_image_after_a_miss(make_metadata, monkeypatch):
-    """If OCR misses on an image, the next image in the same shape group is tried."""
-    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
-    fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
-    calls = []
-
-    def fake_segment_ruler(img_metadata, config):
-        calls.append(img_metadata.image_path)
-        return None if img_metadata is imgs[0] else fake_ruler
-
-    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
-
-    results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
-
-    assert results == {imgs[0].shape: fake_ruler}
-    assert calls == [img.image_path for img in imgs]  # a miss doesn't stop the scan through the group
-
-
-def test_segment_ruler_by_group_picks_median_scale_detection(make_metadata, monkeypatch):
+def test_process_ruler_group_by_shape_picks_median_scale_detection():
     """Among several detections, the one with the median px_per_unit is kept, not the first or last."""
-    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(3)]
-    rulers_by_path = {
-        imgs[0].image_path: RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=9.0, bbox_units=[]),
-        imgs[1].image_path: RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[]),
-        imgs[2].image_path: RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=7.0, bbox_units=[]),
-    }
+    detections = [
+        RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=9.0, bbox_units=[]),
+        RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[]),
+        RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=7.0, bbox_units=[]),
+    ]
 
-    def fake_segment_ruler(img_metadata, config):
-        return rulers_by_path[img_metadata.image_path]
+    result = ProcessRulerGroupByShape(SegmentationRulerConfig())._aggregate(detections)
 
-    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
-
-    results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
-
-    result = results[imgs[0].shape]
     assert result is not None
     assert result.px_per_unit == 7.0  # median of 9.0, 5.0, 7.0
 
 
-def test_segment_ruler_by_group_stops_ocr_once_quota_reached(make_metadata, monkeypatch):
-    """OCR stops once n_min_ruler detections succeed, even if the group has more images left."""
-    imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(5)]
-    fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
-    calls = []
-
-    def fake_segment_ruler(img_metadata, config):
-        calls.append(img_metadata.image_path)
-        return fake_ruler
-
-    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
-
-    results = segment_ruler_by_group(imgs, SegmentationRulerConfig(n_min_ruler=2))
-
-    assert results == {imgs[0].shape: fake_ruler}
-    assert calls == [imgs[0].image_path, imgs[1].image_path]
-
-
-def test_segment_ruler_by_group_returns_none_when_no_image_detects_a_ruler(make_metadata, monkeypatch):
-    """A shape group where no image yields a ruler detection is recorded as None, not skipped."""
+def test_process_ruler_group_by_shape_skips_shape_group_when_no_image_detects_a_ruler(make_metadata):
+    """A shape group where no image yields a ruler detection is dropped from the results, like tray."""
     imgs = [make_metadata(15.0 + i, 16.0 + i, size=(50, 50)) for i in range(2)]
 
-    monkeypatch.setattr(segment_utils, "segment_ruler", lambda img_metadata, config: None)
+    results = ProcessRulerGroupByShape(
+        SegmentationRulerConfig(downscale_factor=1, n_min_ruler=2),
+    ).run(imgs)
 
-    results = segment_ruler_by_group(imgs, SegmentationRulerConfig())
-
-    assert results == {imgs[0].shape: None}
-
-
-def test_segment_reuses_shared_ruler_even_when_tray_falls_back_per_image(make_metadata, monkeypatch):
-    """Tray segmentation may fall back per-image, but the ruler stays shared across the shape group."""
-    core_box = (200, 150, 600, 1100)
-    imgs = [
-        make_metadata(15.0 + i, 16.0 + i, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
-        for i in range(2)  # below tray_multiple's n_min_foreground -> tray falls back to per-image segmentation
-    ]
-    fake_ruler = RulerSegmentResult(bbox=(0, 0, 10, 10), px_per_unit=5.0, bbox_units=[])
-    calls = []
-
-    def fake_segment_ruler(img_metadata, config):
-        calls.append(img_metadata.image_path)
-        return fake_ruler
-
-    monkeypatch.setattr(segment_utils, "segment_ruler", fake_segment_ruler)
-
-    detections = segment(
-        imgs,
-        config=SegmentationConfig(
-            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
-            core=SegmentationCoreConfig(downscale_factor=1),
-        ),
-    )
-
-    assert len(detections) == 2
-    assert all(d.ruler == fake_ruler for d in detections)
-    assert len(calls) == 2  # OCR ran per image in the group (aggregated via median), shared across detections
-
-
-def test_segment_tray_by_group_skips_shape_group_below_n_min(make_metadata):
-    """A shape group below n_min_foreground is skipped, while a qualifying group still succeeds."""
-    fills = [50, 90, 130, 170, 210]
-    core_box = (0, 50, 100, 100)
-    qualifying = [
-        make_metadata(15.0 + i, 16.0 + i, lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)), size=(100, 100))
-        for i, f in enumerate(fills)
-    ]
-    too_small = [make_metadata(30.0 + i, 31.0 + i, size=(50, 50)) for i in range(3)]
-
-    results = segment_tray_by_group(
-        qualifying + too_small,
-        SegmentationTrayMultipleConfig(downscale_factor=1, n_min_foreground=5),
-    )
-
-    assert set(results) == {qualifying[0].shape}
+    assert results == {}

@@ -1,9 +1,10 @@
 """Module containing data models for the borehole image processing application."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from enum import IntEnum, auto
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import ClassVar
 
 import numpy as np
 from PIL import Image
@@ -84,55 +85,120 @@ class ImageMetadata:
 
         Returns:
             np.ndarray: RGB image array with float values in [0, 1].
+
+        Raises:
+            ValueError: If the image is not a 3-channel RGB array, or has an unsupported dtype.
         """
         return load_image(str(self.image_path), factor)
 
+    def to_dict(self) -> dict:
+        """Return this metadata as a plain dict, e.g. for JSON serialization."""
+        return asdict(self)
 
-@dataclass
-class SegmentationRecord:
-    """Per-image record of which segmentation approach was used, for the mlflow summary log."""
 
-    filename: str
-    approach: Literal["foreground", "fallback"]
-    foreground_group: int | None
+class ApproachType(IntEnum):
+    """Approach used to detect a region: per-image (SINGLE) or shared across a shape group (GROUP)."""
+
+    SINGLE = 0
+    GROUP = auto()
 
 
 @dataclass
 class ImageSegmentResult:
     """Class to represent the result of detecting a region in an image."""
 
-    bbox: tuple[float, float, float, float]  # (left, upper, right, lower)
+    bbox: tuple[float, float, float, float]  # (left, top, right, bottom)
+    time: float | None = None  # Processing time
+    approach: ApproachType = ApproachType.SINGLE  # Type of approach used
+
+    @staticmethod
+    def approach_to_json(results: list["ImageSegmentResult | None"]) -> dict[str, int | float]:
+        """Summarize per-approach detection counts and average timing across a batch.
+
+        Args:
+            results (list[ImageSegmentResult | None]): Per-image detection results for one region
+                (e.g. every tray detection across a batch). None entries mark images where
+                detection failed.
+
+        Returns:
+            dict[str, int | float]: Counts of images that failed (n_as_fail), used the per-image
+                single approach (n_as_single), or used a shared group approach (n_as_group);
+                the number of distinct group detections reused (n_group); and the average
+                processing time for single- and group-approach detections (time_single_avg,
+                time_group_avg).
+        """
+        ts_group = set([result.time or 0 for result in results if result and result.approach == ApproachType.GROUP])
+        ts_single = [result.time or 0 for result in results if result and result.approach == ApproachType.SINGLE]
+        n_fail = sum([result is None for result in results])
+
+        return {
+            "n_group": len(ts_group),
+            "n_as_fail": n_fail,
+            "n_as_single": len(ts_single),
+            "n_as_group": len(results) - len(ts_single) - n_fail,
+            "time_single_avg": sum(ts_single) / (len(ts_single) + 1e-16),
+            "time_group_total_avg": sum(ts_group) / (len(ts_group) + 1e-16),
+        }
+
+    def to_dict(self) -> dict:
+        """Return this result as a plain dict, e.g. for JSON serialization."""
+        return {"approach": self.approach.name, "bbox": self.bbox, "time": self.time}
+
+
+@dataclass
+class CoreSegmentResult(ImageSegmentResult):
+    """Result of detecting the core bbox (bbox is used downstream for cropping/evaluation/stitching)."""
+
+    # Per-segment bboxes before merging into `bbox`; kept only for MLflow debug visualization.
+    bbox_segments: list[tuple[float, float, float, float]] | None = None
+
+
+@dataclass
+class TraySegmentResult(ImageSegmentResult):
+    """Result of detecting the shared tray/core bbox, with optional debug images for MLflow logging."""
+
+    img_background: np.ndarray | None = None  # mean image across the batch
+    img_foreground: np.ndarray | None = None  # per-pixel std map used to estimate the bbox
+    img_downscale_factor: float | None = None  # downscale factor the debug images above are stored at
+
+    def to_dict(self) -> dict:
+        """Return this result as a plain dict, including the debug images' downscale factor."""
+        return {**super().to_dict(), "img_downscale_factor": self.img_downscale_factor}
 
 
 @dataclass
 class RulerSegmentResult(ImageSegmentResult):
     """Result of detecting a depth ruler in an image via OCR on its printed number ticks."""
 
-    px_per_unit: float  # pixel distance between two consecutive ruler unit ticks, at full image resolution
-    bbox_units: list[tuple[float, float, float, float]]  # one bbox per detected ruler number
+    px_per_unit: float | None = None  # pixel distance between two consecutive ruler unit ticks
+    bbox_units: list[tuple[float, float, float, float]] | None = None  # one bbox per detected ruler number
+
+    def to_dict(self) -> dict:
+        """Return this result as a plain dict, including the pixel-per-unit scale."""
+        return {**super().to_dict(), "px_per_unit": self.px_per_unit}
 
 
 @dataclass
 class ImageMetadataProcessed(ImageMetadata):
     """Metadata for a processed image with detected regions."""
 
-    core: ImageSegmentResult | None
-    tray: ImageSegmentResult | None
-    ruler: RulerSegmentResult | None
+    core: CoreSegmentResult | None = None
+    tray: ImageSegmentResult | None = None
+    ruler: RulerSegmentResult | None = None
 
     @classmethod
     def from_metadata(
         cls,
         metadata: ImageMetadata,
-        core: ImageSegmentResult | None,
-        tray: ImageSegmentResult | None,
-        ruler: RulerSegmentResult | None,
+        core: CoreSegmentResult | None = None,
+        tray: ImageSegmentResult | None = None,
+        ruler: RulerSegmentResult | None = None,
     ) -> "ImageMetadataProcessed":
         """Construct an ImageMetadataProcessed from an existing ImageMetadata.
 
         Args:
             metadata (ImageMetadata): The original image metadata.
-            core (ImageSegmentResult | None): Detected core bounding box, if any.
+            core (CoreSegmentResult | None): Detected core bounding box, if any.
             tray (ImageSegmentResult | None): Detected tray bounding box, if any.
             ruler (RulerSegmentResult | None): Detected ruler bounding box, if any.
 
@@ -170,3 +236,12 @@ class ImageMetadataProcessed(ImageMetadata):
             if crop.width > crop.height:
                 crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
         return crop
+
+    def to_dict(self) -> dict:
+        """Return this processed image's metadata and detections as a plain dict, keyed by region."""
+        return {
+            **super().to_dict(),
+            "core": self.core.to_dict() if self.core else {},
+            "ruler": self.ruler.to_dict() if self.ruler else {},
+            "tray": self.tray.to_dict() if self.tray else {},
+        }
