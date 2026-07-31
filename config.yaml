@@ -30,7 +30,7 @@ segmentation:
 
   core:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    background_val_hratio: 0.75 # fraction of dark-background pixels in a row required to trim that row
+    background_val_hratio: 0.90 # fraction of dark-background pixels in a row required to trim that row
     background_val_vratio: 0.90 # fraction of dark-background pixels in a column required to trim that column
     background_val_threshold: 0.20 # value (HSV) below this = black background (not rock)
     wood_sat_hratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
