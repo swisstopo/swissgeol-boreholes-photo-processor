@@ -11,13 +11,13 @@ segmentation:
     seed: 0 # seed for randomly sampling images from a group
 
   tray_single:
-    closing_disk: 20 # radius for binary_closing (fills gaps)
+    closing_disk: 50 # radius for binary_closing (fills gaps)
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     edge_margin_bottom: 5 # ignore bottom edge of image (ruler)
     edge_margin_top: 100 # ignore top edge of image (ruler)
     min_bbox_height: 500 # minimum height for a candidate core bounding box
     min_size_for_bottom: 500000 # minimum area for a candidate core to touch the bottom edge of the image
-    min_object_size: 500 # minimum blob size in pixels
+    min_object_size: 100000 # minimum blob size in pixels
     opening_disk: 20 # radius for binary_opening (removes noise)
 
   ruler:

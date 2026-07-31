@@ -132,12 +132,7 @@ def _select_bbox(
 
     # If exclusion area, remove bbox overlapping
     if exclude_area is not None:
-        bbox_skimage_exclude = (
-            int(exclude_area[1]),
-            int(exclude_area[0]),
-            int(exclude_area[3]),
-            int(exclude_area[2]),
-        )
+        bbox_skimage_exclude = (int(exclude_area[1]), int(exclude_area[0]), int(exclude_area[3]), int(exclude_area[2]))
         candidates = [
             candidate
             for candidate in candidates
