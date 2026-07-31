@@ -5,7 +5,7 @@ from timeit import default_timer as timer
 
 import numpy as np
 from skimage.color import rgb2gray
-from skimage.filters import gaussian, threshold_triangle
+from skimage.filters import gaussian, threshold_local
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening, remove_small_objects
 from sklearn.mixture import GaussianMixture
@@ -17,12 +17,35 @@ from src.config import (
 )
 from src.models import (
     ImageMetadata,
+    RulerSegmentResult,
     TraySegmentResult,
 )
 from src.segment.utils.misc import ProcessGroupByShape
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
+
+
+def bbox_skimage_interserction(
+    bboxA: tuple[float, float, float, float], bboxB: tuple[float, float, float, float]
+) -> bool:
+    """Check whether two skimage-style bounding boxes overlap.
+
+    Args:
+        bboxA (tuple[float, float, float, float]): First bounding box in skimage
+            regionprops format (min_row, min_col, max_row, max_col).
+        bboxB (tuple[float, float, float, float]): Second bounding box in skimage
+            regionprops format (min_row, min_col, max_row, max_col).
+
+    Returns:
+        bool: True if the two bounding boxes overlap, False otherwise.
+    """
+    xA = max(bboxA[0], bboxB[0])
+    yA = max(bboxA[1], bboxB[1])
+    xB = min(bboxA[2], bboxB[2])
+    yB = min(bboxA[3], bboxB[3])
+
+    return abs(max((xB - xA, 0)) * max((yB - yA), 0)) != 0
 
 
 def _apply_threshold_and_clean(
@@ -45,10 +68,10 @@ def _apply_threshold_and_clean(
     """
     # Look for optimal threshold
     img_gray = rgb2gray(img)
-    thresh = threshold_triangle(img_gray)
+    local_thresh = threshold_local(img_gray, block_size=501)
 
     # morphology: smooth region boundaries and remove small objects
-    cleaned = opening(img_gray > thresh, footprint=disk(opening_disk))
+    cleaned = opening(img_gray > local_thresh, footprint=disk(opening_disk))
     cleaned = closing(cleaned, footprint=disk(closing_disk))
     cleaned = remove_small_objects(cleaned, max_size=min_object_size - 1)
 
@@ -63,6 +86,7 @@ def _select_bbox(
     edge_margin_top: int,
     edge_margin_bottom: int,
     min_size_for_bottom: int,
+    exclude_area: tuple[float, float, float, float] | None,
 ) -> tuple[int, int, int, int]:
     """Select the bounding box of the core region from the list of region properties.
 
@@ -83,6 +107,7 @@ def _select_bbox(
         edge_margin_top (int): Ignore top edge of image (ruler).
         edge_margin_bottom (int): Ignore bottom edge of image (ruler).
         min_size_for_bottom (int): Minimum area for a candidate core to touch the bottom edge of the image.
+        exclude_area (tuple[float, float, float, float] | None): TODO.
 
     Returns:
         tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
@@ -104,6 +129,21 @@ def _select_bbox(
             r.bbox[2] <= img_height - edge_margin_bottom or r.area > min_size_for_bottom
         )  # only large regions can touch bottom
     ]
+
+    # If exclusion area, remove bbox overlapping
+    if exclude_area is not None:
+        bbox_skimage_exclude = (
+            int(exclude_area[1]),
+            int(exclude_area[0]),
+            int(exclude_area[3]),
+            int(exclude_area[2]),
+        )
+        candidates = [
+            candidate
+            for candidate in candidates
+            if not bbox_skimage_interserction(bbox_skimage_exclude, candidate.bbox)
+        ]
+
     if not candidates:
         # fallback: just pick the largest region
         candidates = [max(props, key=lambda r: r.area)]
@@ -153,12 +193,17 @@ def _estimate_tray_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] 
     return (bbox[1], bbox[0], bbox[3] - 1, bbox[2] - 1)
 
 
-def segment_tray(img_metadata: ImageMetadata, config: SegmentationTraySingleConfig) -> TraySegmentResult:
+def segment_tray(
+    img_metadata: ImageMetadata,
+    config: SegmentationTraySingleConfig,
+    ruler: RulerSegmentResult | None = None,
+) -> TraySegmentResult:
     """Segment a single image via thresholding when no shared foreground bbox is available.
 
     Args:
         img_metadata (ImageMetadata): Metadata of the image to load and segment.
         config (SegmentationTraySingleConfig): Tunable segmentation parameters.
+        ruler (RulerSegmentResult | None): TODO.
 
     Returns:
         TraySegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the original image's
@@ -181,6 +226,7 @@ def segment_tray(img_metadata: ImageMetadata, config: SegmentationTraySingleConf
         edge_margin_top=round(config.edge_margin_top * factor),
         edge_margin_bottom=round(config.edge_margin_bottom * factor),
         min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
+        exclude_area=scale_bbox(ruler.bbox, config.downscale_factor) if ruler is not None else None,
     )
 
     return TraySegmentResult(
