@@ -37,7 +37,10 @@ single source of truth for a given run.
 
 The core detection problem is: given a raw photo of a tray with a core/cuttings segment
 in it, find the bounding box of just the rock (excluding the wooden tray, background, and
-printed ruler). Two independent detectors run per image and combine:
+printed ruler). Two independent detectors run per image, and **both follow the same
+shared-group-with-per-image-fallback pattern** (`ProcessGroupByShape` in
+`src/segment/utils/misc.py`): compute one aggregated result per shape group when the group
+is large enough, otherwise detect each image in that group independently.
 
 ```mermaid
 flowchart TD
@@ -45,81 +48,57 @@ flowchart TD
 (e.g. shape 1: img 1, img 2, ...
 shape 2: img 5, ...)`"]
     A --> C{"Group ≥ 10?"}
-    A --> R["OCR ruler for each group
-(take median of 10 imgs)"]
+    A --> C2{"Group ≥ 10?"}
 
     subgraph CoreSeg ["`**Core Segmentation**`"]
-        C -->|yes| D[Foreground]
-        C -->|no| E[Fallback]
+        C -->|yes| D[Shared foreground]
+        C -->|no| E["Fallback
+(per-image threshold)"]
         D --> F["Trim
 (wood, background)"]
         E --> F
     end
 
     subgraph RulerDet ["`**Ruler Detection**`"]
-        R
+        C2 -->|yes| G["Shared ruler
+(median-scale OCR of group)"]
+        C2 -->|no| H["Fallback
+(per-image OCR)"]
     end
 
     F -->|core segment| S["`**Stitching**`"]
-    R -->|ruler| S
+    G -->|ruler| S
+    H -->|ruler| S
     S --> O["Output img
 .tif / .png"]
 ```
 
-**Tray/core region** (`segment_tray_by_group` / `segment_tray_single` +
-`segment_core_from_tray` in `src/segment/utils.py`):
+**Tray/core region** (`ProcessTrayGroupByShape` + `segment_tray` in
+`src/segment/utils/tray.py`, `segment_core` in `src/segment/utils/core.py`):
 
-- Images are grouped by their on-disk pixel shape (`group_images_by_shape`) — images
-  sharing a shape are assumed to come from the same static camera rig, so they also share
-  roughly the same tray/background position.
-- For each shape group with at least `n_min_foreground` (default 10) images,
-  `segment_tray_multiple` estimates one **shared** bounding box for the whole group: it
-  stacks a random sample of images, computes the per-pixel standard deviation across the
-  stack (background pixels stay constant → low std; the core, which changes between
-  shots, has high std), fits a 2-component Gaussian mixture over that std map, and takes
-  the largest connected region above the high-mean component as the foreground. This is
-  far more robust than per-image thresholding because it doesn't depend on that image's
-  own lighting/contrast — it only needs the core to *look different* from the tray across
-  the batch.
-- Groups smaller than `n_min_foreground` fall back to `segment_tray_single`, which
-  thresholds each image independently (Otsu/triangle threshold + morphological
-  opening/closing) and picks the best candidate region by size/position heuristics
-  (excludes regions touching the top edge, allows touching the bottom edge only if large
-  enough, unions fragmented candidates). This fallback is inherently noisier per-image,
-  which is why the shared-foreground path is preferred whenever there's enough data.
-- Either way, the resulting tray/foreground bbox is then vertically trimmed by
-  `segment_core_from_tray`, which finds the largest contiguous non-tray row interval based
-  on HSV saturation (wood reads as high saturation, rock doesn't) — this removes the tray
-  itself from the bounding box.
+- Shape groups with at least `n_min_foreground` (default 10) images get one **shared**
+  bbox: stack a sample of images, take the per-pixel std (static background → low std,
+  moving core → high std), and fit a 2-component GMM to isolate the foreground region.
+  Smaller groups fall back to `segment_tray`, thresholding each image independently
+  (Otsu/triangle + morphology) — noisier, but the only option without enough data.
+- Either way, `segment_core` then trims wood (saturation) and black background
+  (brightness) off all four sides. Fragmented cores are kept as separate `bbox_segments`;
+  `bbox` is their union.
 
-**Depth ruler** (`segment_ruler_by_group` / `segment_ruler` in `src/segment/utils.py`):
+**Depth ruler** (`ProcessRulerGroupByShape` + `segment_ruler` in
+`src/segment/utils/ruler.py`):
 
-- Also computed once per shape group, for the same reason (static rig ⇒ shared ruler
-  position and pixel-to-unit scale).
-- Per image: binarize, run Tesseract OCR on the printed ruler tick numbers, keep digits
-  within a plausible range, then use the median spacing between consecutive numbers to
-  reject misread outliers.
-- Rather than trusting a single image's OCR result, OCR runs on up to `n_min_ruler`
-  images per group and the **median-by-scale** detection (by `px_per_unit`) is kept and
-  reused for every image in the group. This exists specifically because a single-image
-  detection was found to be too sensitive to per-image noise (lighting, thresholding) —
-  see the "Aggregate ruler detection" fix in project history.
+- Same grouping/fallback as the tray, using `n_min_ruler` (default 10). Each image:
+  binarize, OCR the printed ticks with Tesseract, keep digits in a plausible range, and
+  drop misreads via the median spacing between consecutive numbers.
+- Groups above the threshold OCR a sample and keep the **median-by-scale** (`px_per_unit`)
+  detection, reused for the whole group — more robust than trusting a single image's OCR.
 
 Each image ends up with independently-detected `core`, `tray`, and `ruler` results (any of
 which may be `None` if detection failed for that image) — segmentation for one image never
-blocks the batch; failures are logged and that image is dropped (`SegmentationError`).
-
-## Evaluation (quality signal, not gating)
-
-`src/evaluations/core.py` computes, per detection, a core **width** (bbox height in ruler
-units) and a length-to-depth **ratio** (bbox width normalized by both the labeled depth
-interval and the ruler scale), then flags entries whose relative deviation from the
-batch's median exceeds a configurable tolerance (`CoreCheckConfig.relative_tolerance`).
-This only runs when `--mlflow` is passed — it's a diagnostic for spotting bad
-segmentations after the fact (logged as MLflow metrics/artifacts and an optional
-`summary.csv` in batch mode), not something that alters segmentation or stitching output.
-Checks are skipped (return `None`) when fewer than `min_samples` detections are available,
-since a median over too few points isn't a reliable reference.
+blocks the batch; failures are logged and that image is dropped (`SegmentationError`). Both
+the shape-group aggregation and the per-image fallback pass run in parallel worker pools
+sized by the same `config.n_workers`.
 
 ## Stitching / Output
 
@@ -142,17 +121,6 @@ since a median over too few points isn't a reliable reference.
 - Each canvas is saved as both `.png` and `.tif` in the output directory, mirroring the
   input's folder structure (single borehole vs. one subfolder per borehole in batch mode).
 
-## MLflow integration
-
-`--mlflow` wraps each borehole folder's processing in an MLflow run (nested under the
-batch's run in batch mode) and logs: per-image debug overlays (core/tray/ruler bboxes),
-a segmentation approach summary (shared-foreground vs. per-image fallback, per image),
-evaluation metrics/predictions, the stitched output images, the evaluation `summary.csv`
-(batch mode only), and the run's log file. `summary.csv` is written to a throwaway temp
-location and only exists as an MLflow artifact. The run's log file, by contrast, always
-persists locally under `logs/` (gitignored) regardless of `--mlflow` — enabling `--mlflow`
-additionally uploads a copy of it as an MLflow artifact once processing completes.
-
 ## Assumptions & edge cases
 
 - **Filename contract is load-bearing.** Every image filename must contain
@@ -166,28 +134,14 @@ additionally uploads a copy of it as an MLflow artifact once processing complete
 - **Only 3-channel (or RGBA-with-alpha-dropped) TIFs are supported**; grayscale input
   raises `SegmentationError`. Loading uses `tifffile` rather than PIL specifically because
   raw scans may be 16-bit, which PIL handles less reliably (`src/utils.py`).
-- **macOS AppleDouble sidecar files** (`._*.tif`, created when copying from certain
-  filesystems) and **corrupt/unreadable TIFFs** are explicitly skipped during folder
-  scanning — earlier versions of the pipeline crashed the entire batch run on either, so
-  a single bad file no longer aborts a multi-hour run (see
-  [issue #42](https://github.com/swisstopo/swissgeol-boreholes-photo-processor/issues/42)).
-  Only fix once; any *other* unexpected exception during segmentation still surfaces to
-  the caller rather than being silently swallowed.
-- **`min_samples` thresholds exist because small-sample statistics are unreliable.** Both
-  the evaluation checks and the shared-foreground/ruler estimation require a minimum
-  number of images before trusting a median/aggregate — below that, they fall back
-  (per-image segmentation) or skip (evaluation returns `None`) rather than report a
-  possibly-noisy result.
-- **Evaluation never blocks output.** Width/length checks are purely diagnostic
-  (MLflow-only); a "failed" check does not exclude that core from the stitched output.
 - **Downscaling before detection, not before output.** Segmentation and OCR run on
   downscaled copies of images (`downscale_factor` per detector) for speed; all resulting
   bounding boxes are scaled back up before being applied to full-resolution images for
   cropping/stitching.
 
 <!-- arch-sync:metadata
-generated-at: 2026-07-29
-git-ref: 85ea769
+generated-at: 2026-07-31
+git-ref: f7c6da8
 covered-paths:
   - src/run.py
   - src/segment/
