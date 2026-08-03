@@ -8,7 +8,7 @@ class SegmentationCoreConfig:
     """Tunable parameters for trimming the wooden tray and black background off, and filtering thin segments."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    background_val_hratio: float = 0.75  # fraction of dark-background pixels in a row required to trim that row
+    background_val_hratio: float = 0.90  # fraction of dark-background pixels in a row required to trim that row
     background_val_vratio: float = 0.90  # fraction of dark-background pixels in a column required to trim that column
     background_val_threshold: float = 0.20  # value (HSV) below this = black background (not rock)
     wood_sat_hratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
@@ -43,11 +43,12 @@ class SegmentationTraySingleConfig:
     """Tunable parameters for segmenting a single image via thresholding when no shared bbox is available."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    closing_disk: int = 20  # radius for binary_closing (fills gaps)
+    block_size: int = 4000  # pixel neighborhood used to calculate the threshold
+    closing_disk: int = 50  # radius for binary_closing (fills gaps)
     edge_margin_bottom: int = 5  # ignore bottom edge of image (ruler)
     edge_margin_top: int = 100  # ignore top edge of image (ruler)
     min_bbox_height: int = 500  # minimum height for a candidate core bounding box
-    min_object_size: int = 500  # minimum blob size in pixels
+    min_object_size: int = 100_000  # minimum blob size in pixels
     min_size_for_bottom: int = 500_000  # minimum area for a candidate core to touch the bottom edge of the image
     opening_disk: int = 20  # radius for binary_opening (removes noise)
 
