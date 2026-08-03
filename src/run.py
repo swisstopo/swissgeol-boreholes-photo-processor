@@ -2,21 +2,31 @@
 
 import argparse
 import contextlib
+import datetime
+import glob
 import logging
 from pathlib import Path
 
 import mlflow
+import tifffile
 from tqdm import tqdm
 
-from src.config import PipelineConfig
+from src.config import PipelineConfig, SegmentationError
 from src.evaluations.core import evaluate_detections
-from src.mlflow_utils import log_artifact_with_mlflow, log_evaluation_results_with_mlflow
+from src.mlflow_utils import (
+    log_artifact_with_mlflow,
+    log_batch_evaluation_summary_csv,
+    log_evaluation_results_with_mlflow,
+    upload_log_to_mlflow,
+)
 from src.models import ImageMetadata
 from src.segment.segment import segment
 from src.stitching.stitching import stitching
 
 
-def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
+def _mlflow_run(
+    run_name: str, with_mlflow: bool, nested: bool = False
+) -> contextlib.AbstractContextManager[mlflow.ActiveRun | None]:
     """Context manager for MLflow run.
 
     Args:
@@ -25,7 +35,8 @@ def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> conte
         nested (bool): Whether to start a nested MLflow run.
 
     Returns:
-        contextlib.AbstractContextManager: A context manager for the MLflow run.
+        contextlib.AbstractContextManager[mlflow.ActiveRun | None]: A context manager for the
+            MLflow run, yielding the active run when with_mlflow is True, else None.
     """
     if with_mlflow:
         return mlflow.start_run(run_name=run_name, nested=nested)
@@ -39,6 +50,7 @@ def run(
     with_mlflow: bool = False,
     debug: bool = False,
     nested: bool = False,
+    log_path: Path | None = None,
 ) -> None:
     """Process borehole photos from input to output directory.
 
@@ -50,15 +62,19 @@ def run(
         debug (bool): Whether to additionally log debug images (e.g. per-image tray/ruler
             detections) to MLflow. Only applies when with_mlflow is True.
         nested (bool): Whether to start a nested MLflow run under an existing active run.
+        log_path (Path | None): If set, upload this run's log file to MLflow once processing
+            completes. Only meaningful for a top-level (non-nested) run.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         # Collect all images from the input directory and parse filename metadata
         imgs_metadata: list[ImageMetadata] = []
-        for f in input_dir.iterdir():
+        for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
             if f.suffix.lower() == ".tif":
                 try:
-                    imgs_metadata.append(ImageMetadata.from_path(f))
-                except ValueError as e:
+                    metadata = ImageMetadata.from_path(f)
+                    _ = metadata.shape  # validate the file is readable before segmentation runs
+                    imgs_metadata.append(metadata)
+                except (ValueError, SegmentationError, tifffile.TiffFileError) as e:
                     logging.warning("Skipping %s: %s", f.name, e)
         imgs_metadata.sort(key=lambda m: m.depth_start)
         logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
@@ -68,8 +84,8 @@ def run(
 
         # evaluation of detection
         if with_mlflow:
-            evaluations = evaluate_detections(detections, config.evaluation)
-            log_evaluation_results_with_mlflow(evaluations)
+            results = evaluate_detections(detections, config.evaluation)
+            log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -87,6 +103,9 @@ def run(
             img.save(output_dir / f"{stem}.tif")
         logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
+        if with_mlflow and not nested and log_path is not None:
+            upload_log_to_mlflow(log_path)
+
 
 def batch_run(
     input_dir: Path,
@@ -94,6 +113,7 @@ def batch_run(
     config: PipelineConfig,
     with_mlflow: bool = False,
     debug: bool = False,
+    log_path: Path | None = None,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -105,8 +125,10 @@ def batch_run(
         with_mlflow (bool): Whether to log artifacts to MLflow.
         debug (bool): Whether to additionally log debug images (e.g. per-image tray/ruler
             detections) to MLflow. Only applies when with_mlflow is True.
+        log_path (Path | None): If set, upload the batch's log file to MLflow once processing
+            completes.
     """
-    with _mlflow_run(input_dir.name, with_mlflow=with_mlflow):
+    with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
         subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
         logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
         for subdir in tqdm(subdirs, desc="Processing folders"):
@@ -119,10 +141,14 @@ def batch_run(
                 nested=True,
             )
 
+        if active_run is not None:
+            log_batch_evaluation_summary_csv(active_run.info.run_id)
+            if log_path is not None:
+                upload_log_to_mlflow(log_path)
+
 
 def main() -> None:
     """Parse CLI arguments and run the pipeline."""
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description="Process borehole photos from input to output directory.")
     parser.add_argument("--input", type=Path, required=True, help="Path to the input directory.")
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
@@ -143,15 +169,40 @@ def main() -> None:
     if not args.config.exists():
         parser.error(f"Config file does not exist: {args.config}")
 
+    args.output.mkdir(parents=True, exist_ok=True)
+
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = logs_dir / f"{args.input.name}_{timestamp}.log"
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
+
     config = PipelineConfig.from_yaml(args.config)
 
     has_subdirs = any(p.is_dir() for p in args.input.iterdir())
     if has_subdirs:
         batch_run(
-            input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow, debug=args.debug
+            input_dir=args.input,
+            output_dir=args.output,
+            config=config,
+            with_mlflow=args.mlflow,
+            debug=args.debug,
+            log_path=log_path if args.mlflow else None,
         )
     else:
-        run(input_dir=args.input, output_dir=args.output, config=config, with_mlflow=args.mlflow, debug=args.debug)
+        run(
+            input_dir=args.input,
+            output_dir=args.output,
+            config=config,
+            with_mlflow=args.mlflow,
+            debug=args.debug,
+            log_path=log_path if args.mlflow else None,
+        )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 """Utility functions for MLflow."""
 
+import csv
+import io
+import logging
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
@@ -47,6 +50,17 @@ def log_tray_segment_mlflow(
         draw = ImageDraw.Draw(img_fg_pil)
         draw.rectangle(scale_bbox(result.bbox, result.img_downscale_factor), outline="red", width=5)
         log_artifact_with_mlflow(img_fg_pil, filename + "_foreground", suffix, subfolder)
+
+
+def upload_log_to_mlflow(log_path: Path) -> None:
+    """Flush all logging handlers and upload the log file to MLflow as an artifact.
+
+    Args:
+        log_path (Path): Path to the log file to upload.
+    """
+    for handler in logging.root.handlers:
+        handler.flush()
+    mlflow.log_artifact(str(log_path))
 
 
 def log_image_metadata_processed_mlflow(
@@ -157,28 +171,54 @@ def log_artifact_with_mlflow(
             mlflow.log_artifact(local_path=str(artifact_path), artifact_path=subfolder)
 
 
-def log_evaluation_results_with_mlflow(
-    results: list[CoreCheckResult],
-) -> None:
-    """Log evaluation results to MLflow.
-
-    Logs the width and length pass-rate and mean squared error as separate metrics, and
-    dumps every file's full width/length results as a single JSON artifact.
+def _summarize_checks(results: list[CoreCheckResult]) -> dict[str, tuple[float, float] | None]:
+    """Compute each check's pass-rate and mean relative error across a folder's results.
 
     Args:
-        results (list[CoreCheckResult]): Per-file merged core check results.
-    """
-    if not results:
-        return
+        results (list[CoreCheckResult]): Per-file merged core check results for one folder.
 
+    Returns:
+        dict[str, tuple[float, float] | None]: Maps "width"/"length" to (pass_rate, mean_relative_error),
+            or None when the check was skipped for every file in the folder.
+    """
     checks_by_name = {
         "width": [r.width for r in results if r.width is not None],
         "length": [r.length for r in results if r.length is not None],
     }
-    for name, checks in checks_by_name.items():
-        if checks:
-            mlflow.log_metric(f"{name}_acc", sum(c.passed for c in checks) / len(checks))
-            mlflow.log_metric(f"{name}_mre", sum(c.relative_error for c in checks) / len(checks))
+    return {
+        name: (sum(c.passed for c in checks) / len(checks), sum(c.relative_error for c in checks) / len(checks))
+        if checks
+        else None
+        for name, checks in checks_by_name.items()
+    }
+
+
+def log_evaluation_results_with_mlflow(
+    results: list[CoreCheckResult],
+    folder_name: str,
+) -> None:
+    """Log evaluation results to MLflow.
+
+    Logs the width and length pass-rate and mean relative error as separate metrics, and
+    dumps every file's full width/length results as a single JSON artifact, keyed by filename --
+    useful for inspecting a specific core's width and length results side by side, not just the
+    ones that got flagged. The artifact is named after the folder so batch runs don't clobber
+    each other's results.
+
+    Args:
+        results (list[CoreCheckResult]): Per-file merged core check results.
+        folder_name (str): Name of the input folder these results belong to, used as the
+            JSON artifact's filename.
+    """
+    if not results:
+        return
+
+    mlflow.log_metric("count", len(results))
+    for name, summary in _summarize_checks(results).items():
+        if summary is not None:
+            acc, mre = summary
+            mlflow.log_metric(f"{name}_acc", acc)
+            mlflow.log_metric(f"{name}_mre", mre)
 
     predictions = {
         r.filename: {
@@ -187,4 +227,44 @@ def log_evaluation_results_with_mlflow(
         }
         for r in results
     }
-    mlflow.log_dict(predictions, "evaluation.json")
+    mlflow.log_dict(predictions, f"{folder_name}.json")
+
+
+def log_batch_evaluation_summary_csv(parent_run_id: str) -> None:
+    """Aggregate each child run's evaluation metrics into one summary CSV artifact on the parent run.
+
+    Reads the "count"/"width_acc"/"width_mre"/"length_acc"/"length_mre" metrics that
+    `log_evaluation_results_with_mlflow` already logged on each nested per-folder run, rather
+    than recomputing or re-logging anything, and writes one row per folder (sorted by folder
+    name for a deterministic order) directly as a CSV artifact.
+
+    Args:
+        parent_run_id (str): Run ID of the batch's top-level MLflow run.
+    """
+    client = MlflowClient()
+    parent_run = client.get_run(parent_run_id)
+    child_runs = client.search_runs(
+        experiment_ids=[parent_run.info.experiment_id],
+        filter_string=f"tags.mlflow.parentRunId = '{parent_run_id}'",
+    )
+
+    metric_names = ["count", "width_acc", "width_mre", "length_acc", "length_mre"]
+    rows = sorted(
+        (
+            {
+                "folder": run.data.tags.get("mlflow.runName", ""),
+                **{name: run.data.metrics.get(name, "") for name in metric_names},
+            }
+            for run in child_runs
+            if run.data.metrics
+        ),
+        key=lambda row: row["folder"],
+    )
+    if not rows:
+        return
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=["folder", *metric_names])
+    writer.writeheader()
+    writer.writerows(rows)
+    mlflow.log_text(buffer.getvalue(), "summary.csv")
