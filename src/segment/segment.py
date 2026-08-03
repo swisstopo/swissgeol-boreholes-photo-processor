@@ -69,7 +69,7 @@ def segment_single(
 
         # Step 3: Use the group's shared tray if available, otherwise fallback to single
         shared_tray = tray_by_shape.get(shape)
-        detection_tray = shared_tray or segment_tray(img_metadata, config.tray_single)
+        detection_tray = shared_tray or segment_tray(img_metadata, config.tray_single, detection_ruler)
 
         # Step 4: Trim wooden tray (top/bottom) and black background (all sides) around the core
         detection_core = segment_core(img_metadata, detection_tray, config=config.core)

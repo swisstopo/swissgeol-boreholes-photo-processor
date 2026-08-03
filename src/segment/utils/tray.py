@@ -5,7 +5,7 @@ from timeit import default_timer as timer
 
 import numpy as np
 from skimage.color import rgb2gray
-from skimage.filters import gaussian, threshold_triangle
+from skimage.filters import gaussian, threshold_local
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening, remove_small_objects
 from sklearn.mixture import GaussianMixture
@@ -17,6 +17,7 @@ from src.config import (
 )
 from src.models import (
     ImageMetadata,
+    RulerSegmentResult,
     TraySegmentResult,
 )
 from src.segment.utils.misc import ProcessGroupByShape
@@ -25,11 +26,34 @@ from src.utils import scale_bbox
 logger = logging.getLogger(__name__)
 
 
+def _bbox_skimage_intersection(
+    bbox_a: tuple[float, float, float, float], bbox_b: tuple[float, float, float, float]
+) -> bool:
+    """Check whether two skimage-style bounding boxes overlap.
+
+    Args:
+        bbox_a (tuple[float, float, float, float]): First bounding box in skimage
+            regionprops format (min_row, min_col, max_row, max_col).
+        bbox_b (tuple[float, float, float, float]): Second bounding box in skimage
+            regionprops format (min_row, min_col, max_row, max_col).
+
+    Returns:
+        bool: True if the two bounding boxes overlap, False otherwise.
+    """
+    min_row = max(bbox_a[0], bbox_b[0])
+    min_col = max(bbox_a[1], bbox_b[1])
+    max_row = min(bbox_a[2], bbox_b[2])
+    max_col = min(bbox_a[3], bbox_b[3])
+
+    return max((max_row - min_row, 0)) * max((max_col - min_col), 0) != 0
+
+
 def _apply_threshold_and_clean(
     img: np.ndarray,
     min_object_size: int,
     opening_disk: int,
     closing_disk: int,
+    block_size: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Apply thresholding to the input image and return a cleaned binary mask.
 
@@ -38,6 +62,7 @@ def _apply_threshold_and_clean(
         min_object_size (int): Minimum size of objects to be retained.
         opening_disk (int): Size of the disk for binary opening.
         closing_disk (int): Size of the disk for binary closing.
+        block_size (int): Pixel neighborhood used to calculate the threshold.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: The cleaned binary mask, and the grayscale image it
@@ -45,10 +70,10 @@ def _apply_threshold_and_clean(
     """
     # Look for optimal threshold
     img_gray = rgb2gray(img)
-    thresh = threshold_triangle(img_gray)
+    local_thresh = threshold_local(img_gray, block_size=(2 * (block_size // 2) + 1))
 
     # morphology: smooth region boundaries and remove small objects
-    cleaned = opening(img_gray > thresh, footprint=disk(opening_disk))
+    cleaned = opening(img_gray > local_thresh, footprint=disk(opening_disk))
     cleaned = closing(cleaned, footprint=disk(closing_disk))
     cleaned = remove_small_objects(cleaned, max_size=min_object_size - 1)
 
@@ -63,6 +88,7 @@ def _select_bbox(
     edge_margin_top: int,
     edge_margin_bottom: int,
     min_size_for_bottom: int,
+    avoid_area: tuple[float, float, float, float] | None,
 ) -> tuple[int, int, int, int]:
     """Select the bounding box of the core region from the list of region properties.
 
@@ -73,7 +99,8 @@ def _select_bbox(
     - Union of all candidate bboxes is used to handle fragmented cores
 
     Fallback:
-    - If no candidate regions are found, the largest region is selected as the core region.
+    - If no candidate regions are found, the largest region is selected as the core region even if
+    region overlaps with `avoid_area`.
 
     Args:
         img_mask (np.ndarray): Binary mask of candidate core regions.
@@ -83,6 +110,7 @@ def _select_bbox(
         edge_margin_top (int): Ignore top edge of image (ruler).
         edge_margin_bottom (int): Ignore bottom edge of image (ruler).
         min_size_for_bottom (int): Minimum area for a candidate core to touch the bottom edge of the image.
+        avoid_area (tuple[float, float, float, float] | None): Bounding box to avoid if possible from candidate.
 
     Returns:
         tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
@@ -104,6 +132,16 @@ def _select_bbox(
             r.bbox[2] <= img_height - edge_margin_bottom or r.area > min_size_for_bottom
         )  # only large regions can touch bottom
     ]
+
+    # If exclusion area, remove bbox overlapping
+    if avoid_area is not None:
+        x_min, y_min, x_max, y_max = avoid_area
+        candidates = [
+            candidate
+            for candidate in candidates
+            if not _bbox_skimage_intersection((int(y_min), int(x_min), int(y_max), int(x_max)), candidate.bbox)
+        ]
+
     if not candidates:
         # fallback: just pick the largest region
         candidates = [max(props, key=lambda r: r.area)]
@@ -153,12 +191,17 @@ def _estimate_tray_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] 
     return (bbox[1], bbox[0], bbox[3] - 1, bbox[2] - 1)
 
 
-def segment_tray(img_metadata: ImageMetadata, config: SegmentationTraySingleConfig) -> TraySegmentResult:
+def segment_tray(
+    img_metadata: ImageMetadata,
+    config: SegmentationTraySingleConfig,
+    ruler: RulerSegmentResult | None = None,
+) -> TraySegmentResult:
     """Segment a single image via thresholding when no shared foreground bbox is available.
 
     Args:
         img_metadata (ImageMetadata): Metadata of the image to load and segment.
         config (SegmentationTraySingleConfig): Tunable segmentation parameters.
+        ruler (RulerSegmentResult | None): Detected ruler bbox to exclude from tray candidate selection.
 
     Returns:
         TraySegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the original image's
@@ -171,6 +214,7 @@ def segment_tray(img_metadata: ImageMetadata, config: SegmentationTraySingleConf
         min_object_size=max(1, round(config.min_object_size * factor**2)),  # factor**2 for area-based configs
         opening_disk=max(1, round(config.opening_disk * factor)),
         closing_disk=max(1, round(config.closing_disk * factor)),
+        block_size=max(1, round(config.block_size * factor)),
     )
 
     bbox = _select_bbox(
@@ -181,6 +225,7 @@ def segment_tray(img_metadata: ImageMetadata, config: SegmentationTraySingleConf
         edge_margin_top=round(config.edge_margin_top * factor),
         edge_margin_bottom=round(config.edge_margin_bottom * factor),
         min_size_for_bottom=round(config.min_size_for_bottom * factor**2),
+        avoid_area=scale_bbox(ruler.bbox, config.downscale_factor) if ruler is not None else None,
     )
 
     return TraySegmentResult(
