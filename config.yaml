@@ -50,8 +50,10 @@ stitching:
     output_height: 2896 # total output canvas height (pixels), split evenly across the rows
     output_width: 2048 # total output canvas width (pixels), split evenly across the columns
     num_cuttings_columns: 3 # cuttings placed side by side per output sheet
-    num_cuttings_rows: 20 # cuttings stacked per column per output sheet
-    spacing: 20 # gap in pixels between neighboring cells, carved out of the output dimensions
+    num_cuttings_rows: 15 # cuttings stacked per column per output sheet
+    padding_cuttings: 20 # gap in pixels between neighboring cells, carved out of the output dimensions
+    padding_horizontal: 180 # left/right border width in pixels
+    padding_vertical: 150 # top/bottom border height in pixels
 
 evaluation:
   core_width:
