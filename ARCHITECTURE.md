@@ -37,10 +37,12 @@ single source of truth for a given run.
 
 The core detection problem is: given a raw photo of a tray with a core/cuttings segment
 in it, find the bounding box of just the rock (excluding the wooden tray, background, and
-printed ruler). Two independent detectors run per image, and **both follow the same
-shared-group-with-per-image-fallback pattern** (`ProcessGroupByShape` in
-`src/segment/utils/misc.py`): compute one aggregated result per shape group when the group
-is large enough, otherwise detect each image in that group independently.
+printed ruler). Both detectors follow the same shared-group-with-per-image-fallback
+pattern (`ProcessGroupByShape` in `src/segment/utils/misc.py`): compute one aggregated
+result per shape group when the group is large enough, otherwise detect each image in
+that group independently. They are no longer fully independent, though: ruler detection
+runs first, and its bbox is passed into the tray's per-image fallback so a candidate
+region overlapping the ruler is never mistaken for the core.
 
 ```mermaid
 flowchart TD
@@ -50,21 +52,25 @@ shape 2: img 5, ...)`"]
     A --> C{"Group ≥ 10?"}
     A --> C2{"Group ≥ 10?"}
 
-    subgraph CoreSeg ["`**Core Segmentation**`"]
-        C -->|yes| D[Shared foreground]
-        C -->|no| E["Fallback
-(per-image threshold)"]
-        D --> F["Trim
-(wood, background)"]
-        E --> F
-    end
-
     subgraph RulerDet ["`**Ruler Detection**`"]
         C2 -->|yes| G["Shared ruler
 (median-scale OCR of group)"]
         C2 -->|no| H["Fallback
 (per-image OCR)"]
     end
+
+    subgraph CoreSeg ["`**Core Segmentation**`"]
+        C -->|yes| D[Shared foreground]
+        C -->|no| E["Fallback
+(per-image threshold,
+excludes ruler bbox)"]
+        D --> F["Trim
+(wood, background)"]
+        E --> F
+    end
+
+    G -.->|ruler bbox| E
+    H -.->|ruler bbox| E
 
     F -->|core segment| S["`**Stitching**`"]
     G -->|ruler| S
@@ -79,8 +85,11 @@ shape 2: img 5, ...)`"]
 - Shape groups with at least `n_min_foreground` (default 10) images get one **shared**
   bbox: stack a sample of images, take the per-pixel std (static background → low std,
   moving core → high std), and fit a 2-component GMM to isolate the foreground region.
-  Smaller groups fall back to `segment_tray`, thresholding each image independently
-  (Otsu/triangle + morphology) — noisier, but the only option without enough data.
+  Smaller groups fall back to `segment_tray`, thresholding each image independently with
+  an adaptive local threshold (`threshold_local`, more robust to uneven lighting than a
+  single global threshold) + morphology, then dropping any candidate region that overlaps
+  the detected ruler bbox — noisier than the shared path, but the only option without
+  enough data.
 - Either way, `segment_core` then trims wood (saturation) and black background
   (brightness) off all four sides. Fragmented cores are kept as separate `bbox_segments`;
   `bbox` is their union.
@@ -94,11 +103,11 @@ shape 2: img 5, ...)`"]
 - Groups above the threshold OCR a sample and keep the **median-by-scale** (`px_per_unit`)
   detection, reused for the whole group — more robust than trusting a single image's OCR.
 
-Each image ends up with independently-detected `core`, `tray`, and `ruler` results (any of
-which may be `None` if detection failed for that image) — segmentation for one image never
-blocks the batch; failures are logged and that image is dropped (`SegmentationError`). Both
-the shape-group aggregation and the per-image fallback pass run in parallel worker pools
-sized by the same `config.n_workers`.
+Each image ends up with `core`, `tray`, and `ruler` results (any of which may be `None` if
+detection failed for that image) — segmentation for one image never blocks the batch;
+failures are logged and that image is dropped (`SegmentationError`). Both the shape-group
+aggregation and the per-image fallback pass run in parallel worker pools sized by the same
+`config.n_workers`.
 
 ## Stitching / Output
 
@@ -140,8 +149,8 @@ sized by the same `config.n_workers`.
   cropping/stitching.
 
 <!-- arch-sync:metadata
-generated-at: 2026-07-31
-git-ref: f7c6da8
+generated-at: 2026-08-03
+git-ref: b7c8ddb
 covered-paths:
   - src/run.py
   - src/segment/
