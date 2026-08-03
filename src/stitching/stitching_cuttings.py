@@ -66,6 +66,7 @@ def stitching_batch_cuttings(
     annotation_gap = cuttings_config.annotation_gap
     columns = cuttings_config.num_cuttings_columns
     rows = cuttings_config.num_cuttings_rows
+    # reserve top (ID+FROM band) and bottom (TO band) padding, plus gaps between rows
     reserved_height = 2 * padding_vertical + padding_cuttings * (rows - 1)
     cell_height = (cuttings_config.output_height - reserved_height) // rows
     # each column reserves PH before the image, annotation_gap between the image and its
@@ -75,12 +76,13 @@ def stitching_batch_cuttings(
     image_width = content_width - annotation_width
     column_step = image_width + annotation_gap + annotation_width + padding_horizontal
 
-    # rotate all images to landscape
+    # rotate portrait images to landscape so they fit the grid cell horizontally
     cutting_imgs = []
     for cutting in cuttings:
         with Image.open(cutting.image_path) as src:
             if src.height > src.width:
                 src = src.transpose(Image.Transpose.ROTATE_90)
+            # scale down (never up) to fit the cell while preserving aspect ratio
             scale = min(image_width / src.width, cell_height / src.height, 1.0)
             img = src.resize((round(src.width * scale), round(src.height * scale)), Image.Resampling.LANCZOS)
             cutting_imgs.append(img)
@@ -96,6 +98,7 @@ def stitching_batch_cuttings(
     )
 
     for i, cutting_img in enumerate(cutting_imgs):
+        # column-major fill: cuttings 0..rows-1 go in column 0, rows..2*rows-1 in column 1, etc.
         column, row = divmod(i, rows)
         image_x = padding_horizontal + column * column_step
         cell_y = padding_vertical + row * (cell_height + padding_cuttings)
@@ -116,6 +119,7 @@ def stitching_batch_cuttings(
     # top/bottom border labels: depth_start of the first and last cutting in each column
     for column in range(columns):
         start_idx = column * rows
+        # stop once a column has no cuttings (the last page may not fill every column)
         if start_idx >= len(cuttings):
             break
         end_idx = min(start_idx + rows, len(cuttings)) - 1
