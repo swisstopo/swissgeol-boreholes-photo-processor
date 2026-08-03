@@ -6,8 +6,8 @@ from collections.abc import Generator
 import numpy as np
 from PIL import Image
 
-from src.config import StitchingConfig
 from src.models import ImageMetadataProcessed
+from src.stitching.config import StitchingConfig
 from src.stitching.draw import _draw_borehole_label, _draw_cores, _draw_ruler
 from src.stitching.utils import _resize_images
 
@@ -51,7 +51,7 @@ def stitching_batch(
         cores (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
         shared_ruler_steps (int): Number of major ruler ticks (depth units) spanned by the canvas height,
             shared across all batches so rulers line up between output images.
-        shared_core_id (str): Borehole ID drawn in the top-left label, shared across all batches.
+        shared_core_id (str): Borehole core ID drawn in the top-left label, shared across all batches.
         fallback_scale (float): Pixels-per-unit used to resize cores whose ruler was not detected.
         config (StitchingConfig): Tunable layout parameters (padding, font size, canvas sizing, etc.).
 

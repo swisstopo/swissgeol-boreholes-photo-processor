@@ -19,36 +19,11 @@ from src.mlflow_utils import (
     upload_log_to_mlflow,
     write_evaluation_summary_csv,
 )
-from src.models import ImageMetadata, ImageMetadataProcessed
+from src.models import ImageMetadata
+from src.preprocessing.cuttings import collect_cuttings
 from src.segment.segment import segment
 from src.stitching.stitching import stitching
 from src.stitching.stitching_cuttings import stitching_cuttings
-
-_CUTTINGS_EXTENSIONS = {".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
-
-
-def _collect_cuttings(input_dir: Path) -> list[ImageMetadataProcessed]:
-    """Collect cuttings images from a directory, sorted alphabetically by filename.
-
-    Cuttings filenames carry a single point depth (e.g. "GES-F-1 195 m (Large).JPG") rather
-    than the depth range ImageMetadata.from_path expects, so metadata is built directly here
-    instead; depth_start/depth_end are placeholders (unused by the cuttings grid layout).
-
-    Args:
-        input_dir (Path): Path to the directory containing raw cuttings photos.
-
-    Returns:
-        list[ImageMetadataProcessed]: One entry per cuttings image, in filename order.
-    """
-    image_paths = sorted(
-        f for f in input_dir.iterdir() if not f.name.startswith("._") and f.suffix.lower() in _CUTTINGS_EXTENSIONS
-    )
-    return [
-        ImageMetadataProcessed.from_metadata(
-            ImageMetadata(borehole_id=input_dir.name, depth_start=float(i), depth_end=float(i + 1), image_path=path)
-        )
-        for i, path in enumerate(image_paths)
-    ]
 
 
 def _mlflow_run(run_name: str, with_mlflow: bool, nested: bool = False) -> contextlib.AbstractContextManager:
@@ -98,7 +73,7 @@ def run(
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         if cuttings:
-            detections = _collect_cuttings(input_dir)
+            detections = collect_cuttings(input_dir)
             logging.info("Found %d cuttings images in %s", len(detections), input_dir.name)
         else:
             # Collect all images from the input directory and parse filename metadata
