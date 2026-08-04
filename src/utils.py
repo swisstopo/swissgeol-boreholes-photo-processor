@@ -30,14 +30,6 @@ def load_image(path: str, factor: float = 1.0) -> np.ndarray:
     """
     img = tifffile.imread(path)
 
-    if img.ndim != 3 or img.shape[-1] != 3:
-        raise ValueError(f"Input should be RGB: {path}")
-
-    img = tifffile.imread(path)
-
-    if img.ndim == 2:
-        raise SegmentationError(f"Input should be RGB: {path}")
-
     # drop alpha channel, e.g. from RGBA scans
     if img.shape[-1] == 4:
         img = img[..., :3]

@@ -74,7 +74,10 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
             distances.shape[1] - 1,
         )
     )
-    id_inliers = abs(np.median(distances, axis=1) - steps_median) / steps_median < config.r_error_outliers
+    # Count number of valid neighbors detected for every entry
+    valid_neigh = np.sum(abs(distances - steps_median) / steps_median < config.r_error_outliers, axis=1)
+    # Inliers should be consistent with all neighbors
+    id_inliers = abs(valid_neigh - np.median(valid_neigh)) / np.median(valid_neigh) < config.r_error_outliers
 
     if not id_inliers.any():
         return None
