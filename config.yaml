@@ -6,12 +6,13 @@ segmentation:
 
   tray_group:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    foreground_blur_sigma: 5.0 # gaussian blur applied to each image for foreground detection.
+    foreground_blur_sigma: 5.0 # gaussian blur applied to each image for foreground detection
+    max_flow_shift: 100 # clip optical flow displacement
     n_min_foreground: 10 # minimum number images required to estimate a foreground
     seed: 0 # seed for randomly sampling images from a group
 
   tray_single:
-    block_size: 4000 # pixel neighborhood used to calculate the threshold.
+    block_size: 4000 # pixel neighborhood used to calculate the threshold
     closing_disk: 50 # radius for binary_closing (fills gaps)
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     edge_margin_bottom: 5 # ignore bottom edge of image (ruler)

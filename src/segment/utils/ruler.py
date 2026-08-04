@@ -119,11 +119,12 @@ class ProcessRulerGroupByShape(ProcessGroupByShape[RulerSegmentResult, RulerSegm
         super().__init__(min_group_size=config.n_min_ruler, seed=config.seed, n_workers=n_workers)
         self.config = config
 
-    def _preprocess(self, img_metadata: ImageMetadata) -> RulerSegmentResult | None:
+    def _preprocess(self, img_metadata: ImageMetadata, img_metadata_ref: ImageMetadata) -> RulerSegmentResult | None:
         """Run ruler OCR detection on a single image.
 
         Args:
             img_metadata (ImageMetadata): Metadata of the image to load and segment.
+            img_metadata_ref (ImageMetadata): Reference image.
 
         Returns:
             RulerSegmentResult | None: Detected ruler result, or None.

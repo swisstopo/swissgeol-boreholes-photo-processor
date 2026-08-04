@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from timeit import default_timer as timer
 from typing import Generic, TypeVar
 
@@ -66,11 +67,12 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         self.seed = seed
 
     @abstractmethod
-    def _preprocess(self, img_metadata: ImageMetadata) -> T | None:
+    def _preprocess(self, img_metadata: ImageMetadata, img_metadata_ref: ImageMetadata) -> T | None:
         """Preprocess a single image ahead of aggregation.
 
         Args:
             img_metadata (ImageMetadata): Metadata of the image to preprocess.
+            img_metadata_ref (ImageMetadata): Reference image for image processing.
 
         Returns:
             T | None: The preprocessed value to feed into `_aggregate`, or None.
@@ -100,7 +102,9 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         Returns:
             K | None: The aggregated result for the group, or None.
         """
-        processed_items = list(executor.map(self._preprocess, imgs_metadata))
+        processed_items = list(
+            executor.map(partial(self._preprocess, img_metadata_ref=imgs_metadata[0]), imgs_metadata)
+        )
 
         # Remove unwanted detections
         processed_items = [item for item in processed_items if item is not None]
