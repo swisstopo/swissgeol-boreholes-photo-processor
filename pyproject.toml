@@ -41,6 +41,7 @@ packages = ["src"]
 
 [project.scripts]
 boreholes-photo-processor = "src.run:main"
+boreholes-photo-processor-cuttings = "src.run:main_cuttings"
 
 # ---- Configuration for Ruff
 [tool.ruff.lint]

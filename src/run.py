@@ -162,18 +162,13 @@ def batch_run(
                 upload_log_to_mlflow(log_path)
 
 
-def main() -> None:
+def main(cuttings: bool = False) -> None:
     """Parse CLI arguments and run the pipeline."""
     parser = argparse.ArgumentParser(description="Process borehole photos from input to output directory.")
     parser.add_argument("--input", type=Path, required=True, help="Path to the input directory.")
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
     parser.add_argument("--mlflow", action="store_true", help="Whether to log artifacts to MLflow.")
     parser.add_argument("--debug", action="store_true", help="Whether to log debug images to MLflow.")
-    parser.add_argument(
-        "--cuttings",
-        action="store_true",
-        help="Treat the input as cuttings photos: skip core segmentation and arrange them in a grid.",
-    )
     parser.add_argument(
         "--config",
         type=Path,
@@ -213,7 +208,7 @@ def main() -> None:
             with_mlflow=args.mlflow,
             debug=args.debug,
             log_path=log_path if args.mlflow else None,
-            cuttings=args.cuttings,
+            cuttings=cuttings,
         )
     else:
         run(
@@ -223,8 +218,13 @@ def main() -> None:
             with_mlflow=args.mlflow,
             debug=args.debug,
             log_path=log_path if args.mlflow else None,
-            cuttings=args.cuttings,
+            cuttings=cuttings,
         )
+
+
+def main_cuttings() -> None:
+    """CLI entry point for the cuttings pipeline."""
+    main(cuttings=True)
 
 
 if __name__ == "__main__":

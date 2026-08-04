@@ -171,7 +171,7 @@ To use a different config file, pass `--config <path>` (see below).
 
 ## CLI Usage
 
-Run the borehole photo processing pipeline:
+### Run the pipeline for cores:
 
 **Without MLflow tracking**
 
@@ -199,3 +199,22 @@ uv run mlflow ui
 ```
 
 Then open http://localhost:5000 in your browser.
+
+
+### Run the pipeline for cuttings
+
+**Without MLflow tracking**
+
+```bash
+uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-dir>
+```
+
+- same flags as for the cores
+
+**With MLflow tracking**
+
+```bash
+uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-dir> --mlflow --debug
+```
+
+- same flags as for the cores
