@@ -4,22 +4,22 @@ from pathlib import Path
 
 from src.evaluations.config import CoreLengthCheckConfig
 from src.evaluations.core import EvaluationLengthCompute
-from src.models import CoreSegmentResult, ImageMetadataProcessed, RulerSegmentResult
+from src.models import CoreSegmentResult, ImageMetadataProcessedCores, RulerSegmentResult
 
 # Depth intervals (in metres) with varied, exactly-representable values.
 _INTERVALS_M = [0.5, 0.75, 1.0, 1.25, 1.5]
 _RATIO_PX_PER_M = 800.0
 
 
-def _make_detection(length: float, depth_start: float, interval: float) -> ImageMetadataProcessed:
-    """Creates an ImageMetadataProcessed whose bounding box has the given length in pixels.
+def _make_detection(length: float, depth_start: float, interval: float) -> ImageMetadataProcessedCores:
+    """Creates an ImageMetadataProcessedCores whose bounding box has the given length in pixels.
 
     Length is the box's horizontal (x) extent: raw TIF photos are landscape, with the depth
     axis running horizontally (x) and the core's physical width running vertically (y).
     """
     left = 100.0
     depth_end = depth_start + interval
-    return ImageMetadataProcessed(
+    return ImageMetadataProcessedCores(
         borehole_id="GBC-CB50",
         depth_start=depth_start,
         depth_end=depth_end,

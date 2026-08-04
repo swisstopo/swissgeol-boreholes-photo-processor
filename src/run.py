@@ -19,7 +19,7 @@ from src.mlflow_utils import (
     log_evaluation_results_with_mlflow,
     upload_log_to_mlflow,
 )
-from src.models import ImageMetadata
+from src.models import ImageMetadataCores
 from src.preprocessing.cuttings import collect_cuttings
 from src.segment.segment import segment
 from src.stitching.stitching import stitching
@@ -75,13 +75,14 @@ def run(
         if cuttings:
             detections = collect_cuttings(input_dir)
             logging.info("Found %d cuttings images in %s", len(detections), input_dir.name)
+            images = stitching_cuttings(detections, config=config.stitching)
         else:
             # Collect all images from the input directory and parse filename metadata
-            imgs_metadata: list[ImageMetadata] = []
+            imgs_metadata: list[ImageMetadataCores] = []
             for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
                 if f.suffix.lower() == ".tif":
                     try:
-                        metadata = ImageMetadata.from_path(f)
+                        metadata = ImageMetadataCores.from_path(f)
                         _ = metadata.shape  # validate the file is readable before segmentation runs
                         imgs_metadata.append(metadata)
                     except (ValueError, SegmentationError, tifffile.TiffFileError) as e:
@@ -97,11 +98,12 @@ def run(
                 results = evaluate_detections(detections, config.evaluation)
                 log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
 
+            images = stitching(detections, config=config.stitching)
+
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
-        stitch = stitching_cuttings if cuttings else stitching
         idx = -1  # guards against NameError in the logging call when detections is empty
-        for idx, img in enumerate(stitch(detections, config=config.stitching)):
+        for idx, img in enumerate(images):
             stem = f"{input_dir.name}_{idx + 1:03d}"
 
             if with_mlflow:

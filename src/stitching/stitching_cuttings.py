@@ -5,7 +5,7 @@ from collections.abc import Generator
 
 from PIL import Image
 
-from src.models import ImageMetadataProcessed
+from src.models import ImageMetadataProcessedCuttings
 from src.stitching.config import StitchingConfig
 from src.stitching.draw import _draw_borehole_label, _draw_cuttings_annotation, _draw_cuttings_border_label
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def stitching_batch_cuttings(
-    cuttings: list[ImageMetadataProcessed],
+    cuttings: list[ImageMetadataProcessedCuttings],
     shared_borehole_id: str,
     config: StitchingConfig,
 ) -> Image.Image:
@@ -50,7 +50,7 @@ def stitching_batch_cuttings(
     ---------------------------------------------------------------------------------------     v
 
     Args:
-        cuttings (list[ImageMetadataProcessed]): Cuttings images for this batch, in the order
+        cuttings (list[ImageMetadataProcessedCuttings]): Cuttings images for this batch, in the order
             they should appear (top to bottom within a column, then the next column).
         shared_borehole_id (str): Borehole ID drawn in the top-left label, shared across all batches.
         config (StitchingConfig): Configuration for stitching.
@@ -110,7 +110,7 @@ def stitching_batch_cuttings(
         annotation_x = image_x + image_width + annotation_gap
         canvas = _draw_cuttings_annotation(
             canvas,
-            depth=cuttings[i].depth_start,
+            depth=cuttings[i].depth,
             loc=(annotation_x, cell_y),
             size=(annotation_width, cell_height),
             font_size=cuttings_config.font_size,
@@ -130,13 +130,13 @@ def stitching_batch_cuttings(
         # x position shared by every cutting in the column
         canvas = _draw_cuttings_border_label(
             canvas,
-            depth=cuttings[start_idx].depth_start,
+            depth=cuttings[start_idx].depth,
             loc=(image_x, round(padding_vertical * 3 / 4)),
             font_size=cuttings_config.font_size,
         )
         canvas = _draw_cuttings_border_label(
             canvas,
-            depth=cuttings[end_idx].depth_start,
+            depth=cuttings[end_idx].depth,
             loc=(image_x, round(cuttings_config.output_height - padding_vertical / 2)),
             font_size=cuttings_config.font_size,
         )
@@ -145,13 +145,13 @@ def stitching_batch_cuttings(
 
 
 def stitching_cuttings(
-    imgs: list[ImageMetadataProcessed],
+    imgs: list[ImageMetadataProcessedCuttings],
     config: StitchingConfig,
 ) -> Generator[Image.Image, None, None]:
     """Stitch cuttings images into pages of a fixed grid, one output image per page.
 
     Args:
-        imgs (list[ImageMetadataProcessed]): Cuttings images to stitch, in the order they should
+        imgs (list[ImageMetadataProcessedCuttings]): Cuttings images to stitch, in the order they should
             appear on the page (top to bottom within a column, then the next column).
         config (StitchingConfig): Configuration for stitching.
 

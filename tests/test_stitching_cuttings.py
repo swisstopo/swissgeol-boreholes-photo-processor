@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from src.models import ImageMetadata, ImageMetadataProcessed
+from src.models import ImageMetadataCuttings, ImageMetadataProcessedCuttings
 from src.stitching.config import CuttingsStitchingConfig, StitchingConfig
 from src.stitching.stitching_cuttings import stitching_cuttings
 
@@ -21,17 +21,16 @@ def make_cutting(tmp_path):
         depth: float,
         size: tuple[int, int] = (60, 80),
         color: tuple[int, int, int] = (128, 128, 128),
-    ) -> ImageMetadataProcessed:
-        """Creates a simple ImageMetadataProcessed for a cutting with a solid-color image."""
+    ) -> ImageMetadataProcessedCuttings:
+        """Creates a simple ImageMetadataProcessedCuttings for a cutting with a solid-color image."""
         image_path = tmp_path / f"cutting_{depth:07.2f}.png"
         Image.new("RGB", size, color=color).save(image_path)
-        metadata = ImageMetadata(
+        metadata = ImageMetadataCuttings(
             borehole_id="GES-F-1",
-            depth_start=depth,
-            depth_end=depth + 1.0,
+            depth=depth,
             image_path=image_path,
         )
-        return ImageMetadataProcessed.from_metadata(metadata=metadata)
+        return ImageMetadataProcessedCuttings.from_metadata(metadata=metadata)
 
     return _factory
 

@@ -15,7 +15,7 @@ from src.config import (
     SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
 )
-from src.models import ImageMetadata, ImageSegmentResult, RulerSegmentResult, TraySegmentResult
+from src.models import ImageMetadataCores, ImageSegmentResult, RulerSegmentResult, TraySegmentResult
 from src.segment.segment import segment
 from src.segment.utils.core import segment_core
 from src.segment.utils.misc import group_images_by_shape
@@ -33,8 +33,8 @@ def make_metadata(tmp_path):
         depth_end: float,
         draw_fn: Callable[[ImageDraw.ImageDraw], None] = lambda draw: None,
         size: tuple[int, int] = _IMG_SIZE,
-    ) -> ImageMetadata:
-        """Creates an ImageMetadata pointing to a synthetic TIF image built by draw_fn.
+    ) -> ImageMetadataCores:
+        """Creates an ImageMetadataCores pointing to a synthetic TIF image built by draw_fn.
 
         Args:
             depth_start (float): Top-of-core depth in metres, encoded into the filename.
@@ -45,14 +45,14 @@ def make_metadata(tmp_path):
             size (tuple[int, int]): Size of the synthetic image in pixels. Defaults to _IMG_SIZE.
 
         Returns:
-            ImageMetadata: Metadata pointing at the saved synthetic TIF image.
+            ImageMetadataCores: Metadata pointing at the saved synthetic TIF image.
         """
         filename = f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
         image_path = tmp_path / filename
         img = Image.new("RGB", size, color=_BACKGROUND_COLOR)
         draw_fn(ImageDraw.Draw(img))
         img.save(image_path)
-        return ImageMetadata(
+        return ImageMetadataCores(
             borehole_id="GBC-CB50",
             depth_start=depth_start,
             depth_end=depth_end,
@@ -63,12 +63,12 @@ def make_metadata(tmp_path):
 
 
 @pytest.fixture
-def example(tmp_path) -> ImageMetadata:
-    """Copies the real example core/tray/ruler photo into tmp_path as a .tif and wraps it in ImageMetadata."""
+def example(tmp_path) -> ImageMetadataCores:
+    """Copies the real example core/tray/ruler photo into tmp_path as a .tif and wraps it in ImageMetadataCores."""
     path_source_ = Path("examples/EX-EX_0001.00-002.00.jpg")
     path_dest = tmp_path / (path_source_.stem + ".tif")
     Image.open(path_source_).save(path_dest)
-    return ImageMetadata.from_path(path_dest)
+    return ImageMetadataCores.from_path(path_dest)
 
 
 def test_segment_example(example):
@@ -241,7 +241,7 @@ def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, 
     """A blank image with a non-uint8/uint16 dtype (e.g. float32) is skipped, not crashing the whole batch."""
     bad_image_path = tmp_path / "GBC-CB50_0015.00-0016.00_vd_p.TIF"
     tifffile.imwrite(bad_image_path, np.zeros((300, 300, 3), dtype=np.float32), photometric="rgb")
-    bad = ImageMetadata(borehole_id="GBC-CB50", depth_start=15.0, depth_end=16.0, image_path=bad_image_path)
+    bad = ImageMetadataCores(borehole_id="GBC-CB50", depth_start=15.0, depth_end=16.0, image_path=bad_image_path)
 
     core_box = (200, 150, 600, 1100)
     good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))

@@ -9,11 +9,11 @@ from skimage.filters import threshold_otsu
 from sklearn.metrics import pairwise_distances
 
 from src.config import SegmentationRulerConfig
-from src.models import ImageMetadata, RulerSegmentResult
+from src.models import ImageMetadataCores, RulerSegmentResult
 from src.segment.utils.misc import ProcessGroupByShape
 
 
-def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) -> RulerSegmentResult | None:
+def segment_ruler(img_metadata: ImageMetadataCores, config: SegmentationRulerConfig) -> RulerSegmentResult | None:
     """Detect a depth ruler by OCR'ing its printed number ticks and derive a pixel-to-unit scale.
 
     Binarizes the image for more reliable OCR, keeps digit detections within
@@ -21,7 +21,7 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     from the median step between consecutive numbers (outliers).
 
     Args:
-        img_metadata (ImageMetadata): Metadata of the image to load and segment.
+        img_metadata (ImageMetadataCores): Metadata of the image to load and segment.
         config (SegmentationRulerConfig): Tunable segmentation parameters.
 
     Returns:
@@ -119,11 +119,11 @@ class ProcessRulerGroupByShape(ProcessGroupByShape[RulerSegmentResult, RulerSegm
         super().__init__(min_group_size=config.n_min_ruler, seed=config.seed, n_workers=n_workers)
         self.config = config
 
-    def _preprocess(self, img_metadata: ImageMetadata) -> RulerSegmentResult | None:
+    def _preprocess(self, img_metadata: ImageMetadataCores) -> RulerSegmentResult | None:
         """Run ruler OCR detection on a single image.
 
         Args:
-            img_metadata (ImageMetadata): Metadata of the image to load and segment.
+            img_metadata (ImageMetadataCores): Metadata of the image to load and segment.
 
         Returns:
             RulerSegmentResult | None: Detected ruler result, or None.

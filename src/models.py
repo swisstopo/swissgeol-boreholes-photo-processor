@@ -14,54 +14,13 @@ from src.utils import get_image_shape, load_image
 
 @dataclass
 class ImageMetadata:
-    """Metadata for an image file.
+    """Shared metadata for an image file, common to both the cores and cuttings pipelines.
 
-    borehole_id is the filename prefix before the depth range.
-    depth_start and depth_end are parsed from the filename, e.g.
-    ``GBC-CB50_0015.00-0016.00_vd_p.TIF``.
+    borehole_id is the filename prefix identifying the borehole; image_path is the source file.
     """
 
     borehole_id: str
-    depth_start: float
-    depth_end: float
     image_path: Path
-
-    _DEPTH_PATTERN: ClassVar[re.Pattern] = re.compile(r"_(?P<depth_start>\d+\.\d+)-(?P<depth_end>\d+\.\d+)")
-
-    @classmethod
-    def from_path(cls, image_path: Path) -> "ImageMetadata":
-        """Construct an ImageMetadata from an image path.
-
-        borehole_id is extracted as the filename prefix before the depth range.
-        depth_start and depth_end are extracted from the filename via regex.
-
-        Args:
-            image_path (Path): Full path to an image file, e.g.
-                ``Path(".../GBC/GBC-CB50/GBC-CB50_0015.00-0016.00_vd_p.TIF")``.
-
-        Raises:
-            ValueError: If no depth range can be found in the filename, or if the
-                parsed depth_end is not strictly greater than depth_start.
-
-        Returns:
-            ImageMetadata: An instance containing the parsed metadata.
-        """
-        match = cls._DEPTH_PATTERN.search(image_path.stem)
-        if not match:
-            raise ValueError(f"No depth range found in filename: {image_path.name}")
-        depth_start = float(match.group("depth_start"))
-        depth_end = float(match.group("depth_end"))
-        if depth_end <= depth_start:
-            raise ValueError(
-                f"depth_end ({depth_end}) must be greater than depth_start ({depth_start}) "
-                f"in filename: {image_path.name}"
-            )
-        return cls(
-            borehole_id=image_path.stem[: match.start()],
-            depth_start=depth_start,
-            depth_end=depth_end,
-            image_path=image_path,
-        )
 
     @property
     def folder(self) -> Path:
@@ -94,6 +53,98 @@ class ImageMetadata:
     def to_dict(self) -> dict:
         """Return this metadata as a plain dict, e.g. for JSON serialization."""
         return asdict(self)
+
+
+@dataclass
+class ImageMetadataCores(ImageMetadata):
+    """Metadata for a core image file.
+
+    borehole_id is the filename prefix before the depth range.
+    depth_start and depth_end are parsed from the filename, e.g.
+    ``GBC-CB50_0015.00-0016.00_vd_p.TIF``.
+    """
+
+    depth_start: float
+    depth_end: float
+
+    _DEPTH_PATTERN: ClassVar[re.Pattern] = re.compile(r"_(?P<depth_start>\d+\.\d+)-(?P<depth_end>\d+\.\d+)")
+
+    @classmethod
+    def from_path(cls, image_path: Path) -> "ImageMetadataCores":
+        """Construct an ImageMetadataCores from an image path.
+
+        borehole_id is extracted as the filename prefix before the depth range.
+        depth_start and depth_end are extracted from the filename via regex.
+
+        Args:
+            image_path (Path): Full path to an image file, e.g.
+                ``Path(".../GBC/GBC-CB50/GBC-CB50_0015.00-0016.00_vd_p.TIF")``.
+
+        Raises:
+            ValueError: If no depth range can be found in the filename, or if the
+                parsed depth_end is not strictly greater than depth_start.
+
+        Returns:
+            ImageMetadataCores: An instance containing the parsed metadata.
+        """
+        match = cls._DEPTH_PATTERN.search(image_path.stem)
+        if not match:
+            raise ValueError(f"No depth range found in filename: {image_path.name}")
+        depth_start = float(match.group("depth_start"))
+        depth_end = float(match.group("depth_end"))
+        if depth_end <= depth_start:
+            raise ValueError(
+                f"depth_end ({depth_end}) must be greater than depth_start ({depth_start}) "
+                f"in filename: {image_path.name}"
+            )
+        return cls(
+            borehole_id=image_path.stem[: match.start()],
+            depth_start=depth_start,
+            depth_end=depth_end,
+            image_path=image_path,
+        )
+
+
+@dataclass
+class ImageMetadataCuttings(ImageMetadata):
+    """Metadata for a cuttings image file.
+
+    borehole_id is the filename prefix before the depth. depth is a single point depth
+    (not a range) parsed from the filename, e.g. ``GES-F-1 190 m (Large).JPG``.
+    """
+
+    depth: float
+
+    _DEPTH_REGEX_FORSTHAUS: ClassVar[re.Pattern] = re.compile(
+        r"(?P<depth>\d+(?:\.\d+)?)\s*m?(?:\s*\(.*\))?$", re.IGNORECASE
+    )
+
+    @classmethod
+    def from_path(cls, image_path: Path) -> "ImageMetadataCuttings":
+        """Construct an ImageMetadataCuttings from an image path.
+
+        borehole_id is extracted as the filename prefix before the depth.
+        depth is extracted from the filename via regex.
+
+        Args:
+            image_path (Path): Full path to an image file, e.g.
+                ``Path(".../GES-F-1/GES-F-1 190 m (Large).JPG")``.
+
+        Raises:
+            ValueError: If no depth can be found in the filename.
+
+        Returns:
+            ImageMetadataCuttings: An instance containing the parsed metadata.
+        """
+        match = cls._DEPTH_REGEX_FORSTHAUS.search(image_path.stem)
+        if not match:
+            raise ValueError(f"No depth found in filename: {image_path.name}")
+        depth = float(match.group("depth"))
+        return cls(
+            borehole_id=image_path.stem[: match.start()],
+            depth=depth,
+            image_path=image_path,
+        )
 
 
 class ApproachType(IntEnum):
@@ -179,7 +230,7 @@ class RulerSegmentResult(ImageSegmentResult):
 
 
 @dataclass
-class ImageMetadataProcessed(ImageMetadata):
+class ImageMetadataProcessedCores(ImageMetadataCores):
     """Metadata for a processed image with detected regions."""
 
     core: CoreSegmentResult | None = None
@@ -189,21 +240,21 @@ class ImageMetadataProcessed(ImageMetadata):
     @classmethod
     def from_metadata(
         cls,
-        metadata: ImageMetadata,
+        metadata: ImageMetadataCores,
         core: CoreSegmentResult | None = None,
         tray: ImageSegmentResult | None = None,
         ruler: RulerSegmentResult | None = None,
-    ) -> "ImageMetadataProcessed":
-        """Construct an ImageMetadataProcessed from an existing ImageMetadata.
+    ) -> "ImageMetadataProcessedCores":
+        """Construct an ImageMetadataProcessedCores from an existing ImageMetadata.
 
         Args:
-            metadata (ImageMetadata): The original image metadata.
+            metadata (ImageMetadataCores): The original image metadata.
             core (CoreSegmentResult | None): Detected core bounding box, if any.
             tray (ImageSegmentResult | None): Detected tray bounding box, if any.
             ruler (RulerSegmentResult | None): Detected ruler bounding box, if any.
 
         Returns:
-            ImageMetadataProcessed: A new instance containing the original metadata and the processing result.
+            ImageMetadataProcessedCores: A new instance containing the original metadata and the processing result.
         """
         return cls(
             borehole_id=metadata.borehole_id,
@@ -245,3 +296,40 @@ class ImageMetadataProcessed(ImageMetadata):
             "ruler": self.ruler.to_dict() if self.ruler else {},
             "tray": self.tray.to_dict() if self.tray else {},
         }
+
+
+@dataclass
+class CuttingsSegmentResult(ImageSegmentResult):  # TODO: this is a placeholder
+    """Result of detecting the cuttings bbox (bbox is used downstream for cropping/evaluation/stitching)."""
+
+    # Per-segment bboxes before merging into `bbox`; kept only for MLflow debug visualization.
+    bbox_segments: list[tuple[float, float, float, float]] | None = None
+
+
+@dataclass
+class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
+    """Metadata for a processed image with detected regions."""
+
+    cuttings: CuttingsSegmentResult | None = None
+
+    @classmethod
+    def from_metadata(
+        cls,
+        metadata: ImageMetadataCuttings,
+        cuttings: CuttingsSegmentResult | None = None,
+    ) -> "ImageMetadataProcessedCuttings":
+        """Construct an ImageMetadataProcessedCuttings from an existing ImageMetadata.
+
+        Args:
+            metadata (ImageMetadataCuttings): The original image metadata.
+            cuttings (CuttingsSegmentResult | None): Detected cuttings bounding box, if any.
+
+        Returns:
+            ImageMetadataProcessedCuttings: A new instance containing the original metadata and the processing result.
+        """
+        return cls(
+            borehole_id=metadata.borehole_id,
+            depth=metadata.depth,
+            image_path=metadata.image_path,
+            cuttings=cuttings,
+        )

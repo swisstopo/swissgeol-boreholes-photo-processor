@@ -13,7 +13,7 @@ from mlflow.tracking import MlflowClient
 from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
-from src.models import ImageMetadataProcessed, ImageSegmentResult, TraySegmentResult
+from src.models import ImageMetadataProcessedCores, ImageSegmentResult, TraySegmentResult
 from src.utils import scale_bbox
 
 
@@ -64,7 +64,7 @@ def upload_log_to_mlflow(log_path: Path) -> None:
 
 
 def log_image_metadata_processed_mlflow(
-    result: ImageMetadataProcessed,
+    result: ImageMetadataProcessedCores,
     filename: str,
     suffix: str = ".jpg",
     subfolder: str | None = None,
@@ -74,7 +74,7 @@ def log_image_metadata_processed_mlflow(
     """Log a processed image to MLflow with core/tray/ruler bounding boxes overlaid.
 
     Args:
-        result (ImageMetadataProcessed): The processed image whose detected regions are drawn and logged.
+        result (ImageMetadataProcessedCores): The processed image whose detected regions are drawn and logged.
         filename (str): The filename prefix for the artifact.
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
@@ -117,7 +117,7 @@ def log_image_metadata_processed_mlflow(
 
 
 def log_segmentation_results_with_mlflow(
-    detections: list[ImageMetadataProcessed],
+    detections: list[ImageMetadataProcessedCores],
     time: float,
 ) -> None:
     """Log a summary of the segmentation timing and approach breakdown to MLflow.
@@ -127,7 +127,7 @@ def log_segmentation_results_with_mlflow(
     for the tray, ruler, and core detectors, and every image's full detection result.
 
     Args:
-        detections (list[ImageMetadataProcessed]): Per-image processed results.
+        detections (list[ImageMetadataProcessedCores]): Per-image processed results.
         time (float): Overall wall-clock time, in seconds, for the segmentation run.
     """
     mlflow.log_dict(

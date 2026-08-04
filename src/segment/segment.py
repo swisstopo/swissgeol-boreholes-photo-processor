@@ -16,8 +16,8 @@ from src.mlflow_utils import (
     log_tray_segment_mlflow,
 )
 from src.models import (
-    ImageMetadata,
-    ImageMetadataProcessed,
+    ImageMetadataCores,
+    ImageMetadataProcessedCores,
     RulerSegmentResult,
     TraySegmentResult,
 )
@@ -29,18 +29,18 @@ logger = logging.getLogger(__name__)
 
 
 def segment_single(
-    img_metadata: ImageMetadata,
+    img_metadata: ImageMetadataCores,
     ruler_by_shape: dict[tuple[int, int, int], RulerSegmentResult],
     tray_by_shape: dict[tuple[int, int, int], TraySegmentResult],
     config: SegmentationConfig,
     with_mlflow: bool = False,
     debug: bool = False,
     run_id: str | None = None,
-) -> ImageMetadataProcessed | None:
+) -> ImageMetadataProcessedCores | None:
     """Segment a single image: locate its ruler, tray and core, and assemble the result.
 
     Args:
-        img_metadata (ImageMetadata): Metadata of the image to segment.
+        img_metadata (ImageMetadataCores): Metadata of the image to segment.
         ruler_by_shape (dict[tuple[int, int, int], RulerSegmentResult]): Shared ruler
             detection per image shape, computed once per shape group. Used when this
             image's shape has an entry; otherwise the ruler is detected for this image alone.
@@ -55,7 +55,7 @@ def segment_single(
             when `with_mlflow` is True. Defaults to None.
 
     Returns:
-        ImageMetadataProcessed | None: The processed image metadata with its core, tray, and
+        ImageMetadataProcessedCores | None: The processed image metadata with its core, tray, and
         ruler detections, or None if segmentation failed.
     """
     detection = None
@@ -75,7 +75,7 @@ def segment_single(
         detection_core = segment_core(img_metadata, detection_tray, config=config.core)
 
         # Step 5: Save detections and records
-        detection = ImageMetadataProcessed.from_metadata(
+        detection = ImageMetadataProcessedCores.from_metadata(
             metadata=img_metadata,
             core=detection_core,
             tray=detection_tray,
@@ -98,17 +98,17 @@ def segment_single(
 
 
 def segment_all(
-    imgs_metadata: list[ImageMetadata],
+    imgs_metadata: list[ImageMetadataCores],
     ruler_by_shape: dict[tuple[int, int, int], RulerSegmentResult],
     tray_by_shape: dict[tuple[int, int, int], TraySegmentResult],
     config: SegmentationConfig,
     with_mlflow: bool = False,
     debug: bool = False,
-) -> list[ImageMetadataProcessed]:
+) -> list[ImageMetadataProcessedCores]:
     """Segment every image in the batch, in parallel, reusing per-shape ruler/tray detections.
 
     Args:
-        imgs_metadata (list[ImageMetadata]): Images to segment.
+        imgs_metadata (list[ImageMetadataCores]): Images to segment.
         ruler_by_shape (dict[tuple[int, int, int], RulerSegmentResult]): Shared ruler detection
             per image shape, computed once per shape group.
         tray_by_shape (dict[tuple[int, int, int], TraySegmentResult]): Shared tray detection per
@@ -120,7 +120,7 @@ def segment_all(
             each image. Only applies when `with_mlflow` is True. Defaults to False.
 
     Returns:
-        list[ImageMetadataProcessed]: Processed image metadata for every image that segmented
+        list[ImageMetadataProcessedCores]: Processed image metadata for every image that segmented
         successfully. May be shorter than `imgs_metadata` if any images failed to segment.
     """
     active_run = mlflow.active_run()
@@ -157,11 +157,11 @@ def segment_all(
 
 
 def segment(
-    imgs_metadata: list[ImageMetadata],
+    imgs_metadata: list[ImageMetadataCores],
     config: SegmentationConfig | None = None,
     with_mlflow: bool = False,
     debug: bool = False,
-) -> list[ImageMetadataProcessed]:
+) -> list[ImageMetadataProcessedCores]:
     """Segment the input images and return a list of processed image metadata objects.
 
     A bounding box is derived from the batch's shared foreground estimate (falling back
@@ -170,14 +170,14 @@ def segment(
     including images that fall back to per-image tray segmentation.
 
     Args:
-        imgs_metadata (list[ImageMetadata]): A list of image metadata objects to be segmented.
+        imgs_metadata (list[ImageMetadataCores]): A list of image metadata objects to be segmented.
         config (SegmentationConfig | None): Tunable segmentation parameters. Defaults to SegmentationConfig().
         with_mlflow (bool): Whether to log artifacts to MLflow.
         debug (bool): Whether to additionally log debug images (e.g. per-shape tray/ruler
             detections) to MLflow. Only applies when with_mlflow is True.
 
     Returns:
-        list[ImageMetadataProcessed]: A list of processed image metadata objects. May be shorter than
+        list[ImageMetadataProcessedCores]: A list of processed image metadata objects. May be shorter than
         imgs_metadata if any images failed to segment.
     """
     config = config or SegmentationConfig()

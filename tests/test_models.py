@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.models import ImageMetadata
+from src.models import ImageMetadataCores
 
 
 @pytest.mark.parametrize(
@@ -17,7 +17,7 @@ from src.models import ImageMetadata
 )
 def test_from_path_parses_filename(path_str, borehole_id, depth_start, depth_end):
     path = Path(path_str)
-    m = ImageMetadata.from_path(path)
+    m = ImageMetadataCores.from_path(path)
     assert m.borehole_id == borehole_id
     assert m.depth_start == depth_start
     assert m.depth_end == depth_end
@@ -29,4 +29,4 @@ def test_from_path_parses_filename(path_str, borehole_id, depth_start, depth_end
 
 def test_from_path_raises_when_no_depth_in_filename():
     with pytest.raises(ValueError, match="No depth range found in filename"):
-        ImageMetadata.from_path(Path("/data/GBC/GBC-CB50/some_random_file.TIF"))
+        ImageMetadataCores.from_path(Path("/data/GBC/GBC-CB50/some_random_file.TIF"))

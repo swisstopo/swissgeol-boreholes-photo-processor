@@ -6,7 +6,7 @@ from collections.abc import Generator
 import numpy as np
 from PIL import Image
 
-from src.models import ImageMetadataProcessed
+from src.models import ImageMetadataProcessedCores
 from src.stitching.config import StitchingConfig
 from src.stitching.draw import _draw_borehole_label, _draw_cores, _draw_ruler
 from src.stitching.utils import _resize_images
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def stitching_batch(
-    cores: list[ImageMetadataProcessed],
+    cores: list[ImageMetadataProcessedCores],
     shared_ruler_steps: int,
     shared_core_id: str,
     fallback_scale: float,
@@ -48,7 +48,7 @@ def stitching_batch(
     ----------------------------------------------------------------------------  v
 
     Args:
-        cores (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
+        cores (list[ImageMetadataProcessedCores]): The list of processed image metadata objects to stitch together.
         shared_ruler_steps (int): Number of major ruler ticks (depth units) spanned by the canvas height,
             shared across all batches so rulers line up between output images.
         shared_core_id (str): Borehole core ID drawn in the top-left label, shared across all batches.
@@ -130,13 +130,13 @@ def stitching_batch(
 
 
 def stitching(
-    imgs: list[ImageMetadataProcessed],
+    imgs: list[ImageMetadataProcessedCores],
     config: StitchingConfig,
 ) -> Generator[Image.Image, None, None]:
     """Stitch core segments together, yielding one output image at a time.
 
     Args:
-        imgs (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
+        imgs (list[ImageMetadataProcessedCores]): The list of processed image metadata objects to stitch together.
         config (StitchingConfig): Tunable layout parameters (padding, font size, canvas sizing, etc.).
 
     Yields:
