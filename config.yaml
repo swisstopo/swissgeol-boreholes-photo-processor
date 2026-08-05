@@ -39,6 +39,7 @@ segmentation:
     min_segment_height_px: 100 # minimum height (px) for a left/right segment to be kept as core
 
 stitching:
+  n_workers: 4 # number of worker processes stitching output images in parallel
   font_size: 100 # font size (px) used for borehole ID, depth labels, and ruler tick labels
   max_core_height: 10000 # cap on each core crop's resized height (pixels) and the canvas row height
   max_core_width: 1200 # cap on each core crop's resized width (pixels) and the per-core column width

@@ -1,17 +1,37 @@
 """Module for stitching core segments together."""
 
 import logging
-from collections.abc import Generator
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
 from src.config import StitchingConfig
+from src.mlflow_utils import log_artifact_with_mlflow
 from src.models import ImageMetadataProcessed
 from src.stitching.draw import _draw_borehole_label, _draw_cores, _draw_ruler
 from src.stitching.utils import _resize_images
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class StitchingJob:
+    """Self-contained arguments for stitching and saving one output image.
+
+    Each job stitches one chunk of up to num_cores_per_image cores into a single output
+    image and writes it to disk, independently of every other job, so a batch of jobs
+    can be dispatched to a process pool (e.g. via ProcessPoolExecutor) for parallel execution.
+    """
+
+    cores: list[ImageMetadataProcessed]
+    shared_ruler_steps: int
+    shared_core_id: str
+    fallback_scale: float
+    stem_filename: str
+    output_dir: Path
+    config: StitchingConfig
 
 
 def stitching_batch(
@@ -128,18 +148,23 @@ def stitching_batch(
     return canvas
 
 
-def stitching(
+def prepare_stitching_jobs(
     imgs: list[ImageMetadataProcessed],
+    prefix: str,
+    output_dir: Path,
     config: StitchingConfig,
-) -> Generator[Image.Image, None, None]:
-    """Stitch core segments together, yielding one output image at a time.
+) -> list[StitchingJob]:
+    """Compute the independent stitching jobs needed to stitch and save all core segments.
 
     Args:
         imgs (list[ImageMetadataProcessed]): The list of processed image metadata objects to stitch together.
+        prefix (str): Filename prefix for each output image, e.g. the input folder's name; combined with a
+            1-based chunk index to form each job's stem_filename.
+        output_dir (Path): Directory each job's stitched image will be saved to.
         config (StitchingConfig): Tunable layout parameters (padding, font size, canvas sizing, etc.).
 
-    Yields:
-        Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
+    Returns:
+        list[StitchingJob]: One job per chunk of up to num_cores_per_image cores.
     """
     # Get spans and resolution for all cores
     original = np.array(
@@ -153,7 +178,7 @@ def stitching(
 
     if original.size == 0:
         logger.warning("No detection has both a ruler and a core; nothing to stitch")
-        return
+        return []
 
     original_scales, original_heights = original
 
@@ -163,11 +188,45 @@ def stitching(
     # Estimate ruler span over all cores
     canvas_ruler_steps = np.ceil(max(original_heights / original_scales)).astype(int).item()
 
-    for i in range(0, len(imgs), config.num_cores_per_image):
-        yield stitching_batch(
+    return [
+        StitchingJob(
             cores=imgs[i : i + config.num_cores_per_image],
             shared_ruler_steps=canvas_ruler_steps,
             shared_core_id=imgs[0].borehole_id,
             fallback_scale=fallback_scale,
+            stem_filename=f"{prefix}_{i + 1:03d}",
+            output_dir=output_dir,
             config=config,
         )
+        for i in range(0, len(imgs), config.num_cores_per_image)
+    ]
+
+
+def stitching_job(job: StitchingJob, output_dir: Path, with_mlflow: bool, run_id: str | None) -> None:
+    """Stitch one job's cores and save the result, optionally logging it to MLflow.
+
+    Designed to run in a worker process (e.g. via ProcessPoolExecutor.map): mlflow's active-run
+    context does not propagate across processes, so the run to log to must be passed explicitly
+    via run_id rather than relying on an ambient active run.
+
+    Args:
+        job (StitchingJob): The cores and layout parameters for this output image, plus its
+            filename stem and output directory.
+        output_dir (Path): Directory to save the stitched image to.
+        with_mlflow (bool): Whether to log the stitched image as an MLflow artifact.
+        run_id (str | None): MLflow run to log the artifact to when with_mlflow is True.
+            Required in that case since there is no active run in a worker process.
+    """
+    img = stitching_batch(
+        cores=job.cores,
+        shared_ruler_steps=job.shared_ruler_steps,
+        shared_core_id=job.shared_core_id,
+        fallback_scale=job.fallback_scale,
+        config=job.config,
+    )
+
+    if with_mlflow:
+        log_artifact_with_mlflow(img=img, filename=job.stem_filename, run_id=run_id)
+
+    img.save(job.output_dir / f"{job.stem_filename}.png")
+    img.save(job.output_dir / f"{job.stem_filename}.tif")

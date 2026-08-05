@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class StitchingConfig:
     """Tunable parameters for the stitching step."""
 
+    n_workers: int = 4  # number of worker processes stitching output images in parallel
     font_size: int = 100  # font size (px) used for borehole ID, depth labels, and ruler tick labels
     max_core_height: int = 10000  # cap on each core crop's resized height (pixels) and the canvas row height
     max_core_width: int = 1200  # cap on each core crop's resized width (pixels) and the per-core column width

@@ -5,6 +5,8 @@ import contextlib
 import datetime
 import glob
 import logging
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from pathlib import Path
 
 import mlflow
@@ -14,14 +16,13 @@ from tqdm import tqdm
 from src.config import PipelineConfig, SegmentationError
 from src.evaluations.core import evaluate_detections
 from src.mlflow_utils import (
-    log_artifact_with_mlflow,
     log_batch_evaluation_summary_csv,
     log_evaluation_results_with_mlflow,
     upload_log_to_mlflow,
 )
 from src.models import ImageMetadata
 from src.segment.segment import segment
-from src.stitching.stitching import stitching
+from src.stitching.stitching import prepare_stitching_jobs, stitching_job
 
 
 def _mlflow_run(
@@ -89,19 +90,29 @@ def run(
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
-        idx = -1  # guards against NameError in the logging call when detections is empty
-        for idx, img in enumerate(stitching(detections, config=config.stitching)):
-            stem = f"{input_dir.name}_{idx + 1:03d}"
+        active_run = mlflow.active_run()
+        run_id = active_run.info.run_id if active_run is not None else None
 
-            if with_mlflow:
-                log_artifact_with_mlflow(
-                    img=img,
-                    filename=stem,
+        jobs_data = prepare_stitching_jobs(
+            detections, prefix=input_dir.name, output_dir=output_dir, config=config.stitching
+        )
+
+        with ProcessPoolExecutor(max_workers=config.stitching.n_workers) as executor:
+            list(
+                tqdm(
+                    executor.map(
+                        partial(
+                            stitching_job,
+                            output_dir=output_dir,
+                            with_mlflow=with_mlflow,
+                            run_id=run_id,
+                        ),
+                        jobs_data,
+                    ),
+                    total=len(jobs_data),
+                    desc="Stitching images",
                 )
-
-            img.save(output_dir / f"{stem}.png")
-            img.save(output_dir / f"{stem}.tif")
-        logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
+            )
 
         if with_mlflow and not nested and log_path is not None:
             upload_log_to_mlflow(log_path)
