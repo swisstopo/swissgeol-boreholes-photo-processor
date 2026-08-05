@@ -116,7 +116,7 @@ class ImageMetadataCuttings(ImageMetadata):
     depth: float
 
     _DEPTH_REGEX_FORSTHAUS: ClassVar[re.Pattern] = re.compile(
-        r"(?P<depth>\d+(?:\.\d+)?)\s*m?(?:\s*\(.*\))?$", re.IGNORECASE
+        r"(?:^|(?<=\s))(?P<depth>\d+(?:\.\d+)?)[\s.]*m?(?:\s*\(.*\)|\s+[A-Za-z]+)?$", re.IGNORECASE
     )
 
     @classmethod
