@@ -1,4 +1,4 @@
-"""Drawing helpers for composing stitched core images: core placement, labels, and rulers."""
+"""Drawing helpers for composing stitched core and cuttings images: placement, labels, and rulers."""
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -79,6 +79,70 @@ def _draw_borehole_label(
     draw.text(
         (loc[0], loc[1]),
         borehole_id,
+        fill=(255, 255, 255),
+        font=font,
+        anchor="lm",
+    )
+    return canvas
+
+
+def _draw_cuttings_annotation(
+    canvas: Image.Image,
+    depth: float,
+    loc: tuple[int, int],
+    size: tuple[int, int],
+    font_size: int,
+) -> Image.Image:
+    """Draw a cutting's depth label onto its own strip and paste it onto the canvas.
+
+    Drawn onto its own strip first (rather than directly on the canvas) so a label wider than
+    the strip is clipped instead of bleeding into the padding to its right.
+
+    Args:
+        canvas (Image.Image): The canvas to paste the label onto.
+        depth (float): Depth value to display.
+        loc (tuple[int, int]): Top-left corner of the label strip.
+        size (tuple[int, int]): (width, height) of the label strip in pixels.
+        font_size (int): Font size used for the label.
+
+    Returns:
+        Image.Image: The canvas with the label pasted onto it.
+    """
+    annotation_img = Image.new("RGB", size, color=(0, 0, 0))
+    font = ImageFont.load_default(size=font_size)
+    ImageDraw.Draw(annotation_img).text(
+        (size[0] / 2, size[1] / 2),
+        f"{depth:.2f}",
+        fill=(255, 255, 255),
+        font=font,
+        anchor="mm",
+    )
+    canvas.paste(annotation_img, loc)
+    return canvas
+
+
+def _draw_cuttings_border_label(
+    canvas: Image.Image,
+    depth: float,
+    loc: tuple[int, int],
+    font_size: int,
+) -> Image.Image:
+    """Draw a column's top/bottom depth label (FROM/TO), left-anchored at loc.
+
+    Args:
+        canvas (Image.Image): The canvas to draw onto.
+        depth (float): Depth value to display.
+        loc (tuple[int, int]): Position of the label (left-middle anchor).
+        font_size (int): Font size used for the label.
+
+    Returns:
+        Image.Image: The canvas with the label drawn on it.
+    """
+    draw = ImageDraw.Draw(canvas)
+    font = ImageFont.load_default(size=font_size)
+    draw.text(
+        loc,
+        f"{depth:.2f}",
         fill=(255, 255, 255),
         font=font,
         anchor="lm",
