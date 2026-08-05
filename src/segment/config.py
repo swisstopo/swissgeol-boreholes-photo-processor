@@ -34,7 +34,7 @@ class SegmentationTrayGroupConfig:
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection
-    max_flow_shift: int = 100  # clip optical flow displacement
+    max_flow_shift: int = 100  # max optical flow displacement to allow, in pixels
     n_min_foreground: int = 10  # minimum number images required to estimate a foreground
     seed: int = 0  # seed for randomly sampling images from a group
 

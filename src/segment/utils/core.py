@@ -132,7 +132,7 @@ def _find_top_bottom_intervals(
     tb_intersects = _intersect_intervals(tb_wood, tb_background)
 
     return (
-        # Look for interval that is large (x1-x0) and close to center (1 - |(x1-x0-H)/H|)
+        # Look for interval that is large (x1-x0) and close to center (1 - |(x1+x0-H)/H|)
         sorted(
             tb_intersects,
             key=lambda x: (x[1] - x[0]) * (1 - abs((x[1] + x[0] - img_hsv.shape[0]) / img_hsv.shape[0])),
@@ -177,7 +177,8 @@ def segment_core(
     left_trim_background = np.array(lr_trims)[:, 0].min().item()
     right_trim_background = np.array(lr_trims)[:, 1].max().item()
 
-    # Remove wood / background (top/bottom). If multiple intervals, consider only largest one (first)
+    # Remove wood / background (top/bottom). Pick the best-scored interval (large and
+    # close to vertical center)
     top_trim, bottom_trim = _find_top_bottom_intervals(img_hsv=hsv, lr_trims=lr_trims, config=config)[0]
 
     return CoreSegmentResult(

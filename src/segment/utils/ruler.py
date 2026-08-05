@@ -17,8 +17,9 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     """Detect a depth ruler by OCR'ing its printed number ticks and derive a pixel-to-unit scale.
 
     Binarizes the image for more reliable OCR, keeps digit detections within
-    [text_min_value, text_max_value], and drops detections whose spacing deviates
-    from the median step between consecutive numbers (outliers).
+    [text_min_value, text_max_value], and drops detections whose count of step-consistent
+    neighbors deviates from the median neighbor count across all detections (outliers whose
+    spacing agrees with few other detections are dropped, even if individually plausible).
 
     Args:
         img_metadata (ImageMetadata): Metadata of the image to load and segment.
@@ -77,7 +78,8 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
     # Count number of valid neighbors detected for every entry
     valid_neigh = np.sum(abs(distances - steps_median) / steps_median < config.r_error_outliers, axis=1)
     # Inliers should be consistent with all neighbors
-    id_inliers = abs(valid_neigh - np.median(valid_neigh)) / np.median(valid_neigh) < config.r_error_outliers
+    median_valid_neigh = np.median(valid_neigh)
+    id_inliers = abs(valid_neigh - median_valid_neigh) / (median_valid_neigh + 1e-16) < config.r_error_outliers
 
     if not id_inliers.any():
         return None
