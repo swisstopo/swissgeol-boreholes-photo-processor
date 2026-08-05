@@ -22,6 +22,7 @@ from src.mlflow_utils import (
 from src.models import ImageMetadataCores
 from src.preprocessing.cuttings import collect_cuttings
 from src.segment.segment import segment
+from src.segment.segment_cuttings import segment_cuttings
 from src.stitching.stitching import stitching
 from src.stitching.stitching_cuttings import stitching_cuttings
 
@@ -73,8 +74,15 @@ def run(
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         if cuttings:
-            detections = collect_cuttings(input_dir)
-            logging.info("Found %d cuttings images in %s", len(detections), input_dir.name)
+            # collect all cuttings images
+            imgs_metadata = collect_cuttings(input_dir)
+
+            # segmentation
+            detections = segment_cuttings(
+                imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug
+            )
+
+            # stitching
             images = stitching_cuttings(detections, config=config.stitching)
         else:
             # Collect all images from the input directory and parse filename metadata
@@ -98,9 +106,10 @@ def run(
                 results = evaluate_detections(detections, config.evaluation)
                 log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
 
+            # stitching
             images = stitching(detections, config=config.stitching)
 
-        # stitching
+        # save output images to output_dir and optionally log to MLflow
         output_dir.mkdir(parents=True, exist_ok=True)
         idx = -1  # guards against NameError in the logging call when detections is empty
         for idx, img in enumerate(images):

@@ -1,38 +1,37 @@
 """Module for preprocessing the cuttings images."""
 
+import glob
+import logging
 from pathlib import Path
 
-from src.models import ImageMetadataCuttings, ImageMetadataProcessedCuttings
+import tifffile
+
+from src.models import ImageMetadataCuttings
 
 # TODO: document in readme which file extensions we support
 _CUTTINGS_EXTENSIONS = {".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
-def collect_cuttings(input_dir: Path) -> list[ImageMetadataProcessedCuttings]:
-    """PLACEHOLDER FCT that collects cuttings images from a directory, sorted alphabetically by filename.
-
-    Cuttings filenames carry a single point depth (e.g. "GES-F-1 195 m (Large).JPG") rather
-    than the depth range ImageMetadataCores.from_path expects, so metadata is built directly
-    here instead; depth is a placeholder index (unused by the cuttings grid layout).
+def collect_cuttings(input_dir: Path) -> list[ImageMetadataCuttings]:
+    """Collect cuttings images from a directory, sorted by depth parsed from their filenames.
 
     Args:
         input_dir (Path): Path to the directory containing raw cuttings photos.
 
     Returns:
-        list[ImageMetadataProcessedCuttings]: One entry per cuttings image, in filename order.
+        list[ImageMetadataCuttings]: One entry per cuttings image, sorted by depth.
     """
-    image_paths = sorted(
-        f for f in input_dir.iterdir() if not f.name.startswith("._") and f.suffix.lower() in _CUTTINGS_EXTENSIONS
-    )
-    return [
-        ImageMetadataProcessedCuttings.from_metadata(
-            ImageMetadataCuttings(borehole_id=input_dir.name, depth=float(i), image_path=path)
-        )
-        for i, path in enumerate(image_paths)
-    ]
+    # Collect all cutting images from the input directory and parse filename metadata
+    imgs_metadata: list[ImageMetadataCuttings] = []
+    for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
+        if f.suffix.lower() in _CUTTINGS_EXTENSIONS:
+            try:
+                metadata = ImageMetadataCuttings.from_path(f)
+                _ = metadata.shape  # validate the file is readable before segmentation runs
+                imgs_metadata.append(metadata)
+            except (ValueError, OSError, tifffile.TiffFileError) as e:
+                logging.warning("Skipping %s: %s", f.name, e)
+    imgs_metadata.sort(key=lambda m: m.depth)
+    logging.info("Found %d cuttings images in %s", len(imgs_metadata), input_dir.name)
 
-
-# TODO:
-# 1. regex filter filenames
-# 2. take only the first occurence
-# 3. track number of images with the same depth
+    return imgs_metadata
