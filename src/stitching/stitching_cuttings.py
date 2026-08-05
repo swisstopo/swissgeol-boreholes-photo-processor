@@ -27,7 +27,7 @@ def stitching_batch_cuttings(
     and padding cuttings (PC). FROM/TO show the depth_start of the topmost/bottommost
     cutting in each column, centered in the top/bottom PV border.
 
-    <-------------------------------------------2084--------------------------------------->
+    <-----------------------------------------WIDTH---------------------------------------->
     ----------------------------------------------------------------------------------------    ʌ
     | ID   ʌ                                                                               |    |
     |     PV  FROM                     FROM                     FROM                       |    |
@@ -37,7 +37,7 @@ def stitching_batch_cuttings(
     |      |---------|              |---------|              |---------|                   |    |
     |           ʌ                        ʌ                        ʌ                        |    |
     |           PC                       PC                       PC                       |    |
-    |           v                        v                        v                        |   2896
+    |           v                        v                        v                        |   HEIGHT
     |      |---------|              |---------|              |---------|                   |    |
     |      | CUT 1.2 |              | CUT 2.2 |              | CUT 3.2 |                   |    |
     |      |---------|              |---------|              |---------|                   |    |
@@ -59,22 +59,22 @@ def stitching_batch_cuttings(
         Image.Image: The stitched image for this batch of cuttings.
     """
     cuttings_config = config.cuttings
-    padding_cuttings = cuttings_config.padding_cuttings
-    padding_horizontal = cuttings_config.padding_horizontal
-    padding_vertical = cuttings_config.padding_vertical
-    annotation_width = cuttings_config.annotation_width
-    annotation_gap = cuttings_config.annotation_gap
     columns = cuttings_config.num_cuttings_columns
     rows = cuttings_config.num_cuttings_rows
     # reserve top (ID+FROM band) and bottom (TO band) padding, plus gaps between rows
-    reserved_height = 2 * padding_vertical + padding_cuttings * (rows - 1)
+    reserved_height = 2 * cuttings_config.padding_vertical + cuttings_config.padding_cuttings * (rows - 1)
     cell_height = (cuttings_config.output_height - reserved_height) // rows
     # each column reserves PH before the image, annotation_gap between the image and its
     # annotation, and (shared with the next column) PH after the annotation
-    reserved_width = padding_horizontal * (columns + 1) + annotation_gap * columns
+    reserved_width = cuttings_config.padding_horizontal * (columns + 1) + cuttings_config.annotation_gap * columns
     content_width = (cuttings_config.output_width - reserved_width) // columns
-    image_width = content_width - annotation_width
-    column_step = image_width + annotation_gap + annotation_width + padding_horizontal
+    image_width = content_width - cuttings_config.annotation_width
+    column_step = (
+        image_width
+        + cuttings_config.annotation_gap
+        + cuttings_config.annotation_width
+        + cuttings_config.padding_horizontal
+    )
 
     # rotate portrait images to landscape so they fit the grid cell horizontally
     cutting_imgs = []
@@ -93,26 +93,26 @@ def stitching_batch_cuttings(
     canvas = _draw_borehole_label(
         canvas,
         borehole_id=shared_borehole_id,
-        loc=(100, round(padding_vertical / 4)),
+        loc=(100, round(cuttings_config.padding_vertical / 4)),
         font_size=cuttings_config.font_size,
     )
 
     for i, cutting_img in enumerate(cutting_imgs):
         # column-major fill: cuttings 0..rows-1 go in column 0, rows..2*rows-1 in column 1, etc.
         column, row = divmod(i, rows)
-        image_x = padding_horizontal + column * column_step
-        cell_y = padding_vertical + row * (cell_height + padding_cuttings)
+        image_x = cuttings_config.padding_horizontal + column * column_step
+        cell_y = cuttings_config.padding_vertical + row * (cell_height + cuttings_config.padding_cuttings)
         # left-aligned (not centered) so every row's left margin is exactly PH, matching the
         # fixed PH gap after the last column's annotation on the right
         y = cell_y + (cell_height - cutting_img.height) // 2
         canvas.paste(cutting_img, (image_x, y))
 
-        annotation_x = image_x + image_width + annotation_gap
+        annotation_x = image_x + image_width + cuttings_config.annotation_gap
         canvas = _draw_cuttings_annotation(
             canvas,
             depth=cuttings[i].depth_start,
             loc=(annotation_x, cell_y),
-            size=(annotation_width, cell_height),
+            size=(cuttings_config.annotation_width, cell_height),
             font_size=cuttings_config.font_size,
         )
 
@@ -123,7 +123,7 @@ def stitching_batch_cuttings(
         if start_idx >= len(cuttings):
             break
         end_idx = min(start_idx + rows, len(cuttings)) - 1
-        image_x = padding_horizontal + column * column_step
+        image_x = cuttings_config.padding_horizontal + column * column_step
 
         # left-anchored at image_x (not centered on image_width) since cuttings are
         # left-aligned in their column and vary in width, so the left edge is the only
@@ -131,13 +131,13 @@ def stitching_batch_cuttings(
         canvas = _draw_cuttings_border_label(
             canvas,
             depth=cuttings[start_idx].depth_start,
-            loc=(image_x, round(padding_vertical * 3 / 4)),
+            loc=(image_x, round(cuttings_config.padding_vertical * 3 / 4)),
             font_size=cuttings_config.font_size,
         )
         canvas = _draw_cuttings_border_label(
             canvas,
             depth=cuttings[end_idx].depth_start,
-            loc=(image_x, round(cuttings_config.output_height - padding_vertical / 2)),
+            loc=(image_x, round(cuttings_config.output_height - cuttings_config.padding_vertical / 2)),
             font_size=cuttings_config.font_size,
         )
 
