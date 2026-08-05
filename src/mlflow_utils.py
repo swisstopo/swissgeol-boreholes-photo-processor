@@ -211,6 +211,25 @@ def log_cuttings_segmentation_results_with_mlflow(
     )
 
 
+def log_collect_cuttings_results_with_mlflow(duplicate_counts: dict[float, int]) -> None:
+    """Log cuttings depth-deduplication stats to MLflow.
+
+    Only the first image found at each depth is kept by the caller; this logs how many
+    extra images were dropped as duplicates, both as a total metric and, when any exist,
+    a per-depth breakdown artifact.
+
+    Args:
+        duplicate_counts (dict[float, int]): Number of extra images dropped per depth, for
+            depths where more than one image was found.
+    """
+    mlflow.log_metric("cuttings_duplicate_images", sum(duplicate_counts.values()))
+    if duplicate_counts:
+        mlflow.log_dict(
+            {str(depth): count for depth, count in duplicate_counts.items()},
+            "cuttings_duplicate_depths.json",
+        )
+
+
 def log_artifact_with_mlflow(
     img: Image.Image,
     filename: str,

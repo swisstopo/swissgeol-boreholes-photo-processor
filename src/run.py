@@ -75,7 +75,7 @@ def run(
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
         if cuttings:
             # collect all cuttings images
-            imgs_metadata = collect_cuttings(input_dir)
+            imgs_metadata = collect_cuttings(input_dir, with_mlflow=with_mlflow)
 
             # segmentation
             detections = segment_cuttings(
