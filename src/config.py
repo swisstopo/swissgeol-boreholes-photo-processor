@@ -13,7 +13,7 @@ from src.segment.config import (
     SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
 )
-from src.stitching.config import StitchingConfig
+from src.stitching.config import CoreStitchingConfig, CuttingsStitchingConfig, StitchingConfig
 
 
 class SegmentationError(Exception):
@@ -43,6 +43,7 @@ class PipelineConfig:
         """
         raw = yaml.safe_load(path.read_text()) or {}
         raw_segmentation = dict(raw.pop("segmentation", None) or {})
+        raw_stitching = dict(raw.pop("stitching", None) or {})
         raw_evaluation = dict(raw.pop("evaluation", None) or {})
         return cls(
             segmentation=SegmentationConfig(
@@ -53,7 +54,11 @@ class PipelineConfig:
                 tray_single=SegmentationTraySingleConfig(**(raw_segmentation.pop("tray_single", None) or {})),
                 **raw_segmentation,
             ),
-            stitching=StitchingConfig(**(raw.pop("stitching", None) or {})),
+            stitching=StitchingConfig(
+                core=CoreStitchingConfig(**(raw_stitching.pop("core", None) or {})),
+                cuttings=CuttingsStitchingConfig(**(raw_stitching.pop("cuttings", None) or {})),
+                **raw_stitching,
+            ),
             evaluation=EvaluationConfig(
                 core_width=CoreWidthCheckConfig(**(raw_evaluation.pop("core_width", None) or {})),
                 core_length=CoreLengthCheckConfig(**(raw_evaluation.pop("core_length", None) or {})),

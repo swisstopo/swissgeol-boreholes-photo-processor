@@ -20,8 +20,10 @@ from src.mlflow_utils import (
     upload_log_to_mlflow,
 )
 from src.models import ImageMetadata
+from src.preprocessing.cuttings import collect_cuttings
 from src.segment.segment import segment
 from src.stitching.stitching import stitching
+from src.stitching.stitching_cuttings import stitching_cuttings
 
 
 def _mlflow_run(
@@ -51,11 +53,13 @@ def run(
     debug: bool = False,
     nested: bool = False,
     log_path: Path | None = None,
+    cuttings: bool = False,
 ) -> None:
     """Process borehole photos from input to output directory.
 
     Args:
-        input_dir (Path): Path to the directory containing raw borehole photos (TIF format).
+        input_dir (Path): Path to the directory containing raw borehole photos (TIF format),
+            or raw cuttings photos (JPG/BMP/TIF) when cuttings is set.
         output_dir (Path): Path to the directory where processed images will be written.
         config (PipelineConfig): Tunable segmentation and stitching parameters.
         with_mlflow (bool): Whether to log artifacts to MLflow.
@@ -64,33 +68,40 @@ def run(
         nested (bool): Whether to start a nested MLflow run under an existing active run.
         log_path (Path | None): If set, upload this run's log file to MLflow once processing
             completes. Only meaningful for a top-level (non-nested) run.
+        cuttings (bool): If set, skip core segmentation/evaluation and arrange the raw images
+            into a cuttings grid instead.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
-        # Collect all images from the input directory and parse filename metadata
-        imgs_metadata: list[ImageMetadata] = []
-        for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
-            if f.suffix.lower() == ".tif":
-                try:
-                    metadata = ImageMetadata.from_path(f)
-                    _ = metadata.shape  # validate the file is readable before segmentation runs
-                    imgs_metadata.append(metadata)
-                except (ValueError, SegmentationError, tifffile.TiffFileError) as e:
-                    logging.warning("Skipping %s: %s", f.name, e)
-        imgs_metadata.sort(key=lambda m: m.depth_start)
-        logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
+        if cuttings:
+            detections = collect_cuttings(input_dir)
+            logging.info("Found %d cuttings images in %s", len(detections), input_dir.name)
+        else:
+            # Collect all images from the input directory and parse filename metadata
+            imgs_metadata: list[ImageMetadata] = []
+            for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
+                if f.suffix.lower() == ".tif":
+                    try:
+                        metadata = ImageMetadata.from_path(f)
+                        _ = metadata.shape  # validate the file is readable before segmentation runs
+                        imgs_metadata.append(metadata)
+                    except (ValueError, SegmentationError, tifffile.TiffFileError) as e:
+                        logging.warning("Skipping %s: %s", f.name, e)
+            imgs_metadata.sort(key=lambda m: m.depth_start)
+            logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
 
-        # segmentation
-        detections = segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug)
+            # segmentation
+            detections = segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug)
 
-        # evaluation of detection
-        if with_mlflow:
-            results = evaluate_detections(detections, config.evaluation)
-            log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
+            # evaluation of detection
+            if with_mlflow:
+                results = evaluate_detections(detections, config.evaluation)
+                log_evaluation_results_with_mlflow(results, folder_name=input_dir.name)
 
         # stitching
         output_dir.mkdir(parents=True, exist_ok=True)
+        stitch = stitching_cuttings if cuttings else stitching
         idx = -1  # guards against NameError in the logging call when detections is empty
-        for idx, img in enumerate(stitching(detections, config=config.stitching)):
+        for idx, img in enumerate(stitch(detections, config=config.stitching)):
             stem = f"{input_dir.name}_{idx + 1:03d}"
 
             if with_mlflow:
@@ -114,6 +125,7 @@ def batch_run(
     with_mlflow: bool = False,
     debug: bool = False,
     log_path: Path | None = None,
+    cuttings: bool = False,
 ) -> None:
     """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -127,6 +139,8 @@ def batch_run(
             detections) to MLflow. Only applies when with_mlflow is True.
         log_path (Path | None): If set, upload the batch's log file to MLflow once processing
             completes.
+        cuttings (bool): If set, skip core segmentation/evaluation and arrange the raw images
+            into a cuttings grid instead.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
         subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
@@ -139,6 +153,7 @@ def batch_run(
                 with_mlflow=with_mlflow,
                 debug=debug,
                 nested=True,
+                cuttings=cuttings,
             )
 
         if active_run is not None:
@@ -154,6 +169,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True, help="Path to the output directory.")
     parser.add_argument("--mlflow", action="store_true", help="Whether to log artifacts to MLflow.")
     parser.add_argument("--debug", action="store_true", help="Whether to log debug images to MLflow.")
+    parser.add_argument(
+        "--cuttings",
+        action="store_true",
+        help="Treat the input as cuttings photos: skip core segmentation and arrange them in a grid.",
+    )
     parser.add_argument(
         "--config",
         type=Path,
@@ -193,6 +213,7 @@ def main() -> None:
             with_mlflow=args.mlflow,
             debug=args.debug,
             log_path=log_path if args.mlflow else None,
+            cuttings=args.cuttings,
         )
     else:
         run(
@@ -202,6 +223,7 @@ def main() -> None:
             with_mlflow=args.mlflow,
             debug=args.debug,
             log_path=log_path if args.mlflow else None,
+            cuttings=args.cuttings,
         )
 
 
