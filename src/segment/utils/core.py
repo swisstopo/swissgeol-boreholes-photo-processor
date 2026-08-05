@@ -37,10 +37,15 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
     if detections.size == 0:
         raise SegmentationError("Entire region classified as invalid; no valid interval found")
 
+    # Group detections to intervals
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
     results = np.array([[g[0], g[-1]] for g in groups])
+    results = [tuple(x) for x in sorted(results.tolist(), key=lambda x: x[1] - x[0], reverse=True)]
 
-    return [tuple(x) for x in sorted(results.tolist(), key=lambda x: x[1] - x[0], reverse=True)]
+    # Remove empty intervals [x, x]
+    results = [result for result in results if result[0] != result[1]]
+
+    return results if results else [(0, values.shape[0] - 1)]
 
 
 def _intersect_intervals(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> list[tuple[int, int]]:

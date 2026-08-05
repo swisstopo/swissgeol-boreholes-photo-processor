@@ -32,7 +32,7 @@ def _resize_images(
             scale = min(max_core_width / img.width, max_core_height / img.height)
 
         cores_resized.append(
-            img.resize((round(img.width * scale), round(img.height * scale)), Image.Resampling.LANCZOS)
+            img.resize((max(round(img.width * scale), 1), max(round(img.height * scale), 1)), Image.Resampling.LANCZOS)
         )
 
     return cores_resized
