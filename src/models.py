@@ -161,14 +161,20 @@ class ImageMetadataCuttings(ImageMetadata):
     _NUMBER_REGEX: ClassVar[re.Pattern] = re.compile(r"\d+(?:\.\d+)?")
     _GEO_VERSION_MAX: ClassVar[float] = 10.0
 
+    # Montagny-2/-2ST, e.g. "MONTAGNY-2_Cuttings_0060.00-0065.00.jpg" or
+    # "MONTAGNY-2ST_Cuttings_1059.00-1060.00.jpeg": id prefix, then an unambiguous depth
+    # range (both numbers decimal), same shape as the ImageMetadataCores convention; the
+    # range end is used, matching the range rule used elsewhere in this class.
+    _DEPTH_REGEX_RANGE: ClassVar[re.Pattern] = re.compile(r"_(?P<depth_start>\d+\.\d+)-(?P<depth_end>\d+\.\d+)")
+
     @classmethod
     def from_path(cls, image_path: Path) -> "ImageMetadataCuttings":
         """Construct an ImageMetadataCuttings from an image path.
 
         depth is extracted from the filename; the GEo-02, IMG-trailing-depth, plain
-        (GEo-01/GVL-1) and Forsthaus naming conventions are tried in turn (see the
-        regexes above for each format's shape). borehole_id is left blank; the caller
-        assigns it from the input folder name.
+        (GEo-01/GVL-1), Montagny-range and Forsthaus naming conventions are tried in
+        turn (see the regexes above for each format's shape). borehole_id is left
+        blank; the caller assigns it from the input folder name.
 
         Args:
             image_path (Path): Full path to an image file, e.g.
@@ -203,6 +209,11 @@ class ImageMetadataCuttings(ImageMetadata):
         plain_match = cls._DEPTH_REGEX_PLAIN.match(stem)
         if plain_match:
             depth = float(plain_match.group("depth_end") or plain_match.group("depth"))
+            return cls(borehole_id="", depth=depth, image_path=image_path)
+
+        range_match = cls._DEPTH_REGEX_RANGE.search(stem)
+        if range_match:
+            depth = float(range_match.group("depth_end"))
             return cls(borehole_id="", depth=depth, image_path=image_path)
 
         match = cls._DEPTH_REGEX_FORSTHAUS.search(stem)
