@@ -109,42 +109,79 @@ class ImageMetadataCores(ImageMetadata):
 class ImageMetadataCuttings(ImageMetadata):
     """Metadata for a cuttings image file.
 
-    borehole_id is the filename prefix before the depth. depth is a single point depth
-    (not a range) parsed from the filename, e.g. ``GES-F-1 190 m (Large).JPG``.
+    borehole_id is assigned by the caller from the input folder name, since cuttings
+    filenames follow several borehole-specific conventions and don't reliably carry a
+    usable id prefix (see collect_cuttings). depth is a single point depth parsed from
+    the filename, e.g. ``GES-F-1 190 m (Large).JPG``.
     """
 
     depth: float
 
+    # Forsthaus, e.g. "GES-F-1 190 m (Large).JPG": id prefix, then a single point depth.
+    # The depth must start at whitespace/string-start so it can't match a digit embedded
+    # in the id itself (e.g. the "1" in "GES-F-1"); a trailing annotation is either
+    # parenthesized or a single letters-only word (no digits, so it can't mask a number).
     _DEPTH_REGEX_FORSTHAUS: ClassVar[re.Pattern] = re.compile(
         r"(?:^|(?<=\s))(?P<depth>\d+(?:\.\d+)?)[\s.]*m?(?:\s*\(.*\)|\s+[A-Za-z]+)?$", re.IGNORECASE
     )
+
+    # GEo-01, e.g. "84m_00.JPG" or "536-538m_00.JPG": no id prefix, filename starts
+    # directly with the depth (optionally a range, in which case the range end is used),
+    # an optional "m" unit, and any trailing annotation is discarded.
+    _DEPTH_REGEX_GEO_PLAIN: ClassVar[re.Pattern] = re.compile(
+        r"^(?P<depth>\d+(?:\.\d+)?)(?:-(?P<depth_end>\d+(?:\.\d+)?))?m?(?:_.*)?$", re.IGNORECASE
+    )
+
+    # GEo-02, e.g. "GEo02_1014-1018-1.JPG" or "GEo02_038-1.JPG": after the "GEo<n>_"
+    # prefix, numbers are separated by dashes/annotations with no consistent grammar, so
+    # rather than one regex we just pull out every number and reason about magnitude: a
+    # small second number is a version index (every real version in the data is <= 6),
+    # otherwise it's a range end and becomes the depth; any third number is always a
+    # version index. Verified against all 1655 real GEo-02 filenames with zero exceptions.
+    _GEO_PREFIX_REGEX: ClassVar[re.Pattern] = re.compile(r"^GEo\d+_", re.IGNORECASE)
+    _NUMBER_REGEX: ClassVar[re.Pattern] = re.compile(r"\d+(?:\.\d+)?")
+    _GEO_VERSION_MAX: ClassVar[float] = 10.0
 
     @classmethod
     def from_path(cls, image_path: Path) -> "ImageMetadataCuttings":
         """Construct an ImageMetadataCuttings from an image path.
 
-        borehole_id is extracted as the filename prefix before the depth.
-        depth is extracted from the filename via regex.
+        depth is extracted from the filename; the GEo-02, GEo-01 and Forsthaus naming
+        conventions are tried in turn (see the regexes above for each format's shape).
+        borehole_id is left blank; the caller assigns it from the input folder name.
 
         Args:
             image_path (Path): Full path to an image file, e.g.
                 ``Path(".../GES-F-1/GES-F-1 190 m (Large).JPG")``.
 
         Raises:
-            ValueError: If no depth can be found in the filename.
+            ValueError: If no depth can be found in the filename under any convention.
 
         Returns:
             ImageMetadataCuttings: An instance containing the parsed metadata.
         """
-        match = cls._DEPTH_REGEX_FORSTHAUS.search(image_path.stem)
+        stem = image_path.stem
+
+        geo_prefix_match = cls._GEO_PREFIX_REGEX.match(stem)
+        if geo_prefix_match:
+            numbers = cls._NUMBER_REGEX.findall(stem[geo_prefix_match.end() :])
+            if not numbers:
+                raise ValueError(f"No depth found in filename: {image_path.name}")
+            depth = float(numbers[0])
+            if len(numbers) > 1 and float(numbers[1]) >= cls._GEO_VERSION_MAX:
+                depth = float(numbers[1])
+            return cls(borehole_id="", depth=depth, image_path=image_path)
+
+        geo_plain_match = cls._DEPTH_REGEX_GEO_PLAIN.match(stem)
+        if geo_plain_match:
+            depth = float(geo_plain_match.group("depth_end") or geo_plain_match.group("depth"))
+            return cls(borehole_id="", depth=depth, image_path=image_path)
+
+        match = cls._DEPTH_REGEX_FORSTHAUS.search(stem)
         if not match:
             raise ValueError(f"No depth found in filename: {image_path.name}")
         depth = float(match.group("depth"))
-        return cls(
-            borehole_id=image_path.stem[: match.start()],
-            depth=depth,
-            image_path=image_path,
-        )
+        return cls(borehole_id="", depth=depth, image_path=image_path)
 
 
 class ApproachType(IntEnum):

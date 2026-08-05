@@ -33,6 +33,7 @@ def collect_cuttings(input_dir: Path, with_mlflow: bool = False) -> list[ImageMe
         if f.suffix.lower() in _CUTTINGS_EXTENSIONS:
             try:
                 metadata = ImageMetadataCuttings.from_path(f)
+                metadata.borehole_id = input_dir.name
                 _ = metadata.shape  # validate the file is readable before segmentation runs
                 imgs_metadata.append(metadata)
             except (ValueError, OSError, tifffile.TiffFileError) as e:
