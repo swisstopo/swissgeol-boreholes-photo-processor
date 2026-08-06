@@ -94,7 +94,8 @@ def segment_ruler(img_metadata: ImageMetadata, config: SegmentationRulerConfig) 
         ]
     )
 
-    if data.size == 0:
+    # At least two samples to create interval
+    if data.size == 0 or data.shape[0] < 2:
         return None
 
     # Central point of detected number (left + width/2, top + height / 2)

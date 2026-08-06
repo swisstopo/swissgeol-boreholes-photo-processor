@@ -12,7 +12,7 @@ def _resize_images(
     scales: list[float],
     max_core_height: int,
     max_core_width: int,
-) -> list[Image.Image]:
+) -> tuple[list[Image.Image], list[bool]]:
     """Resize each core crop by its own scale factor, clamped to fit within the max dimensions.
 
     Args:
@@ -22,17 +22,23 @@ def _resize_images(
         max_core_width (int): Maximum allowed width in pixels after resizing.
 
     Returns:
-        list[Image.Image]: Cores resized to a consistent pixel scale.
+        tuple[list[Image.Image], list[bool]]: Cores resized to a consistent pixel scale and indicator to signify if
+            core could be rescaled in the defined ranges.
     """
     cores_resized: list[Image.Image] = []
+    valid_resizes: list[bool] = []
+
     for img, scale in zip(images, scales, strict=True):
         # Ensure resize falls within range
         if img.width * scale > max_core_width or img.height * scale > max_core_height:
             logger.warning(f"Image {img.size} ({scale=:.4f}) cannot be fit in ({max_core_width}, {max_core_height})")
             scale = min(max_core_width / img.width, max_core_height / img.height)
+            valid_resizes.append(False)
+        else:
+            valid_resizes.append(True)
 
         cores_resized.append(
             img.resize((max(round(img.width * scale), 1), max(round(img.height * scale), 1)), Image.Resampling.LANCZOS)
         )
 
-    return cores_resized
+    return cores_resized, valid_resizes

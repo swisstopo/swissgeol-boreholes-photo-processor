@@ -8,6 +8,7 @@ def _draw_cores(
     canvas: Image.Image,
     cores: list[Image.Image],
     labels_range: list[tuple[float, float]],
+    is_scale_correct: list[bool],
     loc: tuple[int, int],
     padding_horizontal: int,
     padding_vertical: int,
@@ -20,6 +21,7 @@ def _draw_cores(
         canvas (Image.Image): The canvas to draw onto.
         cores (list[Image.Image]): Resized core crops to place, left to right.
         labels_range (list[tuple[float, float]]): (depth_start, depth_end) per core, same order as cores.
+        is_scale_correct (list[bool]): Indicate if scale of the diplayed core is to be trusted.
         loc (tuple[int, int]): Top-left corner of the first core.
         padding_horizontal (int): Horizontal gap between cores in pixels.
         padding_vertical (int): Vertical space reserved for labels above/below each core.
@@ -34,14 +36,14 @@ def _draw_cores(
     draw = ImageDraw.Draw(canvas)
     font = ImageFont.load_default(size=font_size)
 
-    for i, (core, label_range) in enumerate(zip(cores, labels_range, strict=True)):
+    for i, (core, label_range, correct) in enumerate(zip(cores, labels_range, is_scale_correct, strict=True)):
         x_offset = x_min + i * padding_horizontal + sum(c.width for c in cores[:i])
         start_label, end_label = label_range
         canvas.paste(core, (x_offset, y_min))
 
         draw.text(
             (x_offset + core.width / 2, y_min - padding_vertical),
-            f"{start_label:.2f} m",
+            f"{start_label:.2f} m" + ("" if correct else "*"),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",

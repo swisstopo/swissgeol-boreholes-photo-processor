@@ -49,9 +49,9 @@ stitching:
     padding_vertical: 200 # top/bottom border height in pixels
     ruler_width: 300 # width in pixels of each of the two depth rulers (left/right of the cores)
   cuttings:
-    annotation_gap: 20  # gap in pixels between a cutting's image and its depth label
-    annotation_width: 130  # width in pixels reserved at the right of each cell for the depth label
-    font_size: 40  # font size (px) used for the depth label next to each cutting
+    annotation_gap: 20 # gap in pixels between a cutting's image and its depth label
+    annotation_width: 130 # width in pixels reserved at the right of each cell for the depth label
+    font_size: 40 # font size (px) used for the depth label next to each cutting
     output_height: 2896 # total output canvas height (pixels), split evenly across the rows
     output_width: 2048 # total output canvas width (pixels), split evenly across the columns
     num_cuttings_columns: 3 # cuttings placed side by side per output sheet

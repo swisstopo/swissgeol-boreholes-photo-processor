@@ -1,5 +1,6 @@
 """Shared helpers used across the segmentation utils package."""
 
+import logging
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
@@ -7,12 +8,13 @@ from timeit import default_timer as timer
 from typing import Generic, TypeVar
 
 import numpy as np
-from tqdm import tqdm
 
 from src.models import ApproachType, ImageMetadata, ImageSegmentResult
 
 K = TypeVar("K", bound=ImageSegmentResult)
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 def group_images_by_shape(imgs_metadata: list[ImageMetadata]) -> dict[tuple[int, int, int], list[ImageMetadata]]:
@@ -127,7 +129,9 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
 
         # Reuse a single pool across all shape groups instead of paying its startup cost per group
         with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
-            for shape, group in tqdm(groups.items(), desc="Computing shape groups ..."):
+            for i, (shape, group) in enumerate(groups.items()):
+                logger.info(f"[{i + 1}/{len(groups)}] Extracting group {shape} with {len(group)} samples")
+
                 if len(group) < self.min_group_size:
                     continue
 
