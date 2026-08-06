@@ -21,7 +21,7 @@ def _draw_cores(
         canvas (Image.Image): The canvas to draw onto.
         cores (list[Image.Image]): Resized core crops to place, left to right.
         labels_range (list[tuple[float, float]]): (depth_start, depth_end) per core, same order as cores.
-        is_scale_correct (list[bool]): Indicate if scale of the diplayed core is to be trusted.
+        is_scale_correct (list[bool]): Indicate if the scale of the displayed core is to be trusted.
         loc (tuple[int, int]): Top-left corner of the first core.
         padding_horizontal (int): Horizontal gap between cores in pixels.
         padding_vertical (int): Vertical space reserved for labels above/below each core.
@@ -50,7 +50,7 @@ def _draw_cores(
         )
         draw.text(
             (x_offset + core.width / 2, y_min + max_core_height + padding_vertical),
-            f"{end_label:.2f} m",
+            f"{end_label:.2f} m" + ("" if correct else "*"),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",

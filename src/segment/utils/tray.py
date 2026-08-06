@@ -117,12 +117,10 @@ def _select_bbox(
     Returns:
         tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
             as inclusive coordinates.
-
-    Raises:
-        SegmentationError: If no regions are found.
     """
     props = regionprops(label(img_mask), intensity_image=img_intensity)
     if not props:
+        logger.warning("No valid region detected, return input shape")
         return (0, 0, img_mask.shape[1] - 1, img_mask.shape[0] - 1)
 
     candidates = [
@@ -267,7 +265,7 @@ class ProcessTrayGroupByShape(ProcessGroupByShape[TraySegmentResult, np.ndarray]
             img_ref = rgb2gray(img_metadata_ref.load_image(factor=self.config.downscale_factor))
             img = rgb2gray(img_metadata.load_image(factor=self.config.downscale_factor))
         except (SegmentationError, ValueError) as e:
-            logger.warning("%s. Skipping.", e)
+            logger.warning(f"Skipping. {e}.")
             return None
 
         # Fit displacement across images

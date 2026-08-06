@@ -91,7 +91,7 @@ def segment_single(
             )
 
     except SegmentationError as e:
-        logger.warning("%s. Skipping.", e)
+        logger.warning(f"Skipping. {e}.")
         return None
 
     return detection

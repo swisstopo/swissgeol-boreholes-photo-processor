@@ -1,5 +1,6 @@
 """Core bbox detection: trimming the wooden tray and black background around the core."""
 
+import logging
 from itertools import groupby
 from timeit import default_timer as timer
 
@@ -9,6 +10,8 @@ from skimage.color import rgb2hsv
 from src.config import SegmentationCoreConfig
 from src.models import CoreSegmentResult, ImageMetadata, ImageSegmentResult
 from src.utils import scale_bbox
+
+logger = logging.getLogger(__name__)
 
 
 def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) -> list[tuple[int, int]]:
@@ -26,10 +29,6 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
     Returns:
         list[tuple[int, int]]: Start and end row indices of each valid interval, sorted by
             length in descending order.
-
-    Raises:
-        SegmentationError: If every row is classified as tray (no non-tray interval found),
-            or if the largest non-tray interval is degenerate (zero height).
     """
     confs_row = (values > threshold).mean(axis=1)
     detections = np.nonzero(confs_row < ratio)[0]
@@ -45,7 +44,11 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
     # Remove empty intervals [x, x]
     results = [result for result in results if result[0] != result[1]]
 
-    return results if results else [(0, values.shape[0] - 1)]
+    if not results:
+        logger.warning("No valid interval detected, return input interval")
+        return [(0, values.shape[0] - 1)]
+
+    return results
 
 
 def _intersect_intervals(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -166,10 +169,6 @@ def segment_core(
         CoreSegmentResult: bbox is the trimmed bounding box as (left, top, right, bottom), in the
             original image's coordinate space. bbox_segments holds one bbox per surviving
             left/right sub-segment.
-
-    Raises:
-        SegmentationError: If every row or column is classified as tray/background (no valid
-            interval found) for any of the three trim passes.
     """
     t_start = timer()
 
