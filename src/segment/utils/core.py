@@ -6,7 +6,7 @@ from timeit import default_timer as timer
 import numpy as np
 from skimage.color import rgb2hsv
 
-from src.config import SegmentationCoreConfig, SegmentationError
+from src.config import SegmentationCoreConfig
 from src.models import CoreSegmentResult, ImageMetadata, ImageSegmentResult
 from src.utils import scale_bbox
 
@@ -35,7 +35,7 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
     detections = np.nonzero(confs_row < ratio)[0]
 
     if detections.size == 0:
-        raise SegmentationError("Entire region classified as invalid; no valid interval found")
+        return [(0, values.shape[0] - 1)]
 
     # Group detections to intervals
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]

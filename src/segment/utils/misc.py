@@ -125,15 +125,14 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         rng = np.random.default_rng(self.seed)
 
         groups = group_images_by_shape(imgs_metadata)
+        groups = {key: values for key, values in groups.items() if len(values) >= self.min_group_size}
+
         results = {}
 
         # Reuse a single pool across all shape groups instead of paying its startup cost per group
         with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
             for i, (shape, group) in enumerate(groups.items()):
                 logger.info(f"[{i + 1}/{len(groups)}] Extracting group {shape} with {len(group)} samples")
-
-                if len(group) < self.min_group_size:
-                    continue
 
                 # A fixed-size sample per group is selected for estimation and aggregation
                 sample_ids = rng.choice(len(group), size=self.min_group_size, replace=False)

@@ -72,6 +72,7 @@ def run(
             into a cuttings grid instead.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
+        logging.info(f"\n--- {input_dir.name} ---")
         if cuttings:
             detections = collect_cuttings(input_dir)
             logging.info("Found %d cuttings images in %s", len(detections), input_dir.name)
@@ -87,7 +88,7 @@ def run(
                     except (ValueError, SegmentationError, tifffile.TiffFileError) as e:
                         logging.warning("Skipping %s: %s", f.name, e)
             imgs_metadata.sort(key=lambda m: m.depth_start)
-            logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
+            logging.info(f"Found {len(imgs_metadata)} TIF images")
 
             # segmentation
             detections = segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug)
