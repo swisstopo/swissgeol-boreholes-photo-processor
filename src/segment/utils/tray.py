@@ -91,7 +91,7 @@ def _select_bbox(
     edge_margin_bottom: int,
     min_size_for_bottom: int,
     avoid_area: tuple[float, float, float, float] | None,
-) -> tuple[int, int, int, int] | None:
+) -> tuple[int, int, int, int]:
     """Select the bounding box of the core region from the list of region properties.
 
     Assumptions:
@@ -115,7 +115,7 @@ def _select_bbox(
         avoid_area (tuple[float, float, float, float] | None): Bounding box to avoid if possible from candidate.
 
     Returns:
-        tuple[int, int, int, int] | None: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
+        tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
             as inclusive coordinates.
 
     Raises:
@@ -123,7 +123,7 @@ def _select_bbox(
     """
     props = regionprops(label(img_mask), intensity_image=img_intensity)
     if not props:
-        return None
+        return (0, 0, img_mask.shape[1] - 1, img_mask.shape[0] - 1)
 
     candidates = [
         r
@@ -197,7 +197,7 @@ def segment_tray(
     img_metadata: ImageMetadata,
     config: SegmentationTraySingleConfig,
     ruler: RulerSegmentResult | None = None,
-) -> TraySegmentResult | None:
+) -> TraySegmentResult:
     """Segment a single image via thresholding when no shared foreground bbox is available.
 
     Args:
@@ -206,7 +206,7 @@ def segment_tray(
         ruler (RulerSegmentResult | None): Detected ruler bbox to exclude from tray candidate selection.
 
     Returns:
-        TraySegmentResult | None: Bounding box as (x_min, y_min, x_max, y_max), in the original image's
+        TraySegmentResult: Bounding box as (x_min, y_min, x_max, y_max), in the original image's
             coordinate space. Background/foreground debug images are left unset.
     """
     t_start = timer()
@@ -230,13 +230,9 @@ def segment_tray(
         avoid_area=scale_bbox(ruler.bbox, config.downscale_factor) if ruler is not None else None,
     )
 
-    return (
-        TraySegmentResult(
-            bbox=scale_bbox(bbox, factor=1 / factor),
-            time=timer() - t_start,
-        )
-        if bbox
-        else None
+    return TraySegmentResult(
+        bbox=scale_bbox(bbox, factor=1 / factor),
+        time=timer() - t_start,
     )
 
 

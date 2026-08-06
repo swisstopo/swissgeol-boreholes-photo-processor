@@ -214,14 +214,16 @@ def test_segment_skips_image_with_no_detectable_regions(make_metadata):
     detections = segment(
         [metadata],
         config=SegmentationConfig(
-            tray_single=SegmentationTraySingleConfig(downscale_factor=0.25),
-            core=SegmentationCoreConfig(downscale_factor=0.25),
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1),
         ),
     )
 
     assert len(detections) == 1
-    assert detections[0].tray is None
-    assert detections[0].core is None
+    assert detections[0].tray is not None
+    assert detections[0].tray.bbox == (0, 0, _IMG_SIZE[0] - 1, _IMG_SIZE[1] - 1)
+    assert detections[0].core is not None
+    assert detections[0].core.bbox == (0, 0, _IMG_SIZE[0] - 1, _IMG_SIZE[1] - 1)
 
 
 def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
@@ -233,17 +235,19 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     detections = segment(
         [blank, good],
         config=SegmentationConfig(
-            tray_single=SegmentationTraySingleConfig(downscale_factor=0.25),
-            core=SegmentationCoreConfig(downscale_factor=0.25),
+            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(downscale_factor=1),
         ),
     )
 
     assert len(detections) == 2
     assert detections[0].depth_start == 15.0
-    assert detections[0].core is None
+    assert detections[0].core is not None
+    assert detections[0].core.bbox == (0, 0, _IMG_SIZE[0] - 1, _IMG_SIZE[1] - 1)
 
     assert detections[1].depth_start == 16.0
     assert detections[1].core is not None
+    assert detections[1].core.bbox == core_box
 
 
 def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, make_metadata):

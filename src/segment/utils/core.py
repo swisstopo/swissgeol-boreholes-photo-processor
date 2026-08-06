@@ -149,8 +149,8 @@ def _find_top_bottom_intervals(
 
 
 def segment_core(
-    img_metadata: ImageMetadata, tray: ImageSegmentResult | None, config: SegmentationCoreConfig
-) -> CoreSegmentResult | None:
+    img_metadata: ImageMetadata, tray: ImageSegmentResult, config: SegmentationCoreConfig
+) -> CoreSegmentResult:
     """Trim the bounding box to exclude the wooden tray and black background around the core.
 
     Trims left/right based on the value (brightness) channel to drop black background, and
@@ -159,11 +159,11 @@ def segment_core(
 
     Args:
         img_metadata (ImageMetadata): Metadata of the image to load and trim.
-        tray (ImageSegmentResult | None): Bounding box to trim, in the original image's coordinate space.
+        tray (ImageSegmentResult): Bounding box to trim, in the original image's coordinate space.
         config (SegmentationCoreConfig): Tunable segmentation parameters.
 
     Returns:
-        CoreSegmentResult | None: bbox is the trimmed bounding box as (left, top, right, bottom), in the
+        CoreSegmentResult: bbox is the trimmed bounding box as (left, top, right, bottom), in the
             original image's coordinate space. bbox_segments holds one bbox per surviving
             left/right sub-segment.
 
@@ -171,10 +171,8 @@ def segment_core(
         SegmentationError: If every row or column is classified as tray/background (no valid
             interval found) for any of the three trim passes.
     """
-    if tray is None:
-        return None
-
     t_start = timer()
+
     img = img_metadata.load_image(factor=config.downscale_factor)
     x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 
