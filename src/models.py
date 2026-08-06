@@ -143,6 +143,12 @@ class ImageMetadataCuttings(ImageMetadata):
         r"^(?P<depth>\d+(?:\.\d+)?)(?:\s*(?:-|to)\s*(?P<depth_end>\d+(?:\.\d+)?))?m?.*$", re.IGNORECASE
     )
 
+    # Vinzel-1-Malm, e.g. "V1SM_1000m_02.jpg" or "V1SM_1807.5m_02.jpg": fixed "V1SM_" prefix,
+    # then the depth, an optional "m" unit, and a sequence/annotation suffix discarded
+    # wholesale; same shape as _DEPTH_REGEX_PLAIN but anchored past the fixed prefix instead
+    # of directly at the depth, since here the depth isn't the first token in the filename.
+    _DEPTH_REGEX_V1SM: ClassVar[re.Pattern] = re.compile(r"^V1SM_(?P<depth>\d+(?:\.\d+)?)m?.*$", re.IGNORECASE)
+
     # GVL-1, e.g. "IMG_20240604_160011_610.jpg" or "IMG_20240526_205320_475m.jpg": a plain
     # camera filename (date + time) with the depth appended as a trailing token instead of
     # leading. Camera files with no depth anywhere (e.g. "IMG_20240611_135741.jpg") don't
@@ -172,9 +178,9 @@ class ImageMetadataCuttings(ImageMetadata):
         """Construct an ImageMetadataCuttings from an image path.
 
         depth is extracted from the filename; the GEo-02, IMG-trailing-depth, plain
-        (GEo-01/GVL-1), Montagny-range and Forsthaus naming conventions are tried in
-        turn (see the regexes above for each format's shape). borehole_id is left
-        blank; the caller assigns it from the input folder name.
+        (GEo-01/GVL-1), Vinzel-1-Malm, Montagny-range and Forsthaus naming conventions
+        are tried in turn (see the regexes above for each format's shape). borehole_id
+        is left blank; the caller assigns it from the input folder name.
 
         Args:
             image_path (Path): Full path to an image file, e.g.
@@ -209,6 +215,11 @@ class ImageMetadataCuttings(ImageMetadata):
         plain_match = cls._DEPTH_REGEX_PLAIN.match(stem)
         if plain_match:
             depth = float(plain_match.group("depth_end") or plain_match.group("depth"))
+            return cls(borehole_id="", depth=depth, image_path=image_path)
+
+        v1sm_match = cls._DEPTH_REGEX_V1SM.match(stem)
+        if v1sm_match:
+            depth = float(v1sm_match.group("depth"))
             return cls(borehole_id="", depth=depth, image_path=image_path)
 
         range_match = cls._DEPTH_REGEX_RANGE.search(stem)
