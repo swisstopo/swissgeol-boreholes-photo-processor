@@ -110,8 +110,8 @@ def run(
                     filename=stem,
                 )
 
+            img.resize((int(img.size[0] * 0.5), int(img.size[1] * 0.5))).save(output_dir / f"{stem}.jpg", quality=85)
             img.save(output_dir / f"{stem}.png")
-            # img.save(output_dir / f"{stem}.jpg", quality=95)
             img.save(output_dir / f"{stem}.tif")
         logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
