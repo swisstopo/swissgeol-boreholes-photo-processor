@@ -7,10 +7,10 @@ from pathlib import Path
 
 import tifffile
 
+from src.config import SegmentationError
 from src.mlflow_utils import log_collect_cuttings_results_with_mlflow
 from src.models import ImageMetadataCuttings
 
-# TODO: document in readme which file extensions we support
 _CUTTINGS_EXTENSIONS = {".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
@@ -40,7 +40,7 @@ def collect_cuttings(input_dir: Path, with_mlflow: bool = False) -> list[ImageMe
                 metadata.borehole_id = input_dir.name
                 _ = metadata.shape  # validate the file is readable before segmentation runs
                 imgs_metadata.append(metadata)
-            except (ValueError, OSError, tifffile.TiffFileError) as e:
+            except (ValueError, OSError, tifffile.TiffFileError, SegmentationError) as e:
                 logging.warning("Skipping %s: %s", f.name, e)
     imgs_metadata.sort(key=lambda m: (m.depth, m.image_path.name))
 

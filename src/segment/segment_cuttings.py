@@ -59,7 +59,7 @@ def segment_cuttings(
                     subfolder="debug",
                 )
         except (ValueError, OSError, SegmentationError) as e:
-            logger.warning("Skipping %s: %s", img_metadata.filename, e)
+            logger.warning("Skipping %s: %s", img_metadata.image_path.name, e)
 
     if with_mlflow:
         log_cuttings_segmentation_results_with_mlflow(detections, time=timer() - t_start)

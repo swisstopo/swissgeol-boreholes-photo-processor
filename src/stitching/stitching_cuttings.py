@@ -162,8 +162,6 @@ def stitching_cuttings(
         logger.warning("No cuttings images to stitch")
         return
 
-    # As a start we will just go through the folder in order
-    # in the future this needs to be sorted by depth and then stitched together
     num_cuttings_per_page = config.cuttings.num_cuttings_columns * config.cuttings.num_cuttings_rows
     shared_borehole_id = imgs[0].borehole_id
 

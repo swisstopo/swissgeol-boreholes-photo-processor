@@ -386,7 +386,7 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
 
 
 @dataclass
-class CuttingsSegmentResult(ImageSegmentResult):  # TODO: this is a placeholder
+class CuttingsSegmentResult(ImageSegmentResult):
     """Result of detecting the cuttings bbox (bbox is used downstream for cropping/evaluation/stitching)."""
 
     # Per-segment bboxes before merging into `bbox`; kept only for MLflow debug visualization.

@@ -90,7 +90,7 @@ def segment_single(
                 run_id=run_id,
             )
 
-    except SegmentationError as e:
+    except (SegmentationError, ValueError) as e:
         logger.warning("%s. Skipping.", e)
         return None
 
