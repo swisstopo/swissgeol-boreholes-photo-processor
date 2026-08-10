@@ -43,5 +43,5 @@ def test_cuttings_pipeline_runner_produces_output_for_depth_photos(tmp_path):
 
     CuttingsPipelineRunner().run(input_dir=input_dir, output_dir=output_dir, config=PipelineConfig())
 
-    assert (output_dir / "GES-F-1_001.png").exists()
+    assert (output_dir / "GES-F-1_001.jpg").exists()
     assert (output_dir / "GES-F-1_001.tif").exists()
