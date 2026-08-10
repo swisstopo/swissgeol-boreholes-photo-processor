@@ -16,6 +16,8 @@ class CoreWidthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core width check evaluation."""
 
     relative_tolerance: float = 0.25  # flag if |width - batch_median| / batch_median exceeds this
+    max_width_steps: int = 3  # maximum number of segments to try when detecting width groups via DP fit
+    relative_tolerance_steps: float = 0.25  # stop adding segments once the relative error improvement drops below this
 
 
 @dataclass
