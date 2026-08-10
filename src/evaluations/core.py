@@ -1,7 +1,6 @@
 """Module for checking core width and length consistency across a set of detections."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 
 import numpy as np
 
@@ -132,18 +131,18 @@ class EvaluationCompute(ABC):
         self.relative_tolerance = config.relative_tolerance
 
     def _evaluate_median(
-        self, values: Sequence[float | None], segments: list[tuple[int, int]]
+        self, values: list[float], segments: list[tuple[int, int]]
     ) -> list[CoreValueCheckResult | None]:
         """Measure values that deviate too far from the median of their own segment.
 
         Args:
-            values (Sequence[float | None]): Measured value for each detection, or None where unavailable.
+            values (list[float]): Measured value for each detection.
             segments (list[tuple[int, int]]): Contiguous (start, end) index ranges into `values`;
                 the median reference is computed independently within each segment.
 
         Returns:
             list[CoreValueCheckResult | None]: One result per value, concatenated in the given
-                segment order. None for a segment with fewer than `min_samples` finite values.
+                segment order. None for a segment with fewer than `min_samples` values.
         """
         values_ = np.array(values, dtype=float)
 
@@ -151,7 +150,7 @@ class EvaluationCompute(ABC):
         for start, end in segments:
             values_segment = values_[start:end]
 
-            if np.isfinite(values_segment).sum() < self.min_samples:
+            if len(values_segment) < self.min_samples:
                 results.extend([None] * len(values_segment))
             else:
                 reference_segment = float(np.nanmedian(values_segment))
@@ -164,8 +163,6 @@ class EvaluationCompute(ABC):
                             value,
                             reference_segment,
                         )
-                        if value is not None
-                        else None
                         for relative_error, value in zip(relative_errors, values_segment, strict=True)
                     ]
                 )
