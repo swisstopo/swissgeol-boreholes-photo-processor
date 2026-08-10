@@ -36,5 +36,7 @@ class CuttingsStitchingConfig:
 class StitchingConfig:
     """Tunable parameters for the stitching step."""
 
+    web_output_format: str = "jpg"  # Output format for web display, any format supported by PIL
+    web_downscale_factor: float = 0.5  # Downscale factor applied to web image output
     core: CoreStitchingConfig = field(default_factory=CoreStitchingConfig)
     cuttings: CuttingsStitchingConfig = field(default_factory=CuttingsStitchingConfig)

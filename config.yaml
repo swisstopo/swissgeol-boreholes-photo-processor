@@ -39,6 +39,8 @@ segmentation:
     min_segment_height_px: 100 # minimum height (px) for a left/right segment to be kept as core
 
 stitching:
+  web_output_format: "jpg" # Output format for web display, any format supported by PIL
+  web_downscale_factor: 0.5 # Downscale factor applied to web image output
   core:
     font_size: 100 # font size (px) used for borehole ID, depth labels, and ruler tick labels
     max_core_height: 10000 # cap on each core crop's resized height (pixels) and the canvas row height
@@ -48,9 +50,9 @@ stitching:
     padding_vertical: 200 # top/bottom border height in pixels
     ruler_width: 300 # width in pixels of each of the two depth rulers (left/right of the cores)
   cuttings:
-    annotation_gap: 20  # gap in pixels between a cutting's image and its depth label
-    annotation_width: 130  # width in pixels reserved at the right of each cell for the depth label
-    font_size: 40  # font size (px) used for the depth label next to each cutting
+    annotation_gap: 20 # gap in pixels between a cutting's image and its depth label
+    annotation_width: 130 # width in pixels reserved at the right of each cell for the depth label
+    font_size: 40 # font size (px) used for the depth label next to each cutting
     output_height: 2896 # total output canvas height (pixels), split evenly across the rows
     output_width: 2048 # total output canvas width (pixels), split evenly across the columns
     num_cuttings_columns: 3 # cuttings placed side by side per output sheet
