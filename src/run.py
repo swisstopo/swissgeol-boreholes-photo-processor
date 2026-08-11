@@ -115,7 +115,7 @@ def run(
                     int(img.size[0] * config.stitching.web_downscale_factor),
                     int(img.size[1] * config.stitching.web_downscale_factor),
                 )
-            ).save(output_dir / f"{stem}.{config.stitching.web_output_format}")
+            ).save(output_dir / f"{stem}.jpg", quality=config.stitching.web_output_quality)
             img.save(output_dir / f"{stem}.tif")
         logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
 
