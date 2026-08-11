@@ -31,10 +31,10 @@ from src.models import (
 )
 from src.preprocessing.cuttings import collect_cuttings
 from src.segment.config import SegmentationConfig
-from src.segment.segment import segment
+from src.segment.segment_cores import segment
 from src.segment.segment_cuttings import segment_cuttings
 from src.stitching.config import StitchingConfig
-from src.stitching.stitching import stitching
+from src.stitching.stitching_cores import stitching
 from src.stitching.stitching_cuttings import stitching_cuttings
 
 M = TypeVar("M", bound=ImageMetadata)

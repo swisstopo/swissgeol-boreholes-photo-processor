@@ -8,7 +8,7 @@ from PIL import Image
 
 from src.config import CoreStitchingConfig, StitchingConfig
 from src.models import CoreSegmentResult, ImageMetadataCores, ImageMetadataProcessedCores, RulerSegmentResult
-from src.stitching.stitching import stitching
+from src.stitching.stitching_cores import stitching
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)

@@ -16,7 +16,7 @@ from src.config import (
     SegmentationTraySingleConfig,
 )
 from src.models import ImageMetadataCores, ImageSegmentResult, RulerSegmentResult, TraySegmentResult
-from src.segment.segment import segment
+from src.segment.segment_cores import segment
 from src.segment.utils.core import segment_core
 from src.segment.utils.misc import group_images_by_shape
 from src.segment.utils.ruler import ProcessRulerGroupByShape
