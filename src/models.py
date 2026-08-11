@@ -46,7 +46,8 @@ class ImageMetadata:
             np.ndarray: RGB image array with float values in [0, 1].
 
         Raises:
-            ValueError: If the image is not a 3-channel RGB array, or has an unsupported dtype.
+            SegmentationError: If the image is not a 3/4-channel array.
+            ValueError: If the image has an unsupported dtype.
         """
         return load_image(str(self.image_path), factor)
 

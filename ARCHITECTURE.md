@@ -83,8 +83,10 @@ excludes ruler bbox)"]
 `src/segment/utils/tray.py`, `segment_core` in `src/segment/utils/core.py`):
 
 - Shape groups with at least `n_min_foreground` (default 10) images get one **shared**
-  bbox: stack a sample of images, take the per-pixel std (static background → low std,
-  moving core → high std), and fit a 2-component GMM to isolate the foreground region.
+  bbox: align each sampled image to a reference image via optical flow (displacement
+  clipped by `max_flow_shift`) to correct for inter-shot drift, then stack the aligned
+  images, take the per-pixel std (static background → low std, moving core → high std),
+  and fit a 2-component GMM to isolate the foreground region.
   Smaller groups fall back to `segment_tray`, thresholding each image independently with
   an adaptive local threshold (`threshold_local`, more robust to uneven lighting than a
   single global threshold) + morphology, then dropping any candidate region that overlaps
@@ -99,7 +101,8 @@ excludes ruler bbox)"]
 
 - Same grouping/fallback as the tray, using `n_min_ruler` (default 10). Each image:
   binarize, OCR the printed ticks with Tesseract, keep digits in a plausible range, and
-  drop misreads via the median spacing between consecutive numbers.
+  drop misreads via a neighbor-consensus check (each detection's count of step-consistent
+  neighbors must itself be close to the group's median neighbor count).
 - Groups above the threshold OCR a sample and keep the **median-by-scale** (`px_per_unit`)
   detection, reused for the whole group — more robust than trusting a single image's OCR.
 

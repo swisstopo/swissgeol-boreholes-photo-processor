@@ -1,17 +1,20 @@
 """Shared helpers used across the segmentation utils package."""
 
+import logging
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from timeit import default_timer as timer
 from typing import Generic, TypeVar
 
 import numpy as np
-from tqdm import tqdm
 
 from src.models import ApproachType, ImageMetadataCores, ImageSegmentResult
 
 K = TypeVar("K", bound=ImageSegmentResult)
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 def group_images_by_shape(
@@ -68,11 +71,12 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         self.seed = seed
 
     @abstractmethod
-    def _preprocess(self, img_metadata: ImageMetadataCores) -> T | None:
+    def _preprocess(self, img_metadata: ImageMetadataCores, img_metadata_ref: ImageMetadataCores) -> T | None:
         """Preprocess a single image ahead of aggregation.
 
         Args:
             img_metadata (ImageMetadataCores): Metadata of the image to preprocess.
+            img_metadata_ref (ImageMetadataCores): Reference image for image processing.
 
         Returns:
             T | None: The preprocessed value to feed into `_aggregate`, or None.
@@ -102,7 +106,9 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         Returns:
             K | None: The aggregated result for the group, or None.
         """
-        processed_items = list(executor.map(self._preprocess, imgs_metadata))
+        processed_items = list(
+            executor.map(partial(self._preprocess, img_metadata_ref=imgs_metadata[0]), imgs_metadata)
+        )
 
         # Remove unwanted detections
         processed_items = [item for item in processed_items if item is not None]
@@ -121,13 +127,14 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         rng = np.random.default_rng(self.seed)
 
         groups = group_images_by_shape(imgs_metadata)
+        groups = {key: values for key, values in groups.items() if len(values) >= self.min_group_size}
+
         results = {}
 
         # Reuse a single pool across all shape groups instead of paying its startup cost per group
         with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
-            for shape, group in tqdm(groups.items(), desc="Computing shape groups ..."):
-                if len(group) < self.min_group_size:
-                    continue
+            for i, (shape, group) in enumerate(groups.items()):
+                logger.info(f"[{i + 1}/{len(groups)}] Extracting group {shape} with {len(group)} samples")
 
                 # A fixed-size sample per group is selected for estimation and aggregation
                 sample_ids = rng.choice(len(group), size=self.min_group_size, replace=False)

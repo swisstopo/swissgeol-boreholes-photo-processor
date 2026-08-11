@@ -64,13 +64,13 @@ def stitching_batch(
     # Load all core crops up front so we can identify outliers before resizing
     cores_img = [core.load_core() for core in cores]
 
-    # resize all crops to preserve aspect ratio
-    cores_img = _resize_images(
+    # Resize all crops to preserve aspect ratio
+    px_to_scales = [(core.ruler.px_per_unit if core.ruler else None) for core in cores]
+    cores_img, valid_resizes = _resize_images(
         images=cores_img,
         scales=[
-            (core_config.max_core_height / shared_ruler_steps)
-            / ((s.ruler.px_per_unit if s.ruler else None) or fallback_scale)
-            for s in cores
+            (core_config.max_core_height / shared_ruler_steps) / (px_to_scale or fallback_scale)
+            for px_to_scale in px_to_scales
         ],
         max_core_height=core_config.max_core_height,
         max_core_width=core_config.max_core_width,
@@ -92,6 +92,10 @@ def stitching_batch(
         canvas=canvas,
         cores=cores_img,
         labels_range=[(core.depth_start, core.depth_end) for core in cores],
+        is_scale_correct=[
+            (px_to_scale is not None) and valid_resize
+            for px_to_scale, valid_resize in zip(px_to_scales, valid_resizes, strict=True)
+        ],
         loc=(2 * core_config.padding_horizontal + core_config.ruler_width, 3 * core_config.padding_vertical),
         padding_horizontal=int(n_padding_horizontal),
         padding_vertical=core_config.padding_vertical,

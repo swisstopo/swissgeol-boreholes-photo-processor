@@ -9,8 +9,8 @@ class SegmentationCoreConfig:
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     background_val_hratio: float = 0.90  # fraction of dark-background pixels in a row required to trim that row
-    background_val_vratio: float = 0.90  # fraction of dark-background pixels in a column required to trim that column
-    background_val_threshold: float = 0.20  # value (HSV) below this = black background (not rock)
+    background_val_vratio: float = 0.70  # fraction of dark-background pixels in a column required to trim that column
+    background_val_threshold: float = 0.15  # value (HSV) below this = black background (not rock)
     wood_sat_hratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
     wood_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
     min_segment_height_px: int = 100  # minimum height (px) for a left/right segment to be kept as core
@@ -33,7 +33,8 @@ class SegmentationTrayGroupConfig:
     """Tunable parameters for estimating a shared tray/core bounding box across a batch of images."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection.
+    foreground_blur_sigma: float = 5.0  # gaussian blur applied to each image for foreground detection
+    max_flow_shift: int = 100  # max optical flow displacement to allow, in pixels
     n_min_foreground: int = 10  # minimum number images required to estimate a foreground
     seed: int = 0  # seed for randomly sampling images from a group
 

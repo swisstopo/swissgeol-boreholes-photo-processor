@@ -33,18 +33,19 @@ def load_image(path: str, factor: float = 1.0) -> np.ndarray:
         np.ndarray: RGB image array with float values in [0, 1].
 
     Raises:
-        ValueError: If the image is not a 3/4-channel array, or has an unsupported dtype.
+        SegmentationError: If the image is not a 3/4-channel array.
+        ValueError: If the image has an unsupported dtype.
     """
     img = tifffile.imread(path) if Path(path).suffix.lower() in _TIFF_EXTENSIONS else np.array(Image.open(path))
 
-    if img.ndim == 2:
-        raise ValueError(f"Input should be RGB: {path}")
+    if img.ndim != 3:
+        raise SegmentationError(f"Input should be RGB(A): {path}")
 
     # drop alpha channel, e.g. from RGBA scans
     if img.shape[-1] == 4:
         img = img[..., :3]
     elif img.shape[-1] != 3:
-        raise ValueError(f"Input should be RGB: {path}")
+        raise SegmentationError(f"Input should be RGB(A): {path}")
 
     # normalize to [0, 1]
     if img.dtype == np.uint8:

@@ -13,12 +13,60 @@ from src.models import ImageMetadataCores, RulerSegmentResult
 from src.segment.utils.misc import ProcessGroupByShape
 
 
+def _select_inlier_detections(X: np.ndarray, y: np.ndarray, r_error_outliers: float) -> tuple[np.ndarray, float]:
+    """Flag detections whose neighbor-consistency count matches the group's consensus.
+
+    Computes the pairwise pixel-distance-per-unit-step between every pair of detections, then
+    counts, for each detection, how many others it is step-consistent with (within
+    `r_error_outliers`). A detection is an inlier if that neighbor count itself is close to the
+    median neighbor count across all detections -- misdetections tend to be consistent with few
+    or no other points, even if their own spacing looks locally plausible.
+
+    Args:
+        X (np.ndarray): (N, 2) array of detection center coordinates (pixels).
+        y (np.ndarray): (N,) array of detection values (e.g. ruler numbers).
+        r_error_outliers (float): Relative tolerance for step-consistency.
+
+    Returns:
+        tuple[np.ndarray, float]: (N,) boolean inlier mask, and the median step (pixels per unit).
+    """
+    y_sort = np.argsort(y)
+    X_diff = np.linalg.norm(np.diff(X[y_sort], axis=0), axis=1)
+    y_diff = np.diff(y[y_sort], axis=0)
+
+    # Sort values in increasing order and compute steps / median step (robust to outliers)
+    if not np.any(y_diff != 0):
+        # No two detections have distinct values: no reliable scale can be derived.
+        return np.zeros(len(y), dtype=bool), 0
+
+    steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0]).item()
+
+    # Drop detections that are not aligned with detected steps (distance to neighbor)
+    distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
+    distances_idx = ~np.eye(distances.shape[0], dtype=bool)
+    distances = distances[distances_idx].reshape(
+        # Remove diagonal and reshape NxN -> Nx(N-1)
+        (
+            distances.shape[0],
+            distances.shape[1] - 1,
+        )
+    )
+    # Count number of valid neighbors detected for every entry
+    valid_neigh = np.sum(abs(distances - steps_median) / steps_median < r_error_outliers, axis=1)
+    # Inliers should be consistent with all neighbors
+    median_valid_neigh = np.median(valid_neigh)
+    id_inliers = abs(valid_neigh - median_valid_neigh) / (median_valid_neigh + 1e-16) < r_error_outliers
+
+    return id_inliers, steps_median
+
+
 def segment_ruler(img_metadata: ImageMetadataCores, config: SegmentationRulerConfig) -> RulerSegmentResult | None:
     """Detect a depth ruler by OCR'ing its printed number ticks and derive a pixel-to-unit scale.
 
     Binarizes the image for more reliable OCR, keeps digit detections within
-    [text_min_value, text_max_value], and drops detections whose spacing deviates
-    from the median step between consecutive numbers (outliers).
+    [text_min_value, text_max_value], and drops detections whose count of step-consistent
+    neighbors deviates from the median neighbor count across all detections (outliers whose
+    spacing agrees with few other detections are dropped, even if individually plausible).
 
     Args:
         img_metadata (ImageMetadataCores): Metadata of the image to load and segment.
@@ -51,30 +99,15 @@ def segment_ruler(img_metadata: ImageMetadataCores, config: SegmentationRulerCon
         ]
     )
 
-    if data.size == 0:
+    # At least two samples to create interval
+    if data.size == 0 or data.shape[0] < 2:
         return None
 
     # Central point of detected number (left + width/2, top + height / 2)
     X = data[:, [1, 2]] + data[:, [3, 4]] / 2
     y = data[:, 0]
 
-    # Sort values in increasing order and compute steps / median step (robust to outliers)
-    y_sort = np.argsort(y)
-    X_diff = np.linalg.norm(np.diff(X[y_sort], axis=0), axis=1)
-    y_diff = np.diff(y[y_sort], axis=0)
-    steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0]).item()
-
-    # Drop detections that are not aligned with detected steps (distance to neighbor)
-    distances = pairwise_distances(X) / (pairwise_distances(y[:, None]) + 1e-16)
-    distances_idx = ~np.eye(distances.shape[0], dtype=bool)
-    distances = distances[distances_idx].reshape(
-        # Remove diagonal and reshape NxN -> Nx(N-1)
-        (
-            distances.shape[0],
-            distances.shape[1] - 1,
-        )
-    )
-    id_inliers = abs(np.median(distances, axis=1) - steps_median) / steps_median < config.r_error_outliers
+    id_inliers, steps_median = _select_inlier_detections(X, y, config.r_error_outliers)
 
     if not id_inliers.any():
         return None
@@ -119,11 +152,14 @@ class ProcessRulerGroupByShape(ProcessGroupByShape[RulerSegmentResult, RulerSegm
         super().__init__(min_group_size=config.n_min_ruler, seed=config.seed, n_workers=n_workers)
         self.config = config
 
-    def _preprocess(self, img_metadata: ImageMetadataCores) -> RulerSegmentResult | None:
+    def _preprocess(
+        self, img_metadata: ImageMetadataCores, img_metadata_ref: ImageMetadataCores
+    ) -> RulerSegmentResult | None:
         """Run ruler OCR detection on a single image.
 
         Args:
             img_metadata (ImageMetadataCores): Metadata of the image to load and segment.
+            img_metadata_ref (ImageMetadataCores): Reference image.
 
         Returns:
             RulerSegmentResult | None: Detected ruler result, or None.

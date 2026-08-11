@@ -181,6 +181,9 @@ photo's ruler to derive a pixels-per-unit scale (`px_per_unit`), so tick counts 
 actual detected depth rather than an arbitrary scale. Each core is then resized independently using
 its own detected `px_per_unit` (falling back to the batch median if no ruler was detected for that image), and clamped if it would exceed `max_core_width`/`max_core_height`.
 
+A core's depth labels are suffixed with `*` when its scale could not be trusted. Either no ruler
+was detected for that image (falling back to the batch median scale) or the crop had to be clamped.
+
 ## Configuration
 
 Segmentation, stitching and evaluation parameters are set via a YAML config file,
