@@ -30,10 +30,15 @@ def _select_inlier_detections(X: np.ndarray, y: np.ndarray, r_error_outliers: fl
     Returns:
         tuple[np.ndarray, float]: (N,) boolean inlier mask, and the median step (pixels per unit).
     """
-    # Sort values in increasing order and compute steps / median step (robust to outliers)
     y_sort = np.argsort(y)
     X_diff = np.linalg.norm(np.diff(X[y_sort], axis=0), axis=1)
     y_diff = np.diff(y[y_sort], axis=0)
+
+    # Sort values in increasing order and compute steps / median step (robust to outliers)
+    if not np.any(y_diff != 0):
+        # No two detections have distinct values: no reliable scale can be derived.
+        return np.zeros(len(y), dtype=bool), 0
+
     steps_median = np.median(X_diff[y_diff != 0] / y_diff[y_diff != 0]).item()
 
     # Drop detections that are not aligned with detected steps (distance to neighbor)
