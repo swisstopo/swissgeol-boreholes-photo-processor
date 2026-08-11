@@ -139,6 +139,8 @@ def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
         config=SegmentationCoreConfig(downscale_factor=1, wood_sat_threshold=1.1),
     )
 
+    assert detection_core is not None
+    assert detection_core_out is not None
     assert detection_core.bbox == core_box
     assert detection_core_out.bbox == tray_box
 
@@ -152,6 +154,7 @@ def test_segment_core_trims_black_background_left_right(make_metadata):
 
     result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
 
+    assert result is not None
     assert result.bbox == core_box
 
 
@@ -173,6 +176,7 @@ def test_segment_core_splits_fragmented_core_into_segments(make_metadata):
 
     result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
 
+    assert result is not None
     assert result.bbox == (left_box[0], 0, right_box[2], 99)
     assert result.bbox_segments is not None
     assert len(result.bbox_segments) == 2
@@ -197,6 +201,7 @@ def test_segment_core_drops_thin_segments(make_metadata):
 
     result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
 
+    assert result is not None
     assert result.bbox == core_box  # segment excluded, doesn't pull the left edge out to x=10
     assert result.bbox_segments is not None
     assert len(result.bbox_segments) == 1
@@ -214,7 +219,11 @@ def test_segment_skips_image_with_no_detectable_regions(make_metadata):
         ),
     )
 
-    assert detections == []
+    assert len(detections) == 1
+    assert detections[0].tray is not None
+    assert detections[0].tray.bbox == (0, 0, _IMG_SIZE[0] - 1, _IMG_SIZE[1] - 1)
+    assert detections[0].core is not None
+    assert detections[0].core.bbox == (0, 0, _IMG_SIZE[0] - 1, _IMG_SIZE[1] - 1)
 
 
 def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
@@ -231,10 +240,14 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
         ),
     )
 
-    assert len(detections) == 1
-    assert detections[0].depth_start == 16.0
+    assert len(detections) == 2
+    assert detections[0].depth_start == 15.0
     assert detections[0].core is not None
-    assert detections[0].core.bbox == core_box
+    assert detections[0].core.bbox == (0, 0, _IMG_SIZE[0] - 1, _IMG_SIZE[1] - 1)
+
+    assert detections[1].depth_start == 16.0
+    assert detections[1].core is not None
+    assert detections[1].core.bbox == core_box
 
 
 def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, make_metadata):

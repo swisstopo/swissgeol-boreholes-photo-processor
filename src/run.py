@@ -72,9 +72,10 @@ def run(
             into a cuttings grid instead.
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
+        logging.info(f"--- {input_dir.name} ---")
         if cuttings:
             detections = collect_cuttings(input_dir)
-            logging.info("Found %d cuttings images in %s", len(detections), input_dir.name)
+            logging.info(f"Found {len(detections)} cuttings images in {input_dir.name}")
         else:
             # Collect all images from the input directory and parse filename metadata
             imgs_metadata: list[ImageMetadata] = []
@@ -85,9 +86,9 @@ def run(
                         _ = metadata.shape  # validate the file is readable before segmentation runs
                         imgs_metadata.append(metadata)
                     except (ValueError, SegmentationError, tifffile.TiffFileError) as e:
-                        logging.warning("Skipping %s: %s", f.name, e)
+                        logging.warning(f"Skipping {f.name}: {e}")
             imgs_metadata.sort(key=lambda m: m.depth_start)
-            logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
+            logging.info(f"Found {len(imgs_metadata)} TIF images")
 
             # segmentation
             detections = segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug)
@@ -117,7 +118,7 @@ def run(
                 )
             ).save(output_dir / f"{stem}.jpg", quality=config.stitching.web_output_quality)
             img.save(output_dir / f"{stem}.tif")
-        logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
+        logging.info(f"Created {idx + 1} output figure(s) in {output_dir}")
 
         if with_mlflow and not nested and log_path is not None:
             upload_log_to_mlflow(log_path)
@@ -149,7 +150,7 @@ def batch_run(
     """
     with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
         subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
-        logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
+        logging.info(f"Found {len(subdirs)} folders to process in {input_dir.name}")
         for subdir in tqdm(subdirs, desc="Processing folders"):
             run(
                 input_dir=subdir,

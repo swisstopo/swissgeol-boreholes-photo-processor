@@ -6,12 +6,13 @@ segmentation:
 
   tray_group:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    foreground_blur_sigma: 5.0 # gaussian blur applied to each image for foreground detection.
+    foreground_blur_sigma: 5.0 # gaussian blur applied to each image for foreground detection
+    max_flow_shift: 100 # max optical flow displacement to allow, in pixels
     n_min_foreground: 10 # minimum number images required to estimate a foreground
     seed: 0 # seed for randomly sampling images from a group
 
   tray_single:
-    block_size: 4000 # pixel neighborhood used to calculate the threshold.
+    block_size: 4000 # pixel neighborhood used to calculate the threshold
     closing_disk: 50 # radius for binary_closing (fills gaps)
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     edge_margin_bottom: 5 # ignore bottom edge of image (ruler)
@@ -32,8 +33,8 @@ segmentation:
   core:
     downscale_factor: 0.125 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     background_val_hratio: 0.90 # fraction of dark-background pixels in a row required to trim that row
-    background_val_vratio: 0.90 # fraction of dark-background pixels in a column required to trim that column
-    background_val_threshold: 0.20 # value (HSV) below this = black background (not rock)
+    background_val_vratio: 0.70 # fraction of dark-background pixels in a column required to trim that column
+    background_val_threshold: 0.15 # value (HSV) below this = black background (not rock)
     wood_sat_hratio: 0.75 # fraction of tray-saturated pixels in a row required to classify that row as tray
     wood_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
     min_segment_height_px: 100 # minimum height (px) for a left/right segment to be kept as core

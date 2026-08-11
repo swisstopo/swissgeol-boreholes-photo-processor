@@ -8,6 +8,8 @@ from skimage.color import rgb2gray
 from skimage.filters import gaussian, threshold_local
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening, remove_small_objects
+from skimage.registration import optical_flow_tvl1
+from skimage.transform import warp
 from sklearn.mixture import GaussianMixture
 
 from src.config import (
@@ -115,13 +117,11 @@ def _select_bbox(
     Returns:
         tuple[int, int, int, int]: Bounding box as (x_min, y_min, x_max, y_max), with x_max/y_max
             as inclusive coordinates.
-
-    Raises:
-        SegmentationError: If no regions are found.
     """
     props = regionprops(label(img_mask), intensity_image=img_intensity)
     if not props:
-        raise SegmentationError("No regions found in image")
+        logger.warning("No valid region detected, return input shape")
+        return (0, 0, img_mask.shape[1] - 1, img_mask.shape[0] - 1)
 
     candidates = [
         r
@@ -251,23 +251,35 @@ class ProcessTrayGroupByShape(ProcessGroupByShape[TraySegmentResult, np.ndarray]
         super().__init__(min_group_size=config.n_min_foreground, seed=config.seed, n_workers=n_workers)
         self.config = config
 
-    def _preprocess(self, img_metadata: ImageMetadata) -> np.ndarray | None:
-        """Load and blur a single image for foreground/background std estimation.
+    def _preprocess(self, img_metadata: ImageMetadata, img_metadata_ref: ImageMetadata) -> np.ndarray | None:
+        """Load, align to the reference image, and blur a single image for foreground/background std estimation.
 
         Args:
             img_metadata (ImageMetadata): Metadata of the image to load.
+            img_metadata_ref (ImageMetadata): Image reference to align with.
 
         Returns:
             np.ndarray | None: Blurred grayscale image array, or None.
         """
         try:
-            img = img_metadata.load_image(factor=self.config.downscale_factor)
+            img_ref = rgb2gray(img_metadata_ref.load_image(factor=self.config.downscale_factor))
+            img = rgb2gray(img_metadata.load_image(factor=self.config.downscale_factor))
         except (SegmentationError, ValueError) as e:
-            logger.warning("%s. Skipping.", e)
+            logger.warning(f"Skipping. {e}.")
             return None
 
-        img_gray_ = rgb2gray(img)
-        img_blur_ = gaussian(img_gray_, sigma=self.config.foreground_blur_sigma)
+        # Fit displacement across images
+        nr, nc = img_ref.shape
+        v, u = optical_flow_tvl1(img_ref, img)
+
+        # Set max allowed displacement between frames (cores cannot be matched, only to image)
+        max_shift = self.config.max_flow_shift * self.config.downscale_factor
+        v, u = np.clip(v, -max_shift, max_shift), np.clip(u, -max_shift, max_shift)
+
+        # Warp image to align with target and blur it
+        row_coords, col_coords = np.meshgrid(np.arange(nr), np.arange(nc), indexing="ij")
+        img_warp_ = warp(img, np.array([row_coords + v, col_coords + u]), mode="edge")
+        img_blur_ = gaussian(img_warp_, sigma=self.config.foreground_blur_sigma)
         return img_blur_
 
     def _aggregate(self, processed_items: list[np.ndarray]) -> TraySegmentResult | None:

@@ -91,7 +91,7 @@ def segment_single(
             )
 
     except SegmentationError as e:
-        logger.warning("%s. Skipping.", e)
+        logger.warning(f"Skipping. {e}.")
         return None
 
     return detection
@@ -184,7 +184,10 @@ def segment(
     t_start = timer()
 
     # Step 1: Try to estimate image foreground (moving part) and ruler, once per shape group
+    logger.info("Processing trays by group ...")
     tray_by_shape = ProcessTrayGroupByShape(config.tray_group, config.n_workers).run(imgs_metadata)
+
+    logger.info("Processing rulers by group ...")
     ruler_by_shape = ProcessRulerGroupByShape(config.ruler, config.n_workers).run(imgs_metadata)
 
     if with_mlflow and debug:
