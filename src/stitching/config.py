@@ -36,5 +36,7 @@ class CuttingsStitchingConfig:
 class StitchingConfig:
     """Tunable parameters for the stitching step."""
 
+    web_output_quality: int = 95  # output JPG quality/compression tradeoff, in the range 0–100
+    web_downscale_factor: float = 0.25  # downscale factor applied to web image output
     core: CoreStitchingConfig = field(default_factory=CoreStitchingConfig)
     cuttings: CuttingsStitchingConfig = field(default_factory=CuttingsStitchingConfig)
