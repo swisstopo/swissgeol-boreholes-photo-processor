@@ -202,6 +202,9 @@ To use a different config file, pass `--config <path>` (see below).
 
 ## CLI Usage
 
+The commands below assume the package is installed (see [Installation](#installation)). Without installing it,
+run the same commands via `uv run python -m src.run cores ...` / `uv run python -m src.run cuttings ...` instead.
+
 ### Run the pipeline for cores:
 
 **Without MLflow tracking**
