@@ -37,7 +37,7 @@ class DPCoreWidthEstimation:
         self.alpha = alpha
         self._segments = []
         self._segments_id = []
-        self._means = []
+        self._references = []
         self._err = np.inf
 
     def fit(self, depths: list[float], widths: list[float | None]) -> None:
@@ -56,17 +56,17 @@ class DPCoreWidthEstimation:
         depth_sort = np.argsort(depths_f)
         depths_f, widths_f = np.array(depths_f)[depth_sort], np.array(widths_f)[depth_sort]
 
-        self._err, self._segments_id, self._means = self._forward(np.array(widths_f), K=1)
+        self._err, self._segments_id, self._references = self._forward(np.array(widths_f), K=1)
 
         for k in range(2, self.max_k + 1):
-            err, segments_id, means = self._forward(np.array(widths_f), K=k)
+            err, segments_id, references = self._forward(np.array(widths_f), K=k)
             if (
                 (abs(err - self._err) / (self._err + 1e-16) < self.alpha)  # Improvement should be substantial
-                or np.any(np.diff(means) > 0)  # Should be strictly decreasing
+                or np.any(np.diff(references) > 0)  # Should be strictly decreasing
             ):
                 break
             else:
-                self._err, self._segments_id, self._means = err, segments_id, means
+                self._err, self._segments_id, self._references = err, segments_id, references
 
         self._segments = [
             (float(depths_f[id_start]), float(depths_f[id_end])) for id_start, id_end in self._segments_id
@@ -82,7 +82,7 @@ class DPCoreWidthEstimation:
         Returns:
             tuple[float, list[tuple[int, int]], list[float]]: The total squared error of the best
                 fit, the resulting segments as (start, end) index pairs from the DP backtracking,
-                and each segment's mean value.
+                and each segment's reference value.
 
         Example:
             Let's assume input sample where we want k=3 steps
@@ -110,7 +110,11 @@ class DPCoreWidthEstimation:
         n = len(y)
 
         def cost(a: int, b: int) -> float:
-            """Sum of squared deviations from the mean for segment."""
+            """Sum of squared deviations from the mean for segment.
+
+            Uses the mean (not the median) so the per-segment cost stays a simple closed-form
+            squared-error term, cheap to recompute for every candidate split in the DP.
+            """
             m = b - a + 1
             mean = np.sum(y[a - 1 : b]) / m
             return np.sum([(v - mean) ** 2 for v in y[a - 1 : b]])
@@ -133,8 +137,10 @@ class DPCoreWidthEstimation:
             segments.append((j, i - 1))
             i = j
 
-        means = [np.sum(y[a : b + 1]).item() / (b - a + 1) for a, b in segments]
-        return dp[K][n].item(), segments[::-1], means[::-1]
+        # Segment boundaries were fit against the mean (see `cost`), but the reported reference
+        # value uses the median instead, so a few outlier widths within a segment don't skew it.
+        reference = [np.median(y[a : b + 1]) for a, b in segments]
+        return dp[K][n].item(), segments[::-1], reference[::-1]
 
 
 class EvaluationCompute(ABC):
@@ -297,7 +303,7 @@ class EvaluationWidthCompute(EvaluationCompute):
         """
         estimator = DPCoreWidthEstimation(max_k=self.max_width_steps, alpha=self.relative_tolerance_steps)
         estimator.fit(depths=depths, widths=values)
-        return estimator._segments, estimator._means
+        return estimator._segments, estimator._references
 
 
 class EvaluationLengthCompute(EvaluationCompute):
