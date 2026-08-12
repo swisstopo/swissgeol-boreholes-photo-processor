@@ -12,7 +12,7 @@ from src.evaluations.config import (
     CoreWidthCheckConfig,
     EvaluationConfig,
 )
-from src.models import ImageMetadataProcessed
+from src.models import ImageMetadataProcessedCores
 
 
 class DPCoreWidthEstimation:
@@ -208,12 +208,12 @@ class EvaluationCompute(ABC):
 
     def evaluate(
         self,
-        detections: list[ImageMetadataProcessed],
+        detections: list[ImageMetadataProcessedCores],
     ) -> list[CoreValueCheckResult | None]:
         """Compute each detection's measured value and results from the reference.
 
         Args:
-            detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
+            detections (list[ImageMetadataProcessedCores]): List of processed image metadata with detection results.
 
         Returns:
             list[CoreValueCheckResult | None]: One entry per detection. None for every detection if
@@ -250,11 +250,11 @@ class EvaluationCompute(ABC):
         return [(min(depths), max(depths))], [np.median([value for value in values if value is not None]).item()]
 
     @abstractmethod
-    def _measure(self, detection: ImageMetadataProcessed) -> float | None:
+    def _measure(self, detection: ImageMetadataProcessedCores) -> float | None:
         """Derive the measured value for one detection.
 
         Args:
-            detection (ImageMetadataProcessed): The processed image metadata to measure.
+            detection (ImageMetadataProcessedCores): The processed image metadata to measure.
 
         Returns:
             float | None: The measured value, or None if it can't be computed.
@@ -274,11 +274,11 @@ class EvaluationWidthCompute(EvaluationCompute):
         self.max_width_steps = config.max_width_steps
         self.relative_tolerance_steps = config.relative_tolerance_steps
 
-    def _measure(self, detection: ImageMetadataProcessed) -> float | None:
+    def _measure(self, detection: ImageMetadataProcessedCores) -> float | None:
         """Compute a core's width in pixels: its bounding box's vertical (y) extent.
 
         Args:
-            detection (ImageMetadataProcessed): The processed image metadata to measure.
+            detection (ImageMetadataProcessedCores): The processed image metadata to measure.
 
         Returns:
             float | None: Width in pixels, or None if no core was detected for this image.
@@ -318,11 +318,11 @@ class EvaluationLengthCompute(EvaluationCompute):
         super().__init__(config)
         self.max_depth_range = config.max_depth_range
 
-    def _measure(self, detection: ImageMetadataProcessed) -> float | None:
+    def _measure(self, detection: ImageMetadataProcessedCores) -> float | None:
         """Compute a core's length-to-depth ratio, normalized by the ruler's px-per-unit scale.
 
         Args:
-            detection (ImageMetadataProcessed): The processed image metadata to measure.
+            detection (ImageMetadataProcessedCores): The processed image metadata to measure.
 
         Returns:
             float | None: Dimensionless ratio of the core's length-to-depth scale to the ruler's
@@ -340,11 +340,13 @@ class EvaluationLengthCompute(EvaluationCompute):
         return (detection.core.bbox[2] - detection.core.bbox[0]) / depth_range / ruler_res
 
 
-def evaluate_detections(detections: list[ImageMetadataProcessed], config: EvaluationConfig) -> list[CoreCheckResult]:
+def evaluate_detections(
+    detections: list[ImageMetadataProcessedCores], config: EvaluationConfig
+) -> list[CoreCheckResult]:
     """Run the width and length checks and merge them into one result per file.
 
     Args:
-        detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
+        detections (list[ImageMetadataProcessedCores]): List of processed image metadata with detection results.
         config (EvaluationConfig): Configuration parameters for all core checks.
 
     Returns:

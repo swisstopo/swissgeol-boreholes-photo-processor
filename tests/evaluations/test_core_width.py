@@ -6,17 +6,17 @@ import pytest
 
 from src.evaluations.config import CoreWidthCheckConfig
 from src.evaluations.core import DPCoreWidthEstimation, EvaluationWidthCompute
-from src.models import CoreSegmentResult, ImageMetadataProcessed, RulerSegmentResult
+from src.models import CoreSegmentResult, ImageMetadataProcessedCores, RulerSegmentResult
 
 
-def _make_detection(width: float, depth_start: float) -> ImageMetadataProcessed:
-    """Creates an ImageMetadataProcessed whose bounding box has the given width in pixels.
+def _make_detection(width: float, depth_start: float) -> ImageMetadataProcessedCores:
+    """Creates an ImageMetadataProcessedCores whose bounding box has the given width in pixels.
 
     Width is the box's vertical (y) extent: raw TIF photos are landscape, with the depth
     axis running horizontally (x) and the core's physical width running vertically (y).
     """
     depth_end = depth_start + 1.0
-    return ImageMetadataProcessed(
+    return ImageMetadataProcessedCores(
         borehole_id="GBC-CB50",
         depth_start=depth_start,
         depth_end=depth_end,

@@ -8,14 +8,28 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Run photo-processor",
+            "name": "Python: Run photo-processor (cores)",
             "type": "debugpy",
             "request": "launch",
             "module": "src.run",
             "args": [
-                "-i",
-                "data/cores"
-                // "-o", "data/output"
+                "cores",
+                "--input", "data/cores",
+                "--output", "data/output"
+            ],
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true,
+            "python": "${workspaceFolder}/.venv/bin/python3"
+        },
+        {
+            "name": "Python: Run photo-processor (cuttings)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.run",
+            "args": [
+                "cuttings",
+                "--input", "data/cuttings",
+                "--output", "data/output"
             ],
             "cwd": "${workspaceFolder}",
             "justMyCode": true,

@@ -5,6 +5,7 @@ description = "Python project that generates composite images from photos of bor
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "click>=8.1.0",
     "imagecodecs>=2026.3.6",
     "matplotlib==3.10.9",
     "mlflow==3.13.0",
@@ -40,7 +41,8 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [project.scripts]
-boreholes-photo-processor = "src.run:main"
+boreholes-photo-processor = "src.run:main_cores"
+boreholes-photo-processor-cuttings = "src.run:main_cuttings"
 
 # ---- Configuration for Ruff
 [tool.ruff.lint]

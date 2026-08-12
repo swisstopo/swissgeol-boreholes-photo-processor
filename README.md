@@ -96,7 +96,7 @@ To sync only a single borehole (useful for local testing), specify the full pref
 aws s3 sync s3://stijnvermeeren-corephotos-cuttings/cores/GBC/GBC-CB50 ./data/cores/GBC/GBC-CB50
 ```
 
-### Expected Data Format
+### Expected Data Format (Cores)
 
 The pipeline processes borehole core photos in **TIF format** (`.tif`/`.TIF`, case-insensitive). Files with other extensions are ignored.
 
@@ -138,6 +138,37 @@ For **batch processing** across multiple boreholes, the input directory should c
 
 The pipeline detects the mode automatically: if the input directory contains subdirectories it runs in batch mode, otherwise it processes the directory as a single borehole. The input folder structure is mirrored in the output directory.
 
+### Expected Data Format (Cuttings)
+
+The pipeline processes cuttings photos in **JPG, JPEG, BMP, TIF, and TIFF format** (case-insensitive). Files with other extensions are ignored.
+
+**Filename convention**
+
+New data should follow this convention:
+
+```
+<borehole-id>_<depth>m_<sequence>.<ext>
+```
+
+e.g. `VINZEL-1_1234.50m_01.jpg` — `depth` is the point depth in metres (decimal allowed), and
+`sequence` should be incremented for every extra photo taken at the same depth.
+
+A number of legacy, borehole-specific filename conventions are also recognized for existing data
+(e.g. an id followed by a depth range, an id and depth separated by a space, or a camera filename
+with the depth appended as a trailing token) — see `ImageMetadataCuttings.from_path` in
+`src/models.py` for the full list. Filenames with no recoverable depth are skipped with a warning,
+not fatal to the whole batch. Files named `00-Vials-*` are always excluded outright, since they're
+sample-vial photos rather than depth photos.
+
+Only the first photo (by filename) found at a given depth is kept; any extra photos at the same
+depth are dropped and the count is logged (and, with `--mlflow`, recorded as a metric). Naming every
+photo at a shared depth with the convention above (unique, incrementing `sequence`) avoids this.
+
+**Folder structure**
+
+Same as for cores above: a single borehole folder of cuttings photos, or one subfolder per borehole
+for batch processing.
+
 ### Output
 
 Each output sheet places up to `num_cores_per_image` cores side by side, top-aligned on a black
@@ -174,7 +205,10 @@ To use a different config file, pass `--config <path>` (see below).
 
 ## CLI Usage
 
-Run the borehole photo processing pipeline:
+The commands below assume the package is installed (see [Installation](#installation)). Without installing it,
+run the same commands via `uv run python -m src.run cores ...` / `uv run python -m src.run cuttings ...` instead.
+
+### Run the pipeline for cores:
 
 **Without MLflow tracking**
 
@@ -202,3 +236,22 @@ uv run mlflow ui
 ```
 
 Then open http://localhost:5000 in your browser.
+
+
+### Run the pipeline for cuttings
+
+**Without MLflow tracking**
+
+```bash
+uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-dir>
+```
+
+- same flags as for the cores
+
+**With MLflow tracking**
+
+```bash
+uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-dir> --mlflow --debug
+```
+
+- same flags as for the cores

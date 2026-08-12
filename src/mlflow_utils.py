@@ -13,7 +13,12 @@ from mlflow.tracking import MlflowClient
 from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
-from src.models import ImageMetadataProcessed, ImageSegmentResult, TraySegmentResult
+from src.models import (
+    ImageMetadataProcessedCores,
+    ImageMetadataProcessedCuttings,
+    ImageSegmentResult,
+    TraySegmentResult,
+)
 from src.utils import scale_bbox
 
 
@@ -64,7 +69,7 @@ def upload_log_to_mlflow(log_path: Path) -> None:
 
 
 def log_image_metadata_processed_mlflow(
-    result: ImageMetadataProcessed,
+    result: ImageMetadataProcessedCores,
     filename: str,
     suffix: str = ".jpg",
     subfolder: str | None = None,
@@ -74,7 +79,7 @@ def log_image_metadata_processed_mlflow(
     """Log a processed image to MLflow with core/tray/ruler bounding boxes overlaid.
 
     Args:
-        result (ImageMetadataProcessed): The processed image whose detected regions are drawn and logged.
+        result (ImageMetadataProcessedCores): The processed image whose detected regions are drawn and logged.
         filename (str): The filename prefix for the artifact.
         suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
         subfolder (str | None): Optional subfolder for image logging.
@@ -116,8 +121,45 @@ def log_image_metadata_processed_mlflow(
     log_artifact_with_mlflow(img_pil, filename, suffix, subfolder, run_id=run_id)
 
 
+def log_image_metadata_processed_cuttings_mlflow(
+    result: ImageMetadataProcessedCuttings,
+    filename: str,
+    suffix: str = ".jpg",
+    subfolder: str | None = None,
+    run_id: str | None = None,
+) -> None:
+    """Log a processed cuttings image to MLflow with its cuttings bounding box overlaid.
+
+    The cuttings detector is currently a placeholder that reports the entire image as the
+    bbox, so the overlay will just outline the image border until real detection lands.
+
+    Args:
+        result (ImageMetadataProcessedCuttings): The processed image whose detected cuttings
+            region is drawn and logged.
+        filename (str): The filename prefix for the artifact.
+        suffix (str): File extension (including the dot) used when saving the artifact, e.g. ".jpg" or ".png".
+        subfolder (str | None): Optional subfolder for image logging.
+        run_id (str | None): If set, log the artifact directly to this run via MlflowClient
+            instead of the active run. Safe to call concurrently from multiple processes
+            against the same run_id, unlike `mlflow.start_run`/`end_run`. Defaults to None.
+    """
+    img_npy = result.load_image()
+    img_pil = Image.fromarray((img_npy * 255).astype(np.uint8)).convert("RGBA")
+    overlay = Image.new("RGBA", img_pil.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    if result.cuttings is not None:
+        for bbox in result.cuttings.bbox_segments or []:
+            draw.rectangle(bbox, outline=(0, 255, 0, 255), fill=(0, 255, 0, 30), width=2)
+        draw.rectangle(result.cuttings.bbox, outline=(0, 255, 0, 255), width=5)
+
+    img_pil = Image.alpha_composite(img_pil, overlay).convert("RGB")
+
+    log_artifact_with_mlflow(img_pil, filename, suffix, subfolder, run_id=run_id)
+
+
 def log_segmentation_results_with_mlflow(
-    detections: list[ImageMetadataProcessed],
+    detections: list[ImageMetadataProcessedCores],
     time: float,
 ) -> None:
     """Log a summary of the segmentation timing and approach breakdown to MLflow.
@@ -127,7 +169,7 @@ def log_segmentation_results_with_mlflow(
     for the tray, ruler, and core detectors, and every image's full detection result.
 
     Args:
-        detections (list[ImageMetadataProcessed]): Per-image processed results.
+        detections (list[ImageMetadataProcessedCores]): Per-image processed results.
         time (float): Overall wall-clock time, in seconds, for the segmentation run.
     """
     mlflow.log_dict(
@@ -142,6 +184,50 @@ def log_segmentation_results_with_mlflow(
         },
         "segmentation_summary.json",
     )
+
+
+def log_cuttings_segmentation_results_with_mlflow(
+    detections: list[ImageMetadataProcessedCuttings],
+    time: float,
+) -> None:
+    """Log a summary of the cuttings segmentation timing to MLflow.
+
+    Dumps a single JSON artifact ("segmentation_summary.json") containing the overall
+    time for the run and every image's full detection result.
+
+    Args:
+        detections (list[ImageMetadataProcessedCuttings]): Per-image processed results.
+        time (float): Overall wall-clock time, in seconds, for the segmentation run.
+    """
+    mlflow.log_dict(
+        {
+            "time": {
+                "overall": time,
+                "cuttings": ImageSegmentResult.approach_to_json([detection.cuttings for detection in detections]),
+            },
+            "detections": [detection.to_dict() for detection in detections],
+        },
+        "segmentation_summary.json",
+    )
+
+
+def log_collect_cuttings_results_with_mlflow(duplicate_counts: dict[float, int]) -> None:
+    """Log cuttings depth-deduplication stats to MLflow.
+
+    Only the first image found at each depth is kept by the caller; this logs how many
+    extra images were dropped as duplicates, both as a total metric and, when any exist,
+    a per-depth breakdown artifact.
+
+    Args:
+        duplicate_counts (dict[float, int]): Number of extra images dropped per depth, for
+            depths where more than one image was found.
+    """
+    mlflow.log_metric("cuttings_duplicate_images", sum(duplicate_counts.values()))
+    if duplicate_counts:
+        mlflow.log_dict(
+            {str(depth): count for depth, count in duplicate_counts.items()},
+            "cuttings_duplicate_depths.json",
+        )
 
 
 def log_artifact_with_mlflow(

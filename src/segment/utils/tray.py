@@ -18,7 +18,7 @@ from src.config import (
     SegmentationTraySingleConfig,
 )
 from src.models import (
-    ImageMetadata,
+    ImageMetadataCores,
     RulerSegmentResult,
     TraySegmentResult,
 )
@@ -192,14 +192,14 @@ def _estimate_tray_bbox(fg_img: np.ndarray | None) -> tuple[int, int, int, int] 
 
 
 def segment_tray(
-    img_metadata: ImageMetadata,
+    img_metadata: ImageMetadataCores,
     config: SegmentationTraySingleConfig,
     ruler: RulerSegmentResult | None = None,
 ) -> TraySegmentResult:
     """Segment a single image via thresholding when no shared foreground bbox is available.
 
     Args:
-        img_metadata (ImageMetadata): Metadata of the image to load and segment.
+        img_metadata (ImageMetadataCores): Metadata of the image to load and segment.
         config (SegmentationTraySingleConfig): Tunable segmentation parameters.
         ruler (RulerSegmentResult | None): Detected ruler bbox to exclude from tray candidate selection.
 
@@ -251,12 +251,12 @@ class ProcessTrayGroupByShape(ProcessGroupByShape[TraySegmentResult, np.ndarray]
         super().__init__(min_group_size=config.n_min_foreground, seed=config.seed, n_workers=n_workers)
         self.config = config
 
-    def _preprocess(self, img_metadata: ImageMetadata, img_metadata_ref: ImageMetadata) -> np.ndarray | None:
+    def _preprocess(self, img_metadata: ImageMetadataCores, img_metadata_ref: ImageMetadataCores) -> np.ndarray | None:
         """Load, align to the reference image, and blur a single image for foreground/background std estimation.
 
         Args:
-            img_metadata (ImageMetadata): Metadata of the image to load.
-            img_metadata_ref (ImageMetadata): Image reference to align with.
+            img_metadata (ImageMetadataCores): Metadata of the image to load.
+            img_metadata_ref (ImageMetadataCores): Image reference to align with.
 
         Returns:
             np.ndarray | None: Blurred grayscale image array, or None.
