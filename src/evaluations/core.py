@@ -160,7 +160,7 @@ class EvaluationCompute(ABC):
 
     def _evaluate_segments(
         self,
-        detections: list[ImageMetadataProcessed],
+        detections: list[ImageMetadataProcessedCores],
         measures: list[float | None],
         segments_depth: list[tuple[float, float]],
         segments_value: list[float],
@@ -168,7 +168,7 @@ class EvaluationCompute(ABC):
         """Flag detections whose measured value deviates too far from their depth segment's reference.
 
         Args:
-            detections (list[ImageMetadataProcessed]): Processed image metadata to evaluate.
+            detections (list[ImageMetadataProcessedCores]): Processed image metadata to evaluate.
             measures (list[float | None]): Precomputed list measurements to evaluate
             segments_depth (list[tuple[float, float]]): (start, end) depth interval for each segment.
             segments_value (list[float]): Reference value for each segment, matched by index to
