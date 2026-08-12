@@ -15,7 +15,7 @@ class CoreCheckConfig:
 class CoreWidthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core width check evaluation."""
 
-    relative_tolerance: float = 0.25  # flag if |width - batch_median| / batch_median exceeds this
+    relative_tolerance: float = 0.25  # flag if |width - segment_reference| / segment_reference exceeds this
     max_width_steps: int = 3  # maximum number of segments to try when detecting width groups via DP fit
     relative_tolerance_steps: float = 0.25  # stop adding segments once the relative error improvement drops below this
 
@@ -24,7 +24,7 @@ class CoreWidthCheckConfig(CoreCheckConfig):
 class CoreLengthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core length check evaluation."""
 
-    relative_tolerance: float = 0.05  # ~5% buffer on the length-to-depth ratio vs. the batch median
+    relative_tolerance: float = 0.05  # flag if |width - segment_reference| / segment_reference exceeds this
     max_depth_range: float = 1.00  # Cap height scale to 1 meter (no image with more than 1m core)
 
 
@@ -43,7 +43,7 @@ class CoreValueCheckResult:
     passed: bool  # whether the core passed the check (True = within tolerance, False = flagged)
     relative_error: float  # (measure - reference) / reference
     measure: float  # value computed for this detection
-    reference: float  # group reference value
+    reference: float  # segment reference value
     segment: tuple[float, float]  # (start, end) depth interval this result was measured against
 
 

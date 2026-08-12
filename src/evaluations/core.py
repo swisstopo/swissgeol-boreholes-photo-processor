@@ -20,7 +20,9 @@ class DPCoreWidthEstimation:
 
     Uses dynamic programming to find, for each candidate segment count K, the partition into K
     segments that minimizes the total squared error to each segment's mean. Increases K from 1 up
-    to `max_k` and stops as soon as adding a segment no longer reduces the error by more than `alpha`.
+    to `max_k` and stops as soon as either adding a segment no longer reduces the error by more
+    than `alpha`, or the resulting segment means stop being non-increasing (segment means are
+    expected to shrink with depth).
     """
 
     def __init__(self, max_k: int = 2, alpha: float = 0.25):
@@ -58,10 +60,13 @@ class DPCoreWidthEstimation:
 
         for k in range(2, self.max_k + 1):
             err, segments_id, means = self._forward(np.array(widths_f), K=k)
-            if abs(err - self._err) / (self._err + 1e-16) >= self.alpha:
-                self._err, self._segments_id, self._means = err, segments_id, means
-            else:
+            if (
+                (abs(err - self._err) / (self._err + 1e-16) < self.alpha)  # Improvement should be substantial
+                or np.any(np.diff(means) > 0)  # Should be strictly decreasing
+            ):
                 break
+            else:
+                self._err, self._segments_id, self._means = err, segments_id, means
 
         self._segments = [
             (float(depths_f[id_start]), float(depths_f[id_end])) for id_start, id_end in self._segments_id
@@ -90,7 +95,7 @@ class DPCoreWidthEstimation:
             k=2    inf      inf     0.00    0.020   0.047   0.092   9.973   16.574
             k=3    inf      inf     inf     0.000   0.020   0.047   0.092   0.173
 
-            # Store segment (breakponts) decision
+            # Store segment (breakpoints) decision
             brk    i=0      1       2       3       4       5       6       7
             k=0      -      -       -       -       -       -       -       -
             k=1      -      0       0       0*      0       0       0       0
@@ -158,7 +163,7 @@ class EvaluationCompute(ABC):
 
         Args:
             detections (list[ImageMetadataProcessed]): Processed image metadata to evaluate.
-            measures (list[float | None]): Precomputed list measurments to evaluate
+            measures (list[float | None]): Precomputed list measurements to evaluate
             segments_depth (list[tuple[float, float]]): (start, end) depth interval for each segment.
             segments_value (list[float]): Reference value for each segment, matched by index to
                 `segments_depth`.
@@ -209,10 +214,11 @@ class EvaluationCompute(ABC):
                 there are fewer than `min_samples` in total; otherwise None for a detection whose
                 measured value is missing or whose depth falls outside every segment.
         """
-        if len(detections) < self.min_samples:
+        measures = [self._measure(detection) for detection in detections]
+
+        if sum(m is not None for m in measures) < self.min_samples:
             return [None] * len(detections)
 
-        measures = [self._measure(detection) for detection in detections]
         segments_depth, segments_value = self._estimate_segments(
             depths=[detection.depth_start for detection in detections],
             values=measures,

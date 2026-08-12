@@ -65,11 +65,11 @@ stitching:
 evaluation:
   core_width:
     min_samples: 5 # below this, skip the check (median/ratio unreliable with too few points)
-    relative_tolerance: 0.25 # flag if relative tolerance exceeds this
+    relative_tolerance: 0.25 # flag if |width - segment_reference| / segment_reference exceeds this
     max_width_steps: 3 # maximum number of segments to try when detecting width groups via DP fit
     relative_tolerance_steps: 0.25 # stop adding segments once the relative improvement in fit error drops below this
 
   core_length:
     min_samples: 5 # below this, skip the check (median/ratio unreliable with too few points)
-    relative_tolerance: 0.05 # flag if relative tolerance exceeds this
+    relative_tolerance: 0.05 # flag if |width - segment_reference| / segment_reference exceeds this
     max_depth_range: 1.00 # Cap height scale to 1 meter (no image with more than 1m core)
