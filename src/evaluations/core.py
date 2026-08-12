@@ -56,9 +56,9 @@ class DPCoreWidthEstimation:
 
         self._err, self._segments_id, self._means = self._forward(np.array(widths_f), K=1)
 
-        for k in range(2, self.max_k):
+        for k in range(2, self.max_k + 1):
             err, segments_id, means = self._forward(np.array(widths_f), K=k)
-            if abs(err - self._err) / self._err >= self.alpha:
+            if abs(err - self._err) / (self._err + 1e-16) >= self.alpha:
                 self._err, self._segments_id, self._means = err, segments_id, means
             else:
                 break
@@ -117,7 +117,7 @@ class DPCoreWidthEstimation:
         for k in range(1, K + 1):
             for i in range(1, n + 1):
                 for j in range(k - 1, i):
-                    c = dp[k - 1][j] + cost(j + 1, i)  # <-- the O(n) hidden here
+                    c = dp[k - 1][j] + cost(j + 1, i)
                     if c < dp[k][i]:
                         dp[k][i] = c
                         brk[k][i] = j
@@ -133,10 +133,10 @@ class DPCoreWidthEstimation:
 
 
 class EvaluationCompute(ABC):
-    """Base class for flagging cores whose measured value deviates too far from a group median.
+    """Base class for flagging cores whose measured value deviates too far from a group reference.
 
-    Subclasses implement `_mesure` to derive the per-detection measured value. This base class
-    handles computing the group median reference from those values and flagging entries whose
+    Subclasses implement `_measure` to derive the per-detection measured value. This base class
+    handles computing the group reference from those values and flagging entries whose
     relative deviation from it exceeds `relative_tolerance`.
 
     Args:
@@ -150,6 +150,7 @@ class EvaluationCompute(ABC):
     def _evaluate_segments(
         self,
         detections: list[ImageMetadataProcessed],
+        measures: list[float | None],
         segments_depth: list[tuple[float, float]],
         segments_value: list[float],
     ) -> list[CoreValueCheckResult | None]:
@@ -157,6 +158,7 @@ class EvaluationCompute(ABC):
 
         Args:
             detections (list[ImageMetadataProcessed]): Processed image metadata to evaluate.
+            measures (list[float | None]): Precomputed list measurments to evaluate
             segments_depth (list[tuple[float, float]]): (start, end) depth interval for each segment.
             segments_value (list[float]): Reference value for each segment, matched by index to
                 `segments_depth`.
@@ -166,13 +168,13 @@ class EvaluationCompute(ABC):
                 for a detection whose depth doesn't fall within any segment.
         """
         results: list[CoreValueCheckResult | None] = []
-        for detection in detections:
+        for i, detection in enumerate(detections):
             valid_segments = [
                 segment_start <= detection.depth_start <= segment_end for segment_start, segment_end in segments_depth
             ]
-            measure = self._mesure(detection)
+            measure = measures[i]
 
-            if not any(valid_segments) or measure is None:
+            if measure is None or not any(valid_segments):
                 results.append(None)
 
             else:
@@ -197,7 +199,7 @@ class EvaluationCompute(ABC):
         self,
         detections: list[ImageMetadataProcessed],
     ) -> list[CoreValueCheckResult | None]:
-        """Compute each detection's measured value and results from the median.
+        """Compute each detection's measured value and results from the reference.
 
         Args:
             detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
@@ -210,11 +212,12 @@ class EvaluationCompute(ABC):
         if len(detections) < self.min_samples:
             return [None] * len(detections)
 
+        measures = [self._measure(detection) for detection in detections]
         segments_depth, segments_value = self._estimate_segments(
             depths=[detection.depth_start for detection in detections],
-            values=[self._mesure(detection) for detection in detections],
+            values=measures,
         )
-        return self._evaluate_segments(detections, segments_depth, segments_value)
+        return self._evaluate_segments(detections, measures, segments_depth, segments_value)
 
     def _estimate_segments(
         self, depths: list[float], values: list[float | None]
@@ -232,10 +235,10 @@ class EvaluationCompute(ABC):
             tuple[list[tuple[float, float]], list[float]]: Segment boundaries as (start, end)
                 depth pairs, and the reference value for each segment.
         """
-        return [(min(depths), max(depths))], [np.median([value for value in values if value]).item()]
+        return [(min(depths), max(depths))], [np.median([value for value in values if value is not None]).item()]
 
     @abstractmethod
-    def _mesure(self, detection: ImageMetadataProcessed) -> float | None:
+    def _measure(self, detection: ImageMetadataProcessed) -> float | None:
         """Derive the measured value for one detection.
 
         Args:
@@ -248,7 +251,7 @@ class EvaluationCompute(ABC):
 
 
 class EvaluationWidthCompute(EvaluationCompute):
-    """Flags cores whose width deviates too far from the median width.
+    """Flags cores whose width deviates too far from the reference width.
 
     Args:
         config (CoreWidthCheckConfig): Tunable parameters for the core width check.
@@ -259,7 +262,7 @@ class EvaluationWidthCompute(EvaluationCompute):
         self.max_width_steps = config.max_width_steps
         self.relative_tolerance_steps = config.relative_tolerance_steps
 
-    def _mesure(self, detection: ImageMetadataProcessed) -> float | None:
+    def _measure(self, detection: ImageMetadataProcessed) -> float | None:
         """Compute a core's width in pixels: its bounding box's vertical (y) extent.
 
         Args:
@@ -292,7 +295,7 @@ class EvaluationWidthCompute(EvaluationCompute):
 
 
 class EvaluationLengthCompute(EvaluationCompute):
-    """Flags cores whose length-to-depth ratio deviates too far from the median ratio.
+    """Flags cores whose length-to-depth ratio deviates too far from the reference ratio.
 
     Args:
         config (CoreLengthCheckConfig): Tunable parameters (relative_tolerance, min_samples,
@@ -303,7 +306,7 @@ class EvaluationLengthCompute(EvaluationCompute):
         super().__init__(config)
         self.max_depth_range = config.max_depth_range
 
-    def _mesure(self, detection: ImageMetadataProcessed) -> float | None:
+    def _measure(self, detection: ImageMetadataProcessed) -> float | None:
         """Compute a core's length-to-depth ratio, normalized by the ruler's px-per-unit scale.
 
         Args:
