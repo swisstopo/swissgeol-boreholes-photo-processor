@@ -4,14 +4,16 @@ from pathlib import Path
 
 from src.evaluations.config import CoreLengthCheckConfig, CoreWidthCheckConfig, EvaluationConfig
 from src.evaluations.core import evaluate_detections
-from src.models import CoreSegmentResult, ImageMetadataProcessed, RulerSegmentResult
+from src.models import CoreSegmentResult, ImageMetadataProcessedCores, RulerSegmentResult
 
 
-def _make_detection(width: float, length: float, depth_start: float, interval: float = 1.0) -> ImageMetadataProcessed:
-    """Creates an ImageMetadataProcessed with the given bounding box width/length in pixels."""
+def _make_detection(
+    width: float, length: float, depth_start: float, interval: float = 1.0
+) -> ImageMetadataProcessedCores:
+    """Creates an ImageMetadataProcessedCores with the given bounding box width/length in pixels."""
     left = 100.0
     depth_end = depth_start + interval
-    return ImageMetadataProcessed(
+    return ImageMetadataProcessedCores(
         borehole_id="GBC-CB50",
         depth_start=depth_start,
         depth_end=depth_end,

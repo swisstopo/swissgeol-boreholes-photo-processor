@@ -2963,6 +2963,7 @@ name = "swissgeol-boreholes-photo-processor"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "imagecodecs", version = "2026.3.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "imagecodecs", version = "2026.6.26", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "matplotlib" },
@@ -2993,6 +2994,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1.0" },
     { name = "imagecodecs", specifier = ">=2026.3.6" },
     { name = "matplotlib", specifier = "==3.10.9" },
     { name = "mlflow", specifier = "==3.13.0" },

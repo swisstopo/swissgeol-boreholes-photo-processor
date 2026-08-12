@@ -59,7 +59,7 @@ stitching:
     num_cuttings_columns: 3 # cuttings placed side by side per output sheet
     num_cuttings_rows: 15 # cuttings stacked per column per output sheet
     padding_cuttings: 20 # gap in pixels between neighboring cells, carved out of the output dimensions
-    padding_horizontal: 180 # left/right border width in pixels
+    padding_horizontal: 170 # left/right border width in pixels
     padding_vertical: 150 # top/bottom border height in pixels
 
 evaluation:

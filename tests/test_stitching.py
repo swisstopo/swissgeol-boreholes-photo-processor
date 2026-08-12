@@ -7,8 +7,8 @@ import pytest
 from PIL import Image
 
 from src.config import CoreStitchingConfig, StitchingConfig
-from src.models import CoreSegmentResult, ImageMetadata, ImageMetadataProcessed, RulerSegmentResult
-from src.stitching.stitching import stitching
+from src.models import CoreSegmentResult, ImageMetadataCores, ImageMetadataProcessedCores, RulerSegmentResult
+from src.stitching.stitching_cores import stitching
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
@@ -26,12 +26,12 @@ def make_processed(tmp_path):
         depth_end: float,
         size: tuple[int, int] = (20, TEST_MAX_OUTPUT_PX // 2),
         color: tuple[int, int, int] = (128, 128, 128),
-    ) -> ImageMetadataProcessed:
-        """Creates a simple ImageMetadataProcessed with a single solid-color crop of the specified size."""
+    ) -> ImageMetadataProcessedCores:
+        """Creates a simple ImageMetadataProcessedCores with a single solid-color crop of the specified size."""
         filename = f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
         image_path = tmp_path / filename
         Image.new("RGB", size, color=color).save(image_path)
-        metadata = ImageMetadata(
+        metadata = ImageMetadataCores(
             borehole_id="GBC-CB50",
             depth_start=depth_start,
             depth_end=depth_end,
@@ -39,7 +39,7 @@ def make_processed(tmp_path):
         )
         core = CoreSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])))
         ruler = RulerSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])), px_per_unit=100, bbox_units=[])
-        return ImageMetadataProcessed.from_metadata(metadata=metadata, core=core, tray=core, ruler=ruler)
+        return ImageMetadataProcessedCores.from_metadata(metadata=metadata, core=core, tray=core, ruler=ruler)
 
     return _factory
 

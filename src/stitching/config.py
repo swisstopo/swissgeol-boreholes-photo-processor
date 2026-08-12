@@ -28,7 +28,7 @@ class CuttingsStitchingConfig:
     num_cuttings_columns: int = 3  # cuttings placed side by side per output sheet
     num_cuttings_rows: int = 15  # cuttings stacked per column per output sheet
     padding_cuttings: int = 20  # gap in pixels between neighboring cells, carved out of the output dimensions
-    padding_horizontal: int = 180  # left/right border width in pixels
+    padding_horizontal: int = 170  # left/right border width in pixels
     padding_vertical: int = 150  # top/bottom border height in pixels
 
 

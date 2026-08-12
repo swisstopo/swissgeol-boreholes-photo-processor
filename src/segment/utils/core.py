@@ -8,7 +8,7 @@ import numpy as np
 from skimage.color import rgb2hsv
 
 from src.config import SegmentationCoreConfig
-from src.models import CoreSegmentResult, ImageMetadata, ImageSegmentResult
+from src.models import CoreSegmentResult, ImageMetadataCores, ImageSegmentResult
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,7 @@ def _find_top_bottom_intervals(
 
 
 def segment_core(
-    img_metadata: ImageMetadata, tray: ImageSegmentResult, config: SegmentationCoreConfig
+    img_metadata: ImageMetadataCores, tray: ImageSegmentResult, config: SegmentationCoreConfig
 ) -> CoreSegmentResult:
     """Trim the bounding box to exclude the wooden tray and black background around the core.
 
@@ -161,7 +161,7 @@ def segment_core(
     (black background), keeping the intersection of the two vertical trims.
 
     Args:
-        img_metadata (ImageMetadata): Metadata of the image to load and trim.
+        img_metadata (ImageMetadataCores): Metadata of the image to load and trim.
         tray (ImageSegmentResult): Bounding box to trim, in the original image's coordinate space.
         config (SegmentationCoreConfig): Tunable segmentation parameters.
 
