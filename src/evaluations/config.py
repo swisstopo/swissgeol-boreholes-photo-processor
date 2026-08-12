@@ -44,6 +44,7 @@ class CoreValueCheckResult:
     relative_error: float  # (measure - reference) / reference
     measure: float  # value computed for this detection
     reference: float  # group median value
+    segment: tuple[float, float]  # (start, end) depth interval this result was measured against
 
 
 @dataclass

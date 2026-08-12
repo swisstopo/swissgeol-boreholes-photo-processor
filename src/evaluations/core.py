@@ -34,25 +34,40 @@ class DPCoreWidthEstimation:
         self.max_k = max_k
         self.alpha = alpha
         self._segments = []
+        self._segments_id = []
+        self._means = []
         self._err = np.inf
 
-    def fit(self, y: np.ndarray) -> None:
-        """Fit the best segmentation of `y` using DP.
+    def fit(self, depths: list[float], widths: list[float | None]) -> None:
+        """Fit the best segmentation of `widths` using DP, ordered by depth.
 
         Args:
-            y (np.ndarray): 1D array of values to segment, ordered by index.
+            depths (list[float]): Depth value for each measurement; used to order `widths` and to
+                express the resulting segment boundaries as depths instead of indices.
+            widths (list[float | None]): Measured core widths to segment, matched by index to `depths`.
         """
-        self._err, self._segments = self._forward(y, K=1)
+        # Filter out None values
+        pairs = [(x, y) for x, y in zip(depths, widths, strict=True) if y is not None]
+        depths_f, widths_f = map(list, zip(*pairs, strict=True)) if pairs else ([], [])
+
+        # Sort by depth
+        depth_sort = np.argsort(depths_f)
+        depths_f, widths_f = np.array(depths_f)[depth_sort], np.array(widths_f)[depth_sort]
+
+        self._err, self._segments_id, self._means = self._forward(np.array(widths_f), K=1)
 
         for k in range(2, self.max_k):
-            err, segments = self._forward(y, K=k)
-            if abs(err - self._err) / self._err < self.alpha:
+            err, segments_id, means = self._forward(np.array(widths_f), K=k)
+            if abs(err - self._err) / self._err >= self.alpha:
+                self._err, self._segments_id, self._means = err, segments_id, means
+            else:
                 break
 
-            self._segments = segments
-            self._err = err
+        self._segments = [
+            (float(depths_f[id_start]), float(depths_f[id_end])) for id_start, id_end in self._segments_id
+        ]
 
-    def _forward(self, y: np.ndarray, K: int) -> tuple[float, list[tuple[int, int]]]:
+    def _forward(self, y: np.ndarray, K: int) -> tuple[float, list[tuple[int, int]], list[float]]:
         """Fit y with exactly K horizontal segments, minimizing total squared error.
 
         Args:
@@ -60,8 +75,9 @@ class DPCoreWidthEstimation:
             K (int): Exact number of segments to fit.
 
         Returns:
-            tuple[float, list[tuple[int, int]]]: The total squared error of the best fit, and the
-                resulting segments as (start, end) index pairs from the DP backtracking.
+            tuple[float, list[tuple[int, int]], list[float]]: The total squared error of the best
+                fit, the resulting segments as (start, end) index pairs from the DP backtracking,
+                and each segment's mean value.
 
         Example:
             Let's assume input sample where we want k=3 steps
@@ -109,16 +125,17 @@ class DPCoreWidthEstimation:
         segments, i = [], n
         for k in range(K, 0, -1):
             j = brk[k][i].item()
-            segments.append((j, i))
+            segments.append((j, i - 1))
             i = j
 
-        return dp[K][n].item(), segments[::-1]
+        means = [np.sum(y[a : b + 1]).item() / (b - a + 1) for a, b in segments]
+        return dp[K][n].item(), segments[::-1], means[::-1]
 
 
 class EvaluationCompute(ABC):
     """Base class for flagging cores whose measured value deviates too far from a group median.
 
-    Subclasses implement `_compute` to derive the per-detection measured value. This base class
+    Subclasses implement `_mesure` to derive the per-detection measured value. This base class
     handles computing the group median reference from those values and flagging entries whose
     relative deviation from it exceeds `relative_tolerance`.
 
@@ -130,42 +147,50 @@ class EvaluationCompute(ABC):
         self.min_samples = config.min_samples
         self.relative_tolerance = config.relative_tolerance
 
-    def _evaluate_median(
-        self, values: list[float], segments: list[tuple[int, int]]
+    def _evaluate_segments(
+        self,
+        detections: list[ImageMetadataProcessed],
+        segments_depth: list[tuple[float, float]],
+        segments_value: list[float],
     ) -> list[CoreValueCheckResult | None]:
-        """Measure values that deviate too far from the median of their own segment.
+        """Flag detections whose measured value deviates too far from their depth segment's reference.
 
         Args:
-            values (list[float]): Measured value for each detection.
-            segments (list[tuple[int, int]]): Contiguous (start, end) index ranges into `values`;
-                the median reference is computed independently within each segment.
+            detections (list[ImageMetadataProcessed]): Processed image metadata to evaluate.
+            segments_depth (list[tuple[float, float]]): (start, end) depth interval for each segment.
+            segments_value (list[float]): Reference value for each segment, matched by index to
+                `segments_depth`.
 
         Returns:
-            list[CoreValueCheckResult | None]: One result per value, concatenated in the given
-                segment order. None for a segment with fewer than `min_samples` values.
+            list[CoreValueCheckResult | None]: One result per detection, in the given order. None
+                for a detection whose depth doesn't fall within any segment.
         """
-        values_ = np.array(values, dtype=float)
-
         results: list[CoreValueCheckResult | None] = []
-        for start, end in segments:
-            values_segment = values_[start:end]
+        for detection in detections:
+            valid_segments = [
+                segment_start <= detection.depth_start <= segment_end for segment_start, segment_end in segments_depth
+            ]
+            measure = self._mesure(detection)
 
-            if len(values_segment) < self.min_samples:
-                results.extend([None] * len(values_segment))
+            if not any(valid_segments) or measure is None:
+                results.append(None)
+
             else:
-                reference_segment = float(np.nanmedian(values_segment))
-                relative_errors = np.abs(values_segment - reference_segment) / (reference_segment + 1e-16)
-                results.extend(
-                    [
-                        CoreValueCheckResult(
-                            bool(relative_error <= self.relative_tolerance),
-                            float(relative_error),
-                            value,
-                            reference_segment,
-                        )
-                        for relative_error, value in zip(relative_errors, values_segment, strict=True)
-                    ]
+                id_segment = np.argmax(valid_segments)
+                segment_start, segment_end = segments_depth[id_segment]
+                reference_segment = segments_value[id_segment]
+                relative_error = np.abs(measure - reference_segment) / (reference_segment + 1e-16)
+
+                results.append(
+                    CoreValueCheckResult(
+                        passed=bool(relative_error <= self.relative_tolerance),
+                        relative_error=float(relative_error),
+                        measure=measure,
+                        reference=reference_segment,
+                        segment=(segment_start, segment_end),
+                    )
                 )
+
         return results
 
     def evaluate(
@@ -178,31 +203,36 @@ class EvaluationCompute(ABC):
             detections (list[ImageMetadataProcessed]): List of processed image metadata with detection results.
 
         Returns:
-            list[CoreValueCheckResult | None]: One entry per detection. None where the check was skipped.
+            list[CoreValueCheckResult | None]: One entry per detection. None for every detection if
+                there are fewer than `min_samples` in total; otherwise None for a detection whose
+                measured value is missing or whose depth falls outside every segment.
         """
-        values = [self._mesure(detection) for detection in detections]
-        values_filtered = [value for value in values if value is not None]
+        if len(detections) < self.min_samples:
+            return [None] * len(detections)
 
-        segments_filtered = self._estimate_segments(values_filtered)
-        results_filtered = self._evaluate_median(values=values_filtered, segments=segments_filtered)
+        segments_depth, segments_value = self._estimate_segments(
+            depths=[detection.depth_start for detection in detections],
+            values=[self._mesure(detection) for detection in detections],
+        )
+        return self._evaluate_segments(detections, segments_depth, segments_value)
 
-        # Put None back if not able to predict result
-        it = iter(results_filtered)
-        return [None if value is None else next(it) for value in values]
+    def _estimate_segments(
+        self, depths: list[float], values: list[float | None]
+    ) -> tuple[list[tuple[float, float]], list[float]]:
+        """Return the whole depth range as a single segment, referenced by its global median.
 
-    def _estimate_segments(self, values: list[float]) -> list[tuple[int, int]]:
-        """Return the whole sequence as a single segment.
-
-        Subclasses may override this to split `values` into multiple contiguous segments (e.g. to
-        fit several reference groups instead of one global median).
+        Subclasses may override this to split `values` into multiple depth segments (e.g. to fit
+        several reference groups instead of one global median).
 
         Args:
-            values (list[float]): Measured values to segment, in detection order.
+            depths (list[float]): Starting depth for each detection, matched by index to `values`.
+            values (list[float | None]): Measured values to segment, in detection order.
 
         Returns:
-            list[tuple[int, int]]: Segment boundaries as (start, end) index pairs into `values`.
+            tuple[list[tuple[float, float]], list[float]]: Segment boundaries as (start, end)
+                depth pairs, and the reference value for each segment.
         """
-        return [(0, len(values) - 1)]
+        return [(min(depths), max(depths))], [np.median([value for value in values if value]).item()]
 
     @abstractmethod
     def _mesure(self, detection: ImageMetadataProcessed) -> float | None:
@@ -243,19 +273,22 @@ class EvaluationWidthCompute(EvaluationCompute):
 
         return (detection.core.bbox[3] - detection.core.bbox[1]) / detection.ruler.px_per_unit
 
-    def _estimate_segments(self, values: list[float]) -> list[tuple[int, int]]:
-        """Split width values into segments using dynamic-programming change-point detection.
+    def _estimate_segments(
+        self, depths: list[float], values: list[float | None]
+    ) -> tuple[list[tuple[float, float]], list[float]]:
+        """Split core widths into depth segments using dynamic-programming change-point detection.
 
         Args:
-            values (list[float]): Measured core widths, in detection order.
+            depths (list[float]): Starting depth for each detection, matched by index to `values`.
+            values (list[float | None]): Measured core widths, in detection order.
 
         Returns:
-            list[tuple[int, int]]: Segment boundaries as (start, end) index pairs into `values`,
-                found by `DPCoreWidthEstimation`.
+            tuple[list[tuple[float, float]], list[float]]: Segment boundaries as (start, end)
+                depth pairs, and each segment's mean width, found by `DPCoreWidthEstimation`.
         """
         estimator = DPCoreWidthEstimation(max_k=self.max_width_steps, alpha=self.relative_tolerance_steps)
-        estimator.fit(np.array(values))
-        return estimator._segments
+        estimator.fit(depths=depths, widths=values)
+        return estimator._segments, estimator._means
 
 
 class EvaluationLengthCompute(EvaluationCompute):
