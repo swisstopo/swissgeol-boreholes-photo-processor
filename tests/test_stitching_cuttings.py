@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from src.models import ImageMetadataCuttings, ImageMetadataProcessedCuttings
+from src.models import CuttingsSegmentResult, ImageMetadataCuttings, ImageMetadataProcessedCuttings
 from src.stitching.config import CuttingsStitchingConfig, StitchingConfig
 from src.stitching.stitching_cuttings import stitching_cuttings
 
@@ -19,7 +19,7 @@ WHITE = (255, 255, 255)
 def make_cutting(tmp_path):
     def _factory(
         depth: float,
-        size: tuple[int, int] = (60, 80),
+        size: tuple[int, int] = (80, 60),
         color: tuple[int, int, int] = (128, 128, 128),
     ) -> ImageMetadataProcessedCuttings:
         """Creates a simple ImageMetadataProcessedCuttings for a cutting with a solid-color image."""
@@ -30,7 +30,8 @@ def make_cutting(tmp_path):
             depth=depth,
             image_path=image_path,
         )
-        return ImageMetadataProcessedCuttings.from_metadata(metadata=metadata)
+        cuttings = CuttingsSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])))
+        return ImageMetadataProcessedCuttings.from_metadata(metadata=metadata, cuttings=cuttings)
 
     return _factory
 

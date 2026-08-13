@@ -37,7 +37,7 @@ class ImageMetadata:
         return get_image_shape(str(self.image_path))
 
     def load_image(self, factor: float = 1.0) -> np.ndarray:
-        """Load a TIF image and normalize it to an RGB float array in [0, 1].
+        """Load an image and normalize it to an RGB float array in [0, 1].
 
         Args:
             factor (float): Downscale factor applied after loading; 1.0 leaves the image unscaled.
@@ -370,6 +370,9 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
             raise ValueError(f"No core region detected for image: {self.image_path}")
 
         with Image.open(self.image_path) as src:
+            if src.height > src.width:
+                # match the landscape orientation load_image (and thus self.core.bbox) assumes
+                src = src.transpose(Image.Transpose.ROTATE_90)
             left, upper, right, lower = (round(v) for v in self.core.bbox)
             crop = src.crop((left, upper, right, lower))
             if crop.width > crop.height:
@@ -421,3 +424,22 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
             image_path=metadata.image_path,
             cuttings=cuttings,
         )
+
+    def load_cuttings(self) -> Image.Image:
+        """Cut the cuttings segment from the source image.
+
+        Returns:
+            Image.Image: The cropped cuttings segment image, in landscape orientation.
+
+        Raises:
+            ValueError: If no cuttings region was detected for this image.
+        """
+        if self.cuttings is None:
+            raise ValueError(f"No cuttings region detected for image: {self.image_path}")
+
+        with Image.open(self.image_path) as src:
+            if src.height > src.width:
+                # match the landscape orientation load_image (and thus self.cuttings.bbox) assumes
+                src = src.transpose(Image.Transpose.ROTATE_90)
+            left, upper, right, lower = (round(v) for v in self.cuttings.bbox)
+            return src.crop((left, upper, right, lower))

@@ -11,7 +11,6 @@ from typing import Generic, TypeVar
 import mlflow
 import tifffile
 from PIL import Image
-from tqdm import tqdm
 
 from src.config import PipelineConfig, SegmentationError
 from src.evaluations.config import EvaluationConfig
@@ -208,7 +207,8 @@ class PipelineRunner(ABC, Generic[M, P]):
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
             subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
             logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
-            for subdir in tqdm(subdirs, desc="Processing folders"):
+            for i, subdir in enumerate(subdirs, start=1):
+                logging.info("Processing folder %d/%d: %s", i, len(subdirs), subdir.name)
                 self.run(
                     input_dir=subdir,
                     output_dir=output_dir / subdir.name,
