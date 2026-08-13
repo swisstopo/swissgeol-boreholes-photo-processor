@@ -40,6 +40,7 @@ segmentation:
     min_segment_height_px: 100 # minimum height (px) for a left/right segment to be kept as core
 
 stitching:
+  n_workers: 4 # number of worker processes used to segment images in parallel
   web_output_quality: 95 # output JPG quality/compression tradeoff, in the range 0–100
   web_downscale_factor: 0.25 # downscale factor applied to web image output
   core:
@@ -68,6 +69,7 @@ evaluation:
     relative_tolerance: 0.25 # flag if |width - segment_reference| / segment_reference exceeds this
     max_width_steps: 3 # maximum number of segments to try when detecting width groups via DP fit
     relative_tolerance_steps: 0.25 # stop adding segments once the relative improvement in fit error drops below this
+    min_samples_step: 10 # minimal number of core to have given width to form segment
 
   core_length:
     min_samples: 5 # below this, skip the check (median/ratio unreliable with too few points)

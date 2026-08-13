@@ -25,15 +25,17 @@ class DPCoreWidthEstimation:
     expected to shrink with depth).
     """
 
-    def __init__(self, max_k: int = 2, alpha: float = 0.25):
+    def __init__(self, max_k: int = 2, min_segment: int = 10, alpha: float = 0.25):
         """Initialize the estimator.
 
         Args:
             max_k (int, optional): Maximum number of segments to try. Defaults to 2.
+            min_segment (int, optional): Minimal number of sample per segment.
             alpha (float, optional): Minimum relative error improvement required to accept an
                 additional segment. Defaults to 0.25.
         """
         self.max_k = max_k
+        self.min_segment = min_segment
         self.alpha = alpha
         self._segments = []
         self._segments_id = []
@@ -63,6 +65,7 @@ class DPCoreWidthEstimation:
             if (
                 (abs(err - self._err) / (self._err + 1e-16) < self.alpha)  # Improvement should be substantial
                 or np.any(np.diff(references) > 0)  # Should be strictly decreasing
+                or np.any(np.diff(segments_id) < self.min_segment)  # Should be at least min_segment long
             ):
                 break
             else:
@@ -273,6 +276,7 @@ class EvaluationWidthCompute(EvaluationCompute):
         super().__init__(config)
         self.max_width_steps = config.max_width_steps
         self.relative_tolerance_steps = config.relative_tolerance_steps
+        self.min_samples_step = config.min_samples_step
 
     def _measure(self, detection: ImageMetadataProcessedCores) -> float | None:
         """Compute a core's width in pixels: its bounding box's vertical (y) extent.
@@ -301,7 +305,9 @@ class EvaluationWidthCompute(EvaluationCompute):
             tuple[list[tuple[float, float]], list[float]]: Segment boundaries as (start, end)
                 depth pairs, and each segment's mean width, found by `DPCoreWidthEstimation`.
         """
-        estimator = DPCoreWidthEstimation(max_k=self.max_width_steps, alpha=self.relative_tolerance_steps)
+        estimator = DPCoreWidthEstimation(
+            max_k=self.max_width_steps, min_segment=self.min_samples_step, alpha=self.relative_tolerance_steps
+        )
         estimator.fit(depths=depths, widths=values)
         return estimator._segments, estimator._references
 

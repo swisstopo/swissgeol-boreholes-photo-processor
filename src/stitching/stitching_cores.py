@@ -1,7 +1,7 @@
 """Module for stitching core segments together."""
 
 import logging
-from collections.abc import Generator
+from dataclasses import dataclass
 
 import numpy as np
 from PIL import Image
@@ -14,10 +14,20 @@ from src.stitching.utils import _resize_images
 logger = logging.getLogger(__name__)
 
 
-def stitching_batch(
+@dataclass
+class StitchingBatchCores:
+    """One chunk of cores plus the canvas-wide values needed to stitch it, for parallel dispatch."""
+
+    cores: list[ImageMetadataProcessedCores]
+    shared_ruler_steps: int
+    shared_borehole_id: str
+    fallback_scale: float
+
+
+def stitching_batch_cores(
     cores: list[ImageMetadataProcessedCores],
     shared_ruler_steps: int,
-    shared_core_id: str,
+    shared_borehole_id: str,
     fallback_scale: float,
     config: StitchingConfig,
 ) -> Image.Image:
@@ -51,7 +61,7 @@ def stitching_batch(
         cores (list[ImageMetadataProcessedCores]): The list of processed image metadata objects to stitch together.
         shared_ruler_steps (int): Number of major ruler ticks (depth units) spanned by the canvas height,
             shared across all batches so rulers line up between output images.
-        shared_core_id (str): Borehole core ID drawn in the top-left label, shared across all batches.
+        shared_borehole_id (str): Borehole core ID drawn in the top-left label, shared across all batches.
         fallback_scale (float): Pixels-per-unit used to resize cores whose ruler was not detected.
         config (StitchingConfig): Tunable layout parameters (padding, font size, canvas sizing, etc.).
 
@@ -105,7 +115,7 @@ def stitching_batch(
 
     canvas = _draw_borehole_label(
         canvas,
-        borehole_id=shared_core_id,
+        borehole_id=shared_borehole_id,
         loc=(core_config.padding_horizontal, core_config.padding_vertical),
         font_size=core_config.font_size,
     )
@@ -133,18 +143,18 @@ def stitching_batch(
     return canvas
 
 
-def stitching(
+def stitching_cores(
     imgs: list[ImageMetadataProcessedCores],
     config: StitchingConfig,
-) -> Generator[Image.Image, None, None]:
-    """Stitch core segments together, yielding one output image at a time.
+) -> list[StitchingBatchCores]:
+    """Split cores into chunks and compute the canvas-wide values shared across all of them.
 
     Args:
         imgs (list[ImageMetadataProcessedCores]): The list of processed image metadata objects to stitch together.
         config (StitchingConfig): Tunable layout parameters (padding, font size, canvas sizing, etc.).
 
-    Yields:
-        Image.Image: One stitched image per chunk of up to num_cores_per_image cores.
+    Returns:
+        list[StitchingBatchCores]: One batch per chunk of up to num_cores_per_image cores.
     """
     # Get spans and resolution for all cores
     original = np.array(
@@ -158,7 +168,7 @@ def stitching(
 
     if original.size == 0:
         logger.warning("No detection has both a ruler and a core; nothing to stitch")
-        return
+        return []
 
     original_scales, original_heights = original
 
@@ -168,11 +178,12 @@ def stitching(
     # Estimate ruler span over all cores
     canvas_ruler_steps = np.ceil(max(original_heights / original_scales)).astype(int).item()
 
-    for i in range(0, len(imgs), config.core.num_cores_per_image):
-        yield stitching_batch(
+    return [
+        StitchingBatchCores(
             cores=imgs[i : i + config.core.num_cores_per_image],
             shared_ruler_steps=canvas_ruler_steps,
-            shared_core_id=imgs[0].borehole_id,
+            shared_borehole_id=imgs[0].borehole_id,
             fallback_scale=fallback_scale,
-            config=config,
         )
+        for i in range(0, len(imgs), config.core.num_cores_per_image)
+    ]
