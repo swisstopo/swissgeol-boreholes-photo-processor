@@ -69,7 +69,7 @@ def test_dp_core_width_estimation_splits_into_decreasing_segments():
     depths = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
     widths: list[float | None] = [10.0, 10.0, 10.0, 2.0, 2.0, 2.0]
 
-    estimator = DPCoreWidthEstimation(max_k=2, alpha=0.25)
+    estimator = DPCoreWidthEstimation(max_k=2, alpha=0.25, min_segment=1)
     estimator.fit(depths=depths, widths=widths)
 
     assert estimator._segments == [(10.0, 12.0), (13.0, 15.0)]
@@ -89,4 +89,16 @@ def test_dp_core_width_estimation_rejects_increasing_segments():
     estimator.fit(depths=depths, widths=widths)
 
     assert estimator._segments == [(10.0, 16.0)]
-    assert estimator._references == [2.0]  # median of all values
+    assert estimator._references == [2.0]
+
+
+def test_dp_core_width_estimation_rejects_min_segments():
+    """A decreasing split is rejected when a resulting segment is shorter than min_segment."""
+    depths = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
+    widths: list[float | None] = [10.0, 10.0, 10.0, 2.0, 2.0, 2.0, 2.0]
+
+    estimator = DPCoreWidthEstimation(max_k=2, alpha=0.25, min_segment=4)
+    estimator.fit(depths=depths, widths=widths)
+
+    assert estimator._segments == [(10.0, 16.0)]
+    assert estimator._references == [2.0]
