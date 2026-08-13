@@ -16,7 +16,7 @@ from src.config import (
     SegmentationTraySingleConfig,
 )
 from src.models import ImageMetadataCores, ImageSegmentResult, RulerSegmentResult, TraySegmentResult
-from src.segment.segment_cores import segment
+from src.segment.segment_cores import segment_cores
 from src.segment.utils.core import segment_core
 from src.segment.utils.misc import group_images_by_shape
 from src.segment.utils.ruler import ProcessRulerGroupByShape
@@ -73,7 +73,9 @@ def example(tmp_path) -> ImageMetadataCores:
 
 def test_segment_example(example):
     """End-to-end test of segment() against the real example photo, checking metadata and bbox geometry."""
-    detections = segment([example], config=SegmentationConfig(ruler=SegmentationRulerConfig(downscale_factor=1.0)))
+    detections = segment_cores(
+        [example], config=SegmentationConfig(ruler=SegmentationRulerConfig(downscale_factor=1.0))
+    )
 
     # Check metadata
     assert len(detections) == 1
@@ -102,7 +104,7 @@ def test_segment_detects_core_bbox(make_metadata):
     metadata = make_metadata(15.0, 16.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
 
     # downscale_factor=1.0: detection precision is under test here, not the downscale speedup
-    detections = segment(
+    detections = segment_cores(
         [metadata],
         config=SegmentationConfig(
             tray_single=SegmentationTraySingleConfig(downscale_factor=1),
@@ -211,7 +213,7 @@ def test_segment_skips_image_with_no_detectable_regions(make_metadata):
     """A uniform image with no foreground region is skipped instead of raising."""
     metadata = make_metadata(15.0, 16.0)  # no draw_fn — flat background only
 
-    detections = segment(
+    detections = segment_cores(
         [metadata],
         config=SegmentationConfig(
             tray_single=SegmentationTraySingleConfig(downscale_factor=1),
@@ -232,7 +234,7 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     core_box = (200, 150, 600, 1100)
     good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
 
-    detections = segment(
+    detections = segment_cores(
         [blank, good],
         config=SegmentationConfig(
             tray_single=SegmentationTraySingleConfig(downscale_factor=1),
@@ -259,7 +261,7 @@ def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, 
     core_box = (200, 150, 600, 1100)
     good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
 
-    detections = segment(
+    detections = segment_cores(
         [bad, good],
         config=SegmentationConfig(
             tray_single=SegmentationTraySingleConfig(downscale_factor=1),
