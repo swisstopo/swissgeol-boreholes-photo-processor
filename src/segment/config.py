@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class SegmentationCoreConfig:
+class SegmentationCoreTrimConfig:
     """Tunable parameters for trimming the wooden tray and black background off, and filtering thin segments."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
@@ -55,11 +55,24 @@ class SegmentationTraySingleConfig:
 
 
 @dataclass
+class SegmentationCoreConfig:
+    """Tunable parameters for the core segmentation step."""
+
+    core: SegmentationCoreTrimConfig = field(default_factory=SegmentationCoreTrimConfig)
+    ruler: SegmentationRulerConfig = field(default_factory=SegmentationRulerConfig)
+    tray_group: SegmentationTrayGroupConfig = field(default_factory=SegmentationTrayGroupConfig)
+    tray_single: SegmentationTraySingleConfig = field(default_factory=SegmentationTraySingleConfig)
+
+
+@dataclass
+class SegmentationCuttingsConfig:
+    """Tunable parameters for the  cuttings segmentation step."""
+
+
+@dataclass
 class SegmentationConfig:
     """Tunable parameters for the segmentation step."""
 
     n_workers: int = 4  # number of worker processes used to segment images in parallel
     core: SegmentationCoreConfig = field(default_factory=SegmentationCoreConfig)
-    ruler: SegmentationRulerConfig = field(default_factory=SegmentationRulerConfig)
-    tray_group: SegmentationTrayGroupConfig = field(default_factory=SegmentationTrayGroupConfig)
-    tray_single: SegmentationTraySingleConfig = field(default_factory=SegmentationTraySingleConfig)
+    cuttings: SegmentationCuttingsConfig = field(default_factory=SegmentationCuttingsConfig)

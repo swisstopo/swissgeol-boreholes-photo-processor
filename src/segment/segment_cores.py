@@ -65,14 +65,14 @@ def segment_single(
 
         # Step 2: Check if shared ruler detected, otherwise computes it
         shared_ruler = ruler_by_shape.get(shape)
-        detection_ruler = shared_ruler or segment_ruler(img_metadata, config.ruler)
+        detection_ruler = shared_ruler or segment_ruler(img_metadata, config.core.ruler)
 
         # Step 3: Use the group's shared tray if available, otherwise fallback to single
         shared_tray = tray_by_shape.get(shape)
-        detection_tray = shared_tray or segment_tray(img_metadata, config.tray_single, detection_ruler)
+        detection_tray = shared_tray or segment_tray(img_metadata, config.core.tray_single, detection_ruler)
 
         # Step 4: Trim wooden tray (top/bottom) and black background (all sides) around the core
-        detection_core = segment_core(img_metadata, detection_tray, config=config.core)
+        detection_core = segment_core(img_metadata, detection_tray, config=config.core.core)
 
         # Step 5: Save detections and records
         detection = ImageMetadataProcessedCores.from_metadata(
@@ -185,10 +185,10 @@ def segment(
 
     # Step 1: Try to estimate image foreground (moving part) and ruler, once per shape group
     logger.info("Processing trays by group ...")
-    tray_by_shape = ProcessTrayGroupByShape(config.tray_group, config.n_workers).run(imgs_metadata)
+    tray_by_shape = ProcessTrayGroupByShape(config.core.tray_group, config.n_workers).run(imgs_metadata)
 
     logger.info("Processing rulers by group ...")
-    ruler_by_shape = ProcessRulerGroupByShape(config.ruler, config.n_workers).run(imgs_metadata)
+    ruler_by_shape = ProcessRulerGroupByShape(config.core.ruler, config.n_workers).run(imgs_metadata)
 
     if with_mlflow and debug:
         for (tray_h, tray_w, _), tray_result in tray_by_shape.items():

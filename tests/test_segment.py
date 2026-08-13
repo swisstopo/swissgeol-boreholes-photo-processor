@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw
 from src.config import (
     SegmentationConfig,
     SegmentationCoreConfig,
+    SegmentationCoreTrimConfig,
     SegmentationRulerConfig,
     SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
@@ -73,7 +74,10 @@ def example(tmp_path) -> ImageMetadataCores:
 
 def test_segment_example(example):
     """End-to-end test of segment() against the real example photo, checking metadata and bbox geometry."""
-    detections = segment([example], config=SegmentationConfig(ruler=SegmentationRulerConfig(downscale_factor=1.0)))
+    detections = segment(
+        [example],
+        config=SegmentationConfig(core=SegmentationCoreConfig(ruler=SegmentationRulerConfig(downscale_factor=1.0))),
+    )
 
     # Check metadata
     assert len(detections) == 1
@@ -105,8 +109,10 @@ def test_segment_detects_core_bbox(make_metadata):
     detections = segment(
         [metadata],
         config=SegmentationConfig(
-            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
-            core=SegmentationCoreConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(
+                tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+                core=SegmentationCoreTrimConfig(downscale_factor=1),
+            ),
         ),
     )
 
@@ -129,14 +135,14 @@ def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
     detection_core = segment_core(
         metadata,
         tray=ImageSegmentResult(bbox=tray_box),
-        config=SegmentationCoreConfig(downscale_factor=1),
+        config=SegmentationCoreTrimConfig(downscale_factor=1),
     )
 
     # Badly configured threshold
     detection_core_out = segment_core(
         metadata,
         tray=ImageSegmentResult(bbox=tray_box),
-        config=SegmentationCoreConfig(downscale_factor=1, wood_sat_threshold=1.1),
+        config=SegmentationCoreTrimConfig(downscale_factor=1, wood_sat_threshold=1.1),
     )
 
     assert detection_core is not None
@@ -152,7 +158,7 @@ def test_segment_core_trims_black_background_left_right(make_metadata):
     metadata = make_metadata(15.0, 16.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)), size=size)
     tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
 
-    result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+    result = segment_core(metadata, tray, config=SegmentationCoreTrimConfig(downscale_factor=1))
 
     assert result is not None
     assert result.bbox == core_box
@@ -174,7 +180,7 @@ def test_segment_core_splits_fragmented_core_into_segments(make_metadata):
     )
     tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
 
-    result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+    result = segment_core(metadata, tray, config=SegmentationCoreTrimConfig(downscale_factor=1))
 
     assert result is not None
     assert result.bbox == (left_box[0], 0, right_box[2], 99)
@@ -199,7 +205,7 @@ def test_segment_core_drops_thin_segments(make_metadata):
     )
     tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
 
-    result = segment_core(metadata, tray, config=SegmentationCoreConfig(downscale_factor=1))
+    result = segment_core(metadata, tray, config=SegmentationCoreTrimConfig(downscale_factor=1))
 
     assert result is not None
     assert result.bbox == core_box  # segment excluded, doesn't pull the left edge out to x=10
@@ -214,8 +220,10 @@ def test_segment_skips_image_with_no_detectable_regions(make_metadata):
     detections = segment(
         [metadata],
         config=SegmentationConfig(
-            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
-            core=SegmentationCoreConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(
+                tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+                core=SegmentationCoreTrimConfig(downscale_factor=1),
+            ),
         ),
     )
 
@@ -235,8 +243,10 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     detections = segment(
         [blank, good],
         config=SegmentationConfig(
-            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
-            core=SegmentationCoreConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(
+                tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+                core=SegmentationCoreTrimConfig(downscale_factor=1),
+            ),
         ),
     )
 
@@ -262,8 +272,10 @@ def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, 
     detections = segment(
         [bad, good],
         config=SegmentationConfig(
-            tray_single=SegmentationTraySingleConfig(downscale_factor=1),
-            core=SegmentationCoreConfig(downscale_factor=1),
+            core=SegmentationCoreConfig(
+                tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+                core=SegmentationCoreTrimConfig(downscale_factor=1),
+            ),
         ),
     )
 
