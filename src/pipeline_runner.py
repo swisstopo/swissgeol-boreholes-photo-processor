@@ -85,7 +85,14 @@ class PipelineRunner(ABC, Generic[M, P]):
         ...
 
     @abstractmethod
-    def _segment(self, imgs_metadata: list[M], config: SegmentationConfig, with_mlflow: bool, debug: bool) -> list[P]:
+    def _segment(
+        self,
+        imgs_metadata: list[M],
+        config: SegmentationConfig,
+        with_mlflow: bool,
+        debug: bool,
+        cut_type: str = "black_circle",
+    ) -> list[P]:
         """Segment the collected images.
 
         Args:
@@ -93,6 +100,7 @@ class PipelineRunner(ABC, Generic[M, P]):
             config (SegmentationConfig): Tunable segmentation parameters.
             with_mlflow (bool): Whether to log artifacts to MLflow.
             debug (bool): Whether to additionally log debug images to MLflow.
+            cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
 
         Returns:
             list[P]: Processed image metadata for every image that segmented successfully.
@@ -132,6 +140,7 @@ class PipelineRunner(ABC, Generic[M, P]):
         debug: bool = False,
         nested: bool = False,
         log_path: Path | None = None,
+        cut_type: str = "black_circle",
     ) -> None:
         """Process raw photos from input_dir into stitched output figure(s) in output_dir.
 
@@ -145,12 +154,15 @@ class PipelineRunner(ABC, Generic[M, P]):
             nested (bool): Whether to start a nested MLflow run under an existing active run.
             log_path (Path | None): If set, upload this run's log file to MLflow once processing
                 completes. Only meaningful for a top-level (non-nested) run.
+            cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
             imgs_metadata = self._collect(input_dir, with_mlflow=with_mlflow)
 
             # segmentation
-            detections = self._segment(imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug)
+            detections = self._segment(
+                imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug, cut_type=cut_type
+            )
 
             # evaluation of detection
             self._evaluate(detections, config=config.evaluation, folder_name=input_dir.name, with_mlflow=with_mlflow)
@@ -190,6 +202,7 @@ class PipelineRunner(ABC, Generic[M, P]):
         with_mlflow: bool = False,
         debug: bool = False,
         log_path: Path | None = None,
+        cut_type: str = "black_circle",
     ) -> None:
         """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -203,6 +216,7 @@ class PipelineRunner(ABC, Generic[M, P]):
                 detections) to MLflow. Only applies when with_mlflow is True.
             log_path (Path | None): If set, upload the batch's log file to MLflow once processing
                 completes.
+            cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
             subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
@@ -216,6 +230,7 @@ class PipelineRunner(ABC, Generic[M, P]):
                     with_mlflow=with_mlflow,
                     debug=debug,
                     nested=True,
+                    cut_type=cut_type,
                 )
 
             if active_run is not None:
@@ -243,7 +258,12 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
         return imgs_metadata
 
     def _segment(
-        self, imgs_metadata: list[ImageMetadataCores], config: SegmentationConfig, with_mlflow: bool, debug: bool
+        self,
+        imgs_metadata: list[ImageMetadataCores],
+        config: SegmentationConfig,
+        with_mlflow: bool,
+        debug: bool,
+        cut_type: str = "black_circle",  # unused: the cores pipeline has no cutting-method concept
     ) -> list[ImageMetadataProcessedCores]:
         return segment(imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug)
 
@@ -274,9 +294,14 @@ class CuttingsPipelineRunner(PipelineRunner[ImageMetadataCuttings, ImageMetadata
         return collect_cuttings(input_dir, with_mlflow=with_mlflow)
 
     def _segment(
-        self, imgs_metadata: list[ImageMetadataCuttings], config: SegmentationConfig, with_mlflow: bool, debug: bool
+        self,
+        imgs_metadata: list[ImageMetadataCuttings],
+        config: SegmentationConfig,
+        with_mlflow: bool,
+        debug: bool,
+        cut_type: str = "black_circle",
     ) -> list[ImageMetadataProcessedCuttings]:
-        return segment_cuttings(imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug)
+        return segment_cuttings(imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug, cut_type=cut_type)
 
     def _stitch(
         self, imgs: list[ImageMetadataProcessedCuttings], config: StitchingConfig

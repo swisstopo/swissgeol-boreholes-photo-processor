@@ -16,7 +16,7 @@ class _FakeRunner(PipelineRunner[ImageMetadata, ImageMetadata]):
     def _collect(self, input_dir: Path, with_mlflow: bool) -> list[ImageMetadata]:
         return []
 
-    def _segment(self, imgs_metadata, config, with_mlflow, debug) -> list[ImageMetadata]:
+    def _segment(self, imgs_metadata, config, with_mlflow, debug, cut_type="black_circle") -> list[ImageMetadata]:
         return []
 
     def _stitch(self, imgs, config) -> Generator[Image.Image, None, None]:

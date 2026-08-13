@@ -68,6 +68,8 @@ class SegmentationCoreConfig:
 class SegmentationCuttingsConfig:
     """Tunable parameters for the  cuttings segmentation step."""
 
+    downscale_factor: float = 0.25  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+
 
 @dataclass
 class SegmentationConfig:

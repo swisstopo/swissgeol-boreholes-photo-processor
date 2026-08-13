@@ -10,7 +10,15 @@ from src.config import PipelineConfig
 from src.pipeline_runner import CorePipelineRunner, CuttingsPipelineRunner, PipelineRunner
 
 
-def _run(runner: PipelineRunner, input_dir: Path, output_dir: Path, mlflow: bool, debug: bool, config: Path) -> None:
+def _run(
+    runner: PipelineRunner,
+    input_dir: Path,
+    output_dir: Path,
+    mlflow: bool,
+    debug: bool,
+    config: Path,
+    cut_type: str = "black_circle",
+) -> None:
     """Run the given pipeline runner over an already-validated set of CLI options.
 
     Args:
@@ -20,6 +28,7 @@ def _run(runner: PipelineRunner, input_dir: Path, output_dir: Path, mlflow: bool
         mlflow (bool): Whether to log artifacts to MLflow.
         debug (bool): Whether to log debug images to MLflow.
         config (Path): Path to the YAML config file for segmentation and stitching parameters.
+        cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -45,6 +54,7 @@ def _run(runner: PipelineRunner, input_dir: Path, output_dir: Path, mlflow: bool
         with_mlflow=mlflow,
         debug=debug,
         log_path=log_path if mlflow else None,
+        cut_type=cut_type,
     )
 
 
@@ -90,9 +100,24 @@ def cores_command(input_dir: Path, output_dir: Path, mlflow: bool, debug: bool, 
 
 @cli.command("cuttings")
 @_pipeline_options
-def cuttings_command(input_dir: Path, output_dir: Path, mlflow: bool, debug: bool, config: Path) -> None:
+@click.option(
+    "--cut-type",
+    "cut_type",
+    type=click.Choice(["black_circle", "pebble", "tray"]),
+    default="black_circle",
+    show_default=True,
+    help="Cuttings segmentation method to use.",
+)
+def cuttings_command(
+    input_dir: Path,
+    output_dir: Path,
+    mlflow: bool,
+    debug: bool,
+    config: Path,
+    cut_type: str,
+) -> None:
     """Run the cuttings pipeline."""
-    _run(CuttingsPipelineRunner(), input_dir, output_dir, mlflow, debug, config)
+    _run(CuttingsPipelineRunner(), input_dir, output_dir, mlflow, debug, config, cut_type=cut_type)
 
 
 def main_cores() -> None:
