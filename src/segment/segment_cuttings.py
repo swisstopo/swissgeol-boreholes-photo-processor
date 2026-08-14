@@ -78,6 +78,11 @@ def segment_tray(
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
         x0, x1, y0, y1 = cx - half_side, cx + half_side, cy - half_side, cy + half_side
 
+    # clamp to the work-square bounds in case forcing a square bbox above pushed a side
+    # past the edge (e.g. mass concentrated near a corner)
+    x0, y0 = max(x0, 0), max(y0, 0)
+    x1, y1 = min(x1, work_size), min(y1, work_size)
+
     # map the bbox from the work-square back to the (downscaled) source image, then
     # scale it back up to the original image resolution
     bbox = (x0 * w / work_size, y0 * h / work_size, x1 * w / work_size, y1 * h / work_size)
@@ -151,8 +156,8 @@ def segment_black_circle(
             (
                 max(int(cx) - half, 0),
                 max(int(cy) - half, 0),
-                int(cx) + half,
-                int(cy) + half,
+                min(int(cx) + half, img.shape[1]),
+                min(int(cy) + half, img.shape[0]),
             ),
             factor=1 / config.downscale_factor,
         ),
@@ -166,13 +171,15 @@ _SEGMENTERS = {
     "tray": segment_tray,
 }
 
+DEFAULT_CUT_TYPE = "black_circle"
+
 
 def segment_cuttings(
     imgs_metadata: list[ImageMetadataCuttings],
     config: SegmentationConfig | None = None,
     with_mlflow: bool = False,
     debug: bool = False,
-    cut_type: str = "black_circle",
+    cut_type: str = DEFAULT_CUT_TYPE,
 ) -> list[ImageMetadataProcessedCuttings]:
     """Segment the input images and return a list of processed image metadata objects.
 
@@ -218,7 +225,6 @@ def segment_cuttings(
 
         except (ValueError, OSError, SegmentationError) as e:
             logger.warning("Skipping %s: %s", img_metadata.image_path.name, e)
-            continue
 
     if with_mlflow:
         log_cuttings_segmentation_results_with_mlflow(detections, time=timer() - t_start)

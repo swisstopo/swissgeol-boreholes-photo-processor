@@ -66,7 +66,7 @@ class SegmentationCoreConfig:
 
 @dataclass
 class SegmentationCuttingsConfig:
-    """Tunable parameters for the  cuttings segmentation step."""
+    """Tunable parameters for the cuttings segmentation step."""
 
     downscale_factor: float = 0.25  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     tray_work_size: int = 256  # square edge length (px) the image is resized to for tray texture analysis

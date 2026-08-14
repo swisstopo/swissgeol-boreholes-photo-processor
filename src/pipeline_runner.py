@@ -31,7 +31,7 @@ from src.models import (
 from src.preprocessing.cuttings import collect_cuttings
 from src.segment.config import SegmentationConfig
 from src.segment.segment_cores import segment
-from src.segment.segment_cuttings import segment_cuttings
+from src.segment.segment_cuttings import DEFAULT_CUT_TYPE, segment_cuttings
 from src.stitching.config import StitchingConfig
 from src.stitching.stitching_cores import stitching
 from src.stitching.stitching_cuttings import stitching_cuttings
@@ -91,7 +91,7 @@ class PipelineRunner(ABC, Generic[M, P]):
         config: SegmentationConfig,
         with_mlflow: bool,
         debug: bool,
-        cut_type: str = "black_circle",
+        cut_type: str = DEFAULT_CUT_TYPE,
     ) -> list[P]:
         """Segment the collected images.
 
@@ -140,7 +140,7 @@ class PipelineRunner(ABC, Generic[M, P]):
         debug: bool = False,
         nested: bool = False,
         log_path: Path | None = None,
-        cut_type: str = "black_circle",
+        cut_type: str = DEFAULT_CUT_TYPE,
     ) -> None:
         """Process raw photos from input_dir into stitched output figure(s) in output_dir.
 
@@ -202,7 +202,7 @@ class PipelineRunner(ABC, Generic[M, P]):
         with_mlflow: bool = False,
         debug: bool = False,
         log_path: Path | None = None,
-        cut_type: str = "black_circle",
+        cut_type: str = DEFAULT_CUT_TYPE,
     ) -> None:
         """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -263,7 +263,7 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
         config: SegmentationConfig,
         with_mlflow: bool,
         debug: bool,
-        cut_type: str = "black_circle",  # unused: the cores pipeline has no cutting-method concept
+        cut_type: str = DEFAULT_CUT_TYPE,  # unused: the cores pipeline has no cutting-method concept
     ) -> list[ImageMetadataProcessedCores]:
         return segment(imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug)
 
@@ -285,7 +285,7 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
 
 
 class CuttingsPipelineRunner(PipelineRunner[ImageMetadataCuttings, ImageMetadataProcessedCuttings]):
-    """Runs the cuttings pipeline: segment (placeholder), and arrange into a grid.
+    """Runs the cuttings pipeline: segment the cuttings region (via --cut-type), and arrange into a grid.
 
     No evaluation step exists yet for cuttings, so `_evaluate` is left at the base class's no-op.
     """
@@ -299,7 +299,7 @@ class CuttingsPipelineRunner(PipelineRunner[ImageMetadataCuttings, ImageMetadata
         config: SegmentationConfig,
         with_mlflow: bool,
         debug: bool,
-        cut_type: str = "black_circle",
+        cut_type: str = DEFAULT_CUT_TYPE,
     ) -> list[ImageMetadataProcessedCuttings]:
         return segment_cuttings(imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug, cut_type=cut_type)
 

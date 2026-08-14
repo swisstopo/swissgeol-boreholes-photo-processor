@@ -8,6 +8,7 @@ import click
 
 from src.config import PipelineConfig
 from src.pipeline_runner import CorePipelineRunner, CuttingsPipelineRunner, PipelineRunner
+from src.segment.segment_cuttings import DEFAULT_CUT_TYPE
 
 
 def _run(
@@ -17,7 +18,7 @@ def _run(
     mlflow: bool,
     debug: bool,
     config: Path,
-    cut_type: str = "black_circle",
+    cut_type: str = DEFAULT_CUT_TYPE,
 ) -> None:
     """Run the given pipeline runner over an already-validated set of CLI options.
 
@@ -104,7 +105,7 @@ def cores_command(input_dir: Path, output_dir: Path, mlflow: bool, debug: bool, 
     "--cut-type",
     "cut_type",
     type=click.Choice(["black_circle", "pebble", "tray"]),
-    default="black_circle",
+    default=DEFAULT_CUT_TYPE,
     show_default=True,
     help="Cuttings segmentation method to use.",
 )

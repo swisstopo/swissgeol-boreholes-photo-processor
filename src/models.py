@@ -357,8 +357,10 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
     def load_core(self) -> Image.Image:
         """Cut a core segment from the source image, rotating to portrait if needed.
 
-        Cores are stored vertically in the output, so landscape crops (width > height)
-        are rotated 90° clockwise so the left edge (shallow end) becomes the top.
+        Portrait source images are first rotated to landscape to match the coordinate
+        space self.core.bbox was detected in (see load_image). Cores are stored vertically
+        in the output, so landscape crops (width > height) are rotated 90° clockwise so
+        the left edge (shallow end) becomes the top.
 
         Returns:
             Image.Image: The cropped core segment image in portrait orientation.
