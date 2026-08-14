@@ -228,7 +228,6 @@ This requires enough available memory to hold every processed crop at once. On a
 machine (32 GB), we recommend in-memory processing only for folders of 16 GB or less to avoid
 out-of-memory errors.
 
-
 ```bash
 uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --cache
 ```

@@ -453,9 +453,8 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
             Image.Image: The source image, rotated 90° if it was originally in portrait orientation.
         """
         if self._cuttings_cache is None:
-            img = Image.open(self.image_path)
-            if img.height > img.width:
-                img = img.transpose(Image.Transpose.ROTATE_90)
+            with Image.open(self.image_path) as src:
+                img = src.transpose(Image.Transpose.ROTATE_90) if src.height > src.width else src.copy()
             self._cuttings_cache = img
 
         return self._cuttings_cache

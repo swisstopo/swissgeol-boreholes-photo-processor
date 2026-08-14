@@ -153,7 +153,7 @@ def stitching_cuttings(
     imgs: list[ImageMetadataProcessedCuttings],
     config: StitchingConfig,
 ) -> list[StitchingBatchCuttings]:
-    """Stitch cuttings images into pages of a fixed grid, one output image per page.
+    """Split cuttings images into pages of a fixed grid, ready to be stitched.
 
     Args:
         imgs (list[ImageMetadataProcessedCuttings]): Cuttings images to stitch, in the order they should
