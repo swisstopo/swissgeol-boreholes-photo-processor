@@ -4,9 +4,12 @@ import logging
 from timeit import default_timer as timer
 
 import numpy as np
+from scipy.ndimage import uniform_filter
 from skimage.color import rgb2gray, rgb2hsv
+from skimage.filters import scharr, threshold_otsu
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk, opening
+from skimage.transform import resize
 from tqdm import tqdm
 
 from src.config import SegmentationConfig, SegmentationCuttingsConfig, SegmentationError
@@ -24,14 +27,81 @@ from src.utils import scale_bbox
 logger = logging.getLogger(__name__)
 
 
-# TODO: add params to the config
+def segment_tray(
+    img_metadata: ImageMetadataCuttings,
+    config: SegmentationCuttingsConfig,
+) -> CuttingsSegmentResult:
+    """Segment cuttings that are laid out in a tray, by locating the most textured region.
+
+    The cuttings themselves are visually "busy" (lots of small edges), while the tray and
+    background around them are comparatively flat. Thresholding local gradient energy
+    therefore isolates the cuttings region without needing color-based assumptions.
+
+    Args:
+        img_metadata (ImageMetadataCuttings): Metadata for the cuttings image to segment.
+        config (SegmentationCuttingsConfig): Tunable segmentation parameters.
+
+    Returns:
+        CuttingsSegmentResult: The bounding box of the cuttings region and the time taken to
+        segment it.
+
+    Raises:
+        ValueError: If no textured region is detected for image: img_metadata.image_path.
+    """
+    t_start = timer()
+    img = img_metadata.load_image(factor=config.downscale_factor)
+    h, w = img.shape[:2]
+
+    # analyze on a fixed-size square so the energy window below behaves the same
+    # regardless of the source image's resolution/aspect ratio
+    work_size = config.tray_work_size
+    gray = rgb2gray(resize(img, (work_size, work_size), anti_aliasing=True))
+
+    # local gradient energy: high where the image is textured (cuttings), low on
+    # flat surfaces (tray, background)
+    gradient = scharr(gray)
+    energy = uniform_filter(gradient, size=config.tray_energy_window)
+    mask = energy > threshold_otsu(energy)
+
+    ys, xs = np.nonzero(mask)
+    if xs.size == 0:
+        raise ValueError(f"No textured region detected for image: {img_metadata.image_path}")
+
+    # trim outlier pixels: keep the central box covering `tray_coverage` of the mass
+    q = (1 - config.tray_coverage**0.5) / 2
+    x0, x1 = np.quantile(xs, [q, 1 - q])
+    y0, y1 = np.quantile(ys, [q, 1 - q])
+
+    if config.tray_square:
+        # tray cuttings are laid out roughly square; force the bbox to match
+        half_side = max(x1 - x0, y1 - y0) / 2
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        x0, x1, y0, y1 = cx - half_side, cx + half_side, cy - half_side, cy + half_side
+
+    # map the bbox from the work-square back to the (downscaled) source image, then
+    # scale it back up to the original image resolution
+    bbox = (x0 * w / work_size, y0 * h / work_size, x1 * w / work_size, y1 * h / work_size)
+
+    return CuttingsSegmentResult(
+        bbox=scale_bbox(bbox, factor=1 / config.downscale_factor),
+        time=timer() - t_start,
+    )
 
 
 def segment_pebble(
     img_metadata: ImageMetadataCuttings,
     config: SegmentationCuttingsConfig,
 ) -> CuttingsSegmentResult:
-    """Segment pebble cuttings laid out above a reference paper sheet."""
+    """Segment pebble cuttings laid out above a reference paper sheet.
+
+    Args:
+        img_metadata (ImageMetadataCuttings): Metadata for the cuttings image to segment.
+        config (SegmentationCuttingsConfig): Tunable segmentation parameters.
+
+    Returns:
+        CuttingsSegmentResult: The bounding box of the cuttings region and the time taken to
+        segment it.
+    """
     t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
 
@@ -90,6 +160,13 @@ def segment_black_circle(
     )
 
 
+_SEGMENTERS = {
+    "black_circle": segment_black_circle,
+    "pebble": segment_pebble,
+    "tray": segment_tray,
+}
+
+
 def segment_cuttings(
     imgs_metadata: list[ImageMetadataCuttings],
     config: SegmentationConfig | None = None,
@@ -105,19 +182,18 @@ def segment_cuttings(
         with_mlflow (bool): Whether to log artifacts to MLflow.
         debug (bool): Whether to additionally log each image's cuttings bbox overlay to MLflow.
             Only applies when with_mlflow is True.
-        cut_type (str): The type of cuttings to segment. Defaults to "black_circle".
+        cut_type (str): The type of cuttings to segment: "black_circle", "pebble", or "tray".
+            Defaults to "black_circle".
 
     Returns:
         list[ImageMetadataProcessedCuttings]: A list of processed image metadata objects. May be shorter than
         imgs_metadata if any images failed to segment.
 
     Raises:
-        NotImplementedError: If cut_type is "tray", which isn't implemented yet.
         ValueError: If cut_type isn't a recognized cuttings segmentation method.
     """
-    if cut_type == "tray":
-        raise NotImplementedError("Tray cuttings segmentation is not yet implemented.")
-    if cut_type not in ("black_circle", "pebble"):
+    segmenter = _SEGMENTERS.get(cut_type)
+    if segmenter is None:
         raise ValueError(f"Unknown cuttings type: {cut_type}")
 
     config = config or SegmentationConfig()
@@ -127,10 +203,7 @@ def segment_cuttings(
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting cuttings images", mininterval=1.0):
         try:
             # segmentation
-            if cut_type == "black_circle":
-                cuttings = segment_black_circle(img_metadata, config.cuttings)
-            else:
-                cuttings = segment_pebble(img_metadata, config.cuttings)
+            cuttings = segmenter(img_metadata, config.cuttings)
 
             detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings)
             detections.append(detection)
