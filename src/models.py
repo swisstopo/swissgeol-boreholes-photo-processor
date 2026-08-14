@@ -454,9 +454,6 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         Raises:
             ValueError: If no core region was detected for this image.
         """
-        if self.cuttings is None:
-            raise ValueError(f"No cuttings region detected for image: {self.image_path}")
-
         if self._cuttings_cache is None:
             img = Image.open(self.image_path)
             if img.height > img.width:
