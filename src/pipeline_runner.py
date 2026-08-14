@@ -270,7 +270,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
             cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
-            subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
+            subdirs = sorted([p for p in input_dir.iterdir() if p.is_dir()])
             logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
             for subdir in tqdm(subdirs, desc="Processing folders"):
                 self.run(

@@ -18,14 +18,14 @@ class CoreWidthCheckConfig(CoreCheckConfig):
     relative_tolerance: float = 0.25  # flag if |width - segment_reference| / segment_reference exceeds this
     max_width_steps: int = 3  # maximum number of segments to try when detecting width groups via DP fit
     relative_tolerance_steps: float = 0.25  # stop adding segments once the relative error improvement drops below this
-    min_samples_step: int = 10  # minimal number of core to have given width to form segment
+    min_samples_step: int = 10  # minimal number of cores with a given width needed to form a segment
 
 
 @dataclass
 class CoreLengthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core length check evaluation."""
 
-    relative_tolerance: float = 0.05  # flag if |width - segment_reference| / segment_reference exceeds this
+    relative_tolerance: float = 0.05  # flag if |ratio - segment_reference| / segment_reference exceeds this
     max_depth_range: float = 1.00  # Cap height scale to 1 meter (no image with more than 1m core)
 
 

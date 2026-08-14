@@ -222,7 +222,12 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 
 **With In-Memory processing (faster)**
 
-For faster runtime, use the `--cache` flag to enable in-memory processing, which loads each file into memory only once. This requires enough available memory to hold the processed data. On a standard machine (32 GB), we recommend in-memory processing only for folders of 16 GB or less to avoid out-of-memory errors.
+For faster runtime, use the `--cache` flag to eagerly decode and cache each core/cutting crop
+during the (already-parallel) segmentation step, instead of deferring that work to stitching.
+This requires enough available memory to hold every processed crop at once. On a standard
+machine (32 GB), we recommend in-memory processing only for folders of 16 GB or less to avoid
+out-of-memory errors.
+
 
 ```bash
 uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --cache

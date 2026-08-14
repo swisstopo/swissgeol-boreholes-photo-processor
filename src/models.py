@@ -382,6 +382,8 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
             raise ValueError(f"No core region detected for image: {self.image_path}")
 
         if self._core_cache is None:
+            # Crop from the normalized 8-bit array (not the raw file) since the final stitched
+            # output is always 8-bit RGB; reuses the array already produced by load_image().
             src = Image.fromarray((255 * self.load_image()).astype(np.uint8))
             left, upper, right, lower = (round(v) for v in self.core.bbox)
             crop = src.crop((left, upper, right, lower))
@@ -428,8 +430,7 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         Args:
             metadata (ImageMetadataCuttings): The original image metadata.
             cuttings (CuttingsSegmentResult | None): Detected cuttings bounding box, if any.
-            preload (bool): If True, eagerly crop and cache the core image via `load_core()`
-                right away instead of deferring to first access.
+            preload (bool): If True, eagerly load and cache the cutting image right away.
 
         Returns:
             ImageMetadataProcessedCuttings: A new instance containing the original metadata and the processing result.
@@ -446,13 +447,10 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         return obj
 
     def load_cutting(self) -> Image.Image:
-        """Cut a cutting from the source image, rotating to portrait if needed.
+        """Load a cutting image, rotating portrait crops to landscape so they fit the stitching grid.
 
         Returns:
-            Image.Image: The cropped core segment image in portrait orientation.
-
-        Raises:
-            ValueError: If no core region was detected for this image.
+            Image.Image: The source image, rotated 90° if it was originally in portrait orientation.
         """
         if self._cuttings_cache is None:
             img = Image.open(self.image_path)

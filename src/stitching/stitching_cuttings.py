@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 class StitchingBatchCuttings:
     """One page of cuttings plus the values shared across all pages, for parallel dispatch."""
 
-    cuttings: list[ImageMetadataProcessedCuttings]
-    shared_borehole_id: str
+    cuttings: list[ImageMetadataProcessedCuttings]  # cuttings assigned to this page
+    shared_borehole_id: str  # borehole ID drawn in the label, shared across all pages
 
 
 def stitching_batch_cuttings(

@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 class StitchingBatchCores:
     """One chunk of cores plus the canvas-wide values needed to stitch it, for parallel dispatch."""
 
-    cores: list[ImageMetadataProcessedCores]
-    shared_ruler_steps: int
-    shared_borehole_id: str
-    fallback_scale: float
+    cores: list[ImageMetadataProcessedCores]  # cores assigned to this batch
+    shared_ruler_steps: int  # canvas-wide ruler span, shared across all batches
+    shared_borehole_id: str  # borehole ID drawn in the label, shared across all batches
+    fallback_scale: float  # px-per-unit fallback for cores with no detected ruler
 
 
 def stitching_batch_cores(

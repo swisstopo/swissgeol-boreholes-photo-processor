@@ -36,7 +36,7 @@ class CuttingsStitchingConfig:
 class StitchingConfig:
     """Tunable parameters for the stitching step."""
 
-    n_workers: int = 4  # number of worker processes used to segment images in parallel
+    n_workers: int = 4  # number of worker threads used to stitch output figures in parallel
     web_output_quality: int = 95  # output JPG quality/compression tradeoff, in the range 0–100
     web_downscale_factor: float = 0.25  # downscale factor applied to web image output
     core: CoreStitchingConfig = field(default_factory=CoreStitchingConfig)
