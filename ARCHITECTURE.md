@@ -22,8 +22,9 @@ For each borehole folder, `run()` does, in order:
 2. **Segment** (`src/segment/segment.py`) — for each image, detect the core region, the
    wooden tray, and the depth ruler, producing `ImageMetadataProcessed`.
 3. **Evaluate** (`src/evaluations/core.py`, only with `--mlflow`) — flag detections whose
-   measured core width/length deviates too far from the batch median, as a segmentation
-   quality signal.
+   measured core length deviates too far from the batch median, and whose core width deviates
+   too far from its depth segment's reference (segments found via `DPCoreWidthEstimation`), as
+   a segmentation quality signal.
 4. **Stitch** (`src/stitching/stitching.py`) — group processed images into chunks of
    `num_cores_per_image`, resize each core to a shared physical scale, and compose them
    onto labeled canvases with rulers.

@@ -1,7 +1,7 @@
 """Module for stitching cuttings images together."""
 
 import logging
-from collections.abc import Generator
+from dataclasses import dataclass
 
 from PIL import Image
 
@@ -10,6 +10,14 @@ from src.stitching.config import StitchingConfig
 from src.stitching.draw import _draw_borehole_label, _draw_cuttings_annotation, _draw_cuttings_border_label
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class StitchingBatchCuttings:
+    """One page of cuttings plus the values shared across all pages, for parallel dispatch."""
+
+    cuttings: list[ImageMetadataProcessedCuttings]  # cuttings assigned to this page
+    shared_borehole_id: str  # borehole ID drawn in the label, shared across all pages
 
 
 def stitching_batch_cuttings(
@@ -78,14 +86,11 @@ def stitching_batch_cuttings(
 
     # rotate portrait images to landscape so they fit the grid cell horizontally
     cutting_imgs = []
-    for cutting in cuttings:
-        with Image.open(cutting.image_path) as src:
-            if src.height > src.width:
-                src = src.transpose(Image.Transpose.ROTATE_90)
-            # scale down (never up) to fit the cell while preserving aspect ratio
-            scale = min(image_width / src.width, cell_height / src.height, 1.0)
-            img = src.resize((round(src.width * scale), round(src.height * scale)), Image.Resampling.LANCZOS)
-            cutting_imgs.append(img)
+    for img in [cutting.load_cutting() for cutting in cuttings]:
+        scale = min(image_width / img.width, cell_height / img.height, 1.0)
+        cutting_imgs.append(
+            img.resize((round(img.width * scale), round(img.height * scale)), Image.Resampling.LANCZOS)
+        )
 
     canvas = Image.new("RGB", (cuttings_config.output_width, cuttings_config.output_height), color=(0, 0, 0))
 
@@ -147,27 +152,28 @@ def stitching_batch_cuttings(
 def stitching_cuttings(
     imgs: list[ImageMetadataProcessedCuttings],
     config: StitchingConfig,
-) -> Generator[Image.Image, None, None]:
-    """Stitch cuttings images into pages of a fixed grid, one output image per page.
+) -> list[StitchingBatchCuttings]:
+    """Split cuttings images into pages of a fixed grid, ready to be stitched.
 
     Args:
         imgs (list[ImageMetadataProcessedCuttings]): Cuttings images to stitch, in the order they should
             appear on the page (top to bottom within a column, then the next column).
         config (StitchingConfig): Configuration for stitching.
 
-    Yields:
-        Image.Image: One stitched page per chunk of (num_cuttings_columns * num_cuttings_rows) images.
+    Returns:
+        list[StitchingBatchCuttings]: One batch per page of up to
+            (num_cuttings_columns * num_cuttings_rows) cuttings.
     """
     if not imgs:
         logger.warning("No cuttings images to stitch")
-        return
+        return []
 
     num_cuttings_per_page = config.cuttings.num_cuttings_columns * config.cuttings.num_cuttings_rows
-    shared_borehole_id = imgs[0].borehole_id
 
-    for i in range(0, len(imgs), num_cuttings_per_page):
-        yield stitching_batch_cuttings(
+    return [
+        StitchingBatchCuttings(
             cuttings=imgs[i : i + num_cuttings_per_page],
-            shared_borehole_id=shared_borehole_id,
-            config=config,
+            shared_borehole_id=imgs[0].borehole_id,
         )
+        for i in range(0, len(imgs), num_cuttings_per_page)
+    ]

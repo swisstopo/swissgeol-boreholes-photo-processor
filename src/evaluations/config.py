@@ -18,6 +18,7 @@ class CoreWidthCheckConfig(CoreCheckConfig):
     relative_tolerance: float = 0.25  # flag if |width - segment_reference| / segment_reference exceeds this
     max_width_steps: int = 3  # maximum number of segments to try when detecting width groups via DP fit
     relative_tolerance_steps: float = 0.25  # stop adding segments once the relative error improvement drops below this
+    min_samples_step: int = 10  # minimal number of cores with a given width needed to form a segment
 
 
 @dataclass

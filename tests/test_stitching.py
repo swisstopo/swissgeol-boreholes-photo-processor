@@ -8,7 +8,7 @@ from PIL import Image
 
 from src.config import CoreStitchingConfig, StitchingConfig
 from src.models import CoreSegmentResult, ImageMetadataCores, ImageMetadataProcessedCores, RulerSegmentResult
-from src.stitching.stitching_cores import stitching
+from src.stitching.stitching_cores import stitching_batch_cores, stitching_cores
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
@@ -47,7 +47,16 @@ def make_processed(tmp_path):
 def test_padding_pixels_are_black(make_processed):
     """Padding pixels around the image are black, not white or some other color."""
     core = make_processed(0.0, 1.0, color=RED)
-    img = next(stitching([core], StitchingConfig(core=CoreStitchingConfig(num_cores_per_image=6))))
+    config = StitchingConfig(core=CoreStitchingConfig(num_cores_per_image=6))
+    batches = stitching_cores([core], config)
+    img = stitching_batch_cores(
+        batches[0].cores,
+        batches[0].shared_ruler_steps,
+        batches[0].shared_borehole_id,
+        batches[0].fallback_scale,
+        config,
+    )
+    assert len(batches) == 1
     assert img.getpixel((0, 0)) == (0, 0, 0)  # top-left corner
     assert img.getpixel((img.width - 1, img.height - 1)) == (0, 0, 0)  # bottom-right corner
     assert img.getpixel((0, img.height // 2)) == (0, 0, 0)  # left margin, before the ruler
@@ -59,8 +68,18 @@ def test_cores_appear_in_order_left_to_right(make_processed):
     green = make_processed(1.0, 2.0, color=GREEN)
     blue = make_processed(2.0, 3.0, color=BLUE)
     config = StitchingConfig(core=CoreStitchingConfig(max_core_height=1000))
-    img = np.array(next(stitching([red, green, blue], config)))
+    batches = stitching_cores([red, green, blue], config)
+    img = np.array(
+        stitching_batch_cores(
+            batches[0].cores,
+            batches[0].shared_ruler_steps,
+            batches[0].shared_borehole_id,
+            batches[0].fallback_scale,
+            config,
+        )
+    )
 
+    assert len(batches) == 1
     ys_red, xs_red = np.nonzero((img == RED).all(axis=-1))
     ys_green, xs_green = np.nonzero((img == GREEN).all(axis=-1))
     ys_blue, xs_blue = np.nonzero((img == BLUE).all(axis=-1))
@@ -100,8 +119,18 @@ def test_outlier_core_width_matches_the_reference_core(make_processed):
     outlier = make_processed(2.0, 102.0, size=(20, 1000), color=BLUE)
 
     config = StitchingConfig(core=CoreStitchingConfig(max_core_height=1000))
-    img = np.array(next(stitching([normal_a, normal_b, outlier], config)))
+    batches = stitching_cores([normal_a, normal_b, outlier], config)
+    img = np.array(
+        stitching_batch_cores(
+            batches[0].cores,
+            batches[0].shared_ruler_steps,
+            batches[0].shared_borehole_id,
+            batches[0].fallback_scale,
+            config,
+        )
+    )
 
+    assert len(batches) == 1
     ys_normal_a, _ = np.nonzero((img == RED).all(axis=-1))
     ys_normal_b, _ = np.nonzero((img == GREEN).all(axis=-1))
     ys_outlier, _ = np.nonzero((img == BLUE).all(axis=-1))
@@ -129,8 +158,21 @@ def test_save_two_output_images(make_processed):
     """Creates two output images with 6 cores in the first and 1 core in the second, for visual inspection."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     cores = [make_processed(float(i), float(i + 1), color=_CORE_COLORS[i]) for i in range(7)]
-    results = stitching(cores, StitchingConfig(core=CoreStitchingConfig(num_cores_per_image=len(cores) - 1)))
-    for idx, img in enumerate(results):
+    config = StitchingConfig(core=CoreStitchingConfig(num_cores_per_image=len(cores) - 1))
+    batches = stitching_cores(cores, config)
+
+    for idx, img in enumerate(
+        [
+            stitching_batch_cores(
+                batch.cores,
+                batch.shared_ruler_steps,
+                batch.shared_borehole_id,
+                batch.fallback_scale,
+                config,
+            )
+            for batch in batches
+        ]
+    ):
         out_path = OUTPUT_DIR / f"stitched_{idx + 1}.png"
         img.save(out_path)
     print(f"\nOutput saved to: {OUTPUT_DIR.resolve()}")

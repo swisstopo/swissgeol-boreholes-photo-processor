@@ -21,24 +21,36 @@ class DPCoreWidthEstimation:
     Uses dynamic programming to find, for each candidate segment count K, the partition into K
     segments that minimizes the total squared error to each segment's mean. Increases K from 1 up
     to `max_k` and stops as soon as either adding a segment no longer reduces the error by more
-    than `alpha`, or the resulting segment means stop being non-increasing (segment means are
+    than `alpha`, or the resulting segment references stop being non-increasing (references are
     expected to shrink with depth).
     """
 
-    def __init__(self, max_k: int = 2, alpha: float = 0.25):
+    def __init__(self, max_k: int = 2, min_segment: int = 10, alpha: float = 0.25):
         """Initialize the estimator.
 
         Args:
             max_k (int, optional): Maximum number of segments to try. Defaults to 2.
+            min_segment (int, optional): Minimal number of samples per segment. Defaults to 10.
             alpha (float, optional): Minimum relative error improvement required to accept an
                 additional segment. Defaults to 0.25.
         """
         self.max_k = max_k
+        self.min_segment = min_segment
         self.alpha = alpha
         self._segments = []
         self._segments_id = []
         self._references = []
         self._err = np.inf
+
+    @property
+    def segments(self) -> list[tuple[float, float]]:
+        """Depth boundaries of each fitted segment."""
+        return self._segments
+
+    @property
+    def references(self) -> list[float]:
+        """Reference (median) value of each fitted segment."""
+        return self._references
 
     def fit(self, depths: list[float], widths: list[float | None]) -> None:
         """Fit the best segmentation of `widths` using DP, ordered by depth.
@@ -63,6 +75,7 @@ class DPCoreWidthEstimation:
             if (
                 (abs(err - self._err) / (self._err + 1e-16) < self.alpha)  # Improvement should be substantial
                 or np.any(np.diff(references) > 0)  # Should be strictly decreasing
+                or np.any(np.diff(segments_id) + 1 < self.min_segment)  # Should be at least min_segment long
             ):
                 break
             else:
@@ -107,17 +120,21 @@ class DPCoreWidthEstimation:
             (k=2, i=5)  brk=3  →  segment 4..5   →  go to (k=1, i=3)
             (k=1, i=3)  brk=0  →  segment 1..3   →  go to (k=0, i=0)
         """
+        # Precompute prefix sums once, outside the k/i/j loops, so cost(a, b) becomes O(1):
         n = len(y)
+        prefix_sum = np.concatenate([[0], np.cumsum(y)])
+        prefix_sq = np.concatenate([[0], np.cumsum(y**2)])
 
         def cost(a: int, b: int) -> float:
-            """Sum of squared deviations from the mean for segment.
+            """Sum of squared deviations from the mean, for the segment [a, b].
 
             Uses the mean (not the median) so the per-segment cost stays a simple closed-form
             squared-error term, cheap to recompute for every candidate split in the DP.
             """
             m = b - a + 1
-            mean = np.sum(y[a - 1 : b]) / m
-            return np.sum([(v - mean) ** 2 for v in y[a - 1 : b]])
+            s = prefix_sum[b] - prefix_sum[a - 1]
+            sq = prefix_sq[b] - prefix_sq[a - 1]
+            return sq - (s**2) / m
 
         dp = np.ones((K + 1, n + 1)) * float("inf")
         brk = np.zeros((K + 1, n + 1), dtype=int)
@@ -169,7 +186,8 @@ class EvaluationCompute(ABC):
 
         Args:
             detections (list[ImageMetadataProcessedCores]): Processed image metadata to evaluate.
-            measures (list[float | None]): Precomputed list measurements to evaluate
+            measures (list[float | None]): Precomputed measurement for each detection, matched by
+                index to `detections`.
             segments_depth (list[tuple[float, float]]): (start, end) depth interval for each segment.
             segments_value (list[float]): Reference value for each segment, matched by index to
                 `segments_depth`.
@@ -210,7 +228,7 @@ class EvaluationCompute(ABC):
         self,
         detections: list[ImageMetadataProcessedCores],
     ) -> list[CoreValueCheckResult | None]:
-        """Compute each detection's measured value and results from the reference.
+        """Compute each detection's measured value and flag deviations from its segment's reference.
 
         Args:
             detections (list[ImageMetadataProcessedCores]): List of processed image metadata with detection results.
@@ -273,6 +291,7 @@ class EvaluationWidthCompute(EvaluationCompute):
         super().__init__(config)
         self.max_width_steps = config.max_width_steps
         self.relative_tolerance_steps = config.relative_tolerance_steps
+        self.min_samples_step = config.min_samples_step
 
     def _measure(self, detection: ImageMetadataProcessedCores) -> float | None:
         """Compute a core's width in pixels: its bounding box's vertical (y) extent.
@@ -299,11 +318,13 @@ class EvaluationWidthCompute(EvaluationCompute):
 
         Returns:
             tuple[list[tuple[float, float]], list[float]]: Segment boundaries as (start, end)
-                depth pairs, and each segment's mean width, found by `DPCoreWidthEstimation`.
+                depth pairs, and each segment's median width, found by `DPCoreWidthEstimation`.
         """
-        estimator = DPCoreWidthEstimation(max_k=self.max_width_steps, alpha=self.relative_tolerance_steps)
+        estimator = DPCoreWidthEstimation(
+            max_k=self.max_width_steps, min_segment=self.min_samples_step, alpha=self.relative_tolerance_steps
+        )
         estimator.fit(depths=depths, widths=values)
-        return estimator._segments, estimator._references
+        return estimator.segments, estimator.references
 
 
 class EvaluationLengthCompute(EvaluationCompute):

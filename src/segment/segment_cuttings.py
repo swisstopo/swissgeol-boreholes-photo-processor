@@ -24,6 +24,7 @@ def segment_cuttings(
     config: SegmentationConfig | None = None,
     with_mlflow: bool = False,
     debug: bool = False,
+    cache: bool = False,
 ) -> list[ImageMetadataProcessedCuttings]:
     """Segment the input images and return a list of processed image metadata objects.
 
@@ -36,6 +37,7 @@ def segment_cuttings(
         with_mlflow (bool): Whether to log artifacts to MLflow.
         debug (bool): Whether to additionally log each image's cuttings bbox overlay to MLflow.
             Only applies when with_mlflow is True.
+        cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
 
     Returns:
         list[ImageMetadataProcessedCuttings]: A list of processed image metadata objects. May be shorter than
@@ -49,7 +51,9 @@ def segment_cuttings(
         try:
             height, width, _ = img_metadata.shape
             cuttings = CuttingsSegmentResult(bbox=(0, 0, width, height))
-            processed_metadata = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings)
+            processed_metadata = ImageMetadataProcessedCuttings.from_metadata(
+                img_metadata, cuttings=cuttings, preload=cache
+            )
             detections.append(processed_metadata)
 
             if with_mlflow and debug:

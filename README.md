@@ -210,7 +210,7 @@ run the same commands via `uv run python -m src.run cores ...` / `uv run python 
 
 ### Run the pipeline for cores:
 
-**Without MLflow tracking**
+**Standard**
 
 ```bash
 uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
@@ -219,6 +219,18 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 - `--input`: Path to the directory containing raw borehole photos (`.tif` only), or nested folders containing them
 - `--output`: Path to the directory where processed images will be written
 - `--config`: Path to the YAML config file for segmentation, stitching, and evaluation parameters (default: `config.yaml`)
+
+**With In-Memory processing (faster)**
+
+For faster runtime, use the `--cache` flag to eagerly decode and cache each core/cutting crop
+during the (already-parallel) segmentation step, instead of deferring that work to stitching.
+This requires enough available memory to hold every processed crop at once. On a standard
+machine (32 GB), we recommend in-memory processing only for folders of 16 GB or less to avoid
+out-of-memory errors.
+
+```bash
+uv run boreholes-photo-processor --input <input-dir> --output <output-dir> --cache
+```
 
 **With MLflow tracking**
 
