@@ -24,7 +24,7 @@ class CoreWidthCheckConfig(CoreCheckConfig):
 class CoreLengthCheckConfig(CoreCheckConfig):
     """Tunable parameters for the core length check evaluation."""
 
-    relative_tolerance: float = 0.05  # flag if |width - segment_reference| / segment_reference exceeds this
+    relative_tolerance: float = 0.05  # flag if |length - segment_reference| / segment_reference exceeds this
     max_depth_range: float = 1.00  # Cap height scale to 1 meter (no image with more than 1m core)
 
 
