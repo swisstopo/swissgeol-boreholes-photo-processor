@@ -126,7 +126,7 @@ aggregation and the per-image fallback pass run in parallel worker pools sized b
   the *entire* borehole and reused for every chunk/canvas, so rulers and labels stay
   consistent across the multiple output sheets of one borehole.
 - Landscape-oriented core crops are rotated 90° so depth increases top-to-bottom
-  (`ImageMetadataProcessed.load_core`).
+  (`ImageMetadataProcessedCores.load_core`).
 - Cores whose raw pixel dimensions are disproportionate to the rest of the batch are
   height/width-matched instead of scaled at their natural size (outlier handling in
   `_resize_images`).

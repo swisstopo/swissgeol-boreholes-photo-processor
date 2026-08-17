@@ -65,7 +65,7 @@ def segment_ruler(img_metadata: ImageMetadataCores, config: SegmentationRulerCon
 
     Binarizes the image for more reliable OCR, keeps digit detections within
     [text_min_value, text_max_value], and drops detections whose count of step-consistent
-    neighbors deviates from the median neighbor count across all detections (outliers whose
+    neighbors deviates from the reference neighbor count across all detections (outliers whose
     spacing agrees with few other detections are dropped, even if individually plausible).
 
     Args:
