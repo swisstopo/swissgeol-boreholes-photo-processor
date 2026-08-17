@@ -369,11 +369,12 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
     def load_core(self) -> Image.Image:
         """Cut a core segment from the source image, rotating to portrait if needed.
 
-        Portrait source images are first rotated to landscape to match the coordinate
-        space self.core.bbox was detected in (see load_image). Cores are stored vertically
-        in the output, so landscape crops (width > height) are rotated 90° clockwise so
-        the left edge (shallow end) becomes the top. The crop is cached after first access
-        so repeated calls (e.g. during parallel stitching) don't re-read the source file.
+        Reuses load_image for the source pixels, which already rotates portrait images to
+        landscape to match the coordinate space self.core.bbox was detected in. Cores are
+        stored vertically in the output, so landscape crops (width > height) are rotated 90°
+        clockwise so the left edge (shallow end) becomes the top. The crop is cached after
+        first access so repeated calls (e.g. during parallel stitching) don't re-read the
+        source file.
 
         Returns:
             Image.Image: The cropped core segment image in portrait orientation.
@@ -385,15 +386,11 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
             raise ValueError(f"No core region detected for image: {self.image_path}")
 
         if self._core_cache is None:
-            with Image.open(self.image_path) as src:
-                if src.height > src.width:
-                    # match the landscape orientation load_image (and thus self.core.bbox) assumes
-                    src = src.transpose(Image.Transpose.ROTATE_90)
-                left, upper, right, lower = (round(v) for v in self.core.bbox)
-                crop = src.crop((left, upper, right, lower))
-                if crop.width > crop.height:
-                    crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
-                crop.load()
+            src = self.load_image()
+            left, upper, right, lower = (round(v) for v in self.core.bbox)
+            crop = Image.fromarray((255 * src[upper:lower, left:right]).astype(np.uint8))
+            if crop.width > crop.height:
+                crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
             self._core_cache = crop
 
         return self._core_cache
@@ -454,8 +451,10 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
     def load_cuttings(self) -> Image.Image:
         """Cut the cuttings segment from the source image.
 
-        The crop is cached after first access so repeated calls (e.g. during parallel
-        stitching) don't re-read the source file.
+        Reuses load_image for the source pixels, which already rotates portrait images to
+        landscape to match the coordinate space self.cuttings.bbox was detected in. The crop
+        is cached after first access so repeated calls (e.g. during parallel stitching) don't
+        re-read the source file.
 
         Returns:
             Image.Image: The cropped cuttings segment image, in landscape orientation.
@@ -467,14 +466,9 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
             raise ValueError(f"No cuttings region detected for image: {self.image_path}")
 
         if self._cuttings_cache is None:
-            with Image.open(self.image_path) as src:
-                if src.height > src.width:
-                    # match the landscape orientation load_image (and thus self.cuttings.bbox) assumes
-                    src = src.transpose(Image.Transpose.ROTATE_90)
-                left, upper, right, lower = (round(v) for v in self.cuttings.bbox)
-                crop = src.crop((left, upper, right, lower))
-                crop.load()
-            self._cuttings_cache = crop
+            src = self.load_image()
+            left, upper, right, lower = (round(v) for v in self.cuttings.bbox)
+            self._cuttings_cache = Image.fromarray((255 * src[upper:lower, left:right]).astype(np.uint8))
 
         return self._cuttings_cache
 
