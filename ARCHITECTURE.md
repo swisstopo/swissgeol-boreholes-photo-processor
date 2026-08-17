@@ -173,23 +173,13 @@ reliably-parseable id prefix.
 Unlike core segmentation, cuttings are segmented **independently per image** — there's no
 shared-group/fallback split, because there's no batch-wide consistency to exploit (no
 common tray shape or fixed camera rig across a borehole's cuttings photos) and no ruler to
-coordinate with. `segment_cuttings` dispatches each image to one of three segmenters
+coordinate with. `segment_cuttings` dispatches each image to a segmenter
 (`src/segment/segment_cuttings.py`), chosen once per run via `--cut-type` to match the
 physical layout used at that borehole:
 
 - **`black_circle`** (default) — cuttings sit inside a black circular tray. Threshold on
   grayscale brightness, take the largest connected component, and crop a square around its
   centroid sized from its area.
-- **`pebble`** — cuttings are laid out above a reference sheet of paper. The paper is
-  detected as the largest bright-and-colorless (low saturation) HSV region; morphological
-  closing fills gaps punched by dark cuttings overlapping its edge. Everything above the
-  paper's top edge is kept as the cuttings region.
-- **`tray`** — cuttings laid out loose in a tray, with no reliable color/brightness cue to
-  separate them from the tray. Instead, local gradient (Scharr) energy is thresholded
-  (Otsu): cuttings are visually "busy" (many small edges) while the tray and background are
-  comparatively flat, so texture energy isolates the region without color assumptions. The
-  bbox is optionally forced square (`tray_square`), since tray cuttings are laid out
-  roughly square.
 
 Each segmenter returns one bbox per image; failures (`ValueError`/`OSError`/
 `SegmentationError`) are logged and that image is dropped, same as cores. There's no

@@ -69,10 +69,6 @@ class SegmentationCuttingsConfig:
     """Tunable parameters for the cuttings segmentation step."""
 
     downscale_factor: float = 0.25  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    tray_work_size: int = 256  # square edge length (px) the image is resized to for tray texture analysis
-    tray_energy_window: int = 33  # local-mean window (px) used to smooth gradient magnitude into a texture map
-    tray_coverage: float = 0.9  # fraction of texture energy mass to keep when trimming outlier pixels
-    tray_square: bool = True  # force the detected tray bbox to be square
 
 
 @dataclass
