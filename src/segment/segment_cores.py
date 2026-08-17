@@ -36,6 +36,7 @@ def segment_single(
     with_mlflow: bool = False,
     debug: bool = False,
     run_id: str | None = None,
+    cache: bool = False,
 ) -> ImageMetadataProcessedCores | None:
     """Segment a single image: locate its ruler, tray and core, and assemble the result.
 
@@ -53,6 +54,7 @@ def segment_single(
             to MLflow. Only applies when `with_mlflow` is True. Defaults to False.
         run_id (str | None, optional): MLflow run to attach logged artifacts to. Only used
             when `with_mlflow` is True. Defaults to None.
+        cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
 
     Returns:
         ImageMetadataProcessedCores | None: The processed image metadata with its core, tray, and
@@ -80,6 +82,7 @@ def segment_single(
             core=detection_core,
             tray=detection_tray,
             ruler=detection_ruler,
+            preload=cache,
         )
 
         if with_mlflow and debug:
@@ -104,6 +107,7 @@ def segment_all(
     config: SegmentationConfig,
     with_mlflow: bool = False,
     debug: bool = False,
+    cache: bool = False,
 ) -> list[ImageMetadataProcessedCores]:
     """Segment every image in the batch, in parallel, reusing per-shape ruler/tray detections.
 
@@ -118,6 +122,7 @@ def segment_all(
             Defaults to False.
         debug (bool, optional): Whether to additionally log debug artifacts to MLflow for
             each image. Only applies when `with_mlflow` is True. Defaults to False.
+        cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
 
     Returns:
         list[ImageMetadataProcessedCores]: Processed image metadata for every image that segmented
@@ -142,6 +147,7 @@ def segment_all(
         with_mlflow=with_mlflow,
         debug=debug,
         run_id=run_id,
+        cache=cache,
     )
 
     with ProcessPoolExecutor(max_workers=config.n_workers) as executor:
@@ -156,11 +162,12 @@ def segment_all(
     return detections
 
 
-def segment(
+def segment_cores(
     imgs_metadata: list[ImageMetadataCores],
     config: SegmentationConfig | None = None,
     with_mlflow: bool = False,
     debug: bool = False,
+    cache: bool = False,
 ) -> list[ImageMetadataProcessedCores]:
     """Segment the input images and return a list of processed image metadata objects.
 
@@ -175,6 +182,7 @@ def segment(
         with_mlflow (bool): Whether to log artifacts to MLflow.
         debug (bool): Whether to additionally log debug images (e.g. per-shape tray/ruler
             detections) to MLflow. Only applies when with_mlflow is True.
+        cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
 
     Returns:
         list[ImageMetadataProcessedCores]: A list of processed image metadata objects. May be shorter than
@@ -205,6 +213,7 @@ def segment(
         config=config,
         with_mlflow=with_mlflow,
         debug=debug,
+        cache=cache,
     )
 
     if with_mlflow:

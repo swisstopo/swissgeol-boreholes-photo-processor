@@ -179,6 +179,7 @@ def segment_cuttings(
     config: SegmentationConfig | None = None,
     with_mlflow: bool = False,
     debug: bool = False,
+    cache: bool = False,
     cut_type: str = DEFAULT_CUT_TYPE,
 ) -> list[ImageMetadataProcessedCuttings]:
     """Segment the input images and return a list of processed image metadata objects.
@@ -189,6 +190,7 @@ def segment_cuttings(
         with_mlflow (bool): Whether to log artifacts to MLflow.
         debug (bool): Whether to additionally log each image's cuttings bbox overlay to MLflow.
             Only applies when with_mlflow is True.
+        cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
         cut_type (str): The type of cuttings to segment: "black_circle", "pebble", or "tray".
             Defaults to "black_circle".
 
@@ -211,8 +213,7 @@ def segment_cuttings(
         try:
             # segmentation
             cuttings = segmenter(img_metadata, config.cuttings)
-
-            detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings)
+            detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings, preload=cache)
             detections.append(detection)
 
             # tracking

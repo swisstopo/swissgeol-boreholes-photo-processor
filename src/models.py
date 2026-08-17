@@ -1,7 +1,7 @@
 """Module containing data models for the borehole image processing application."""
 
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import IntEnum, auto
 from pathlib import Path
 from typing import ClassVar
@@ -53,7 +53,7 @@ class ImageMetadata:
 
     def to_dict(self) -> dict:
         """Return this metadata as a plain dict, e.g. for JSON serialization."""
-        return asdict(self)
+        return {"borehole_id": self.borehole_id, "image_path": self.image_path}
 
 
 @dataclass
@@ -234,6 +234,10 @@ class ImageMetadataCuttings(ImageMetadata):
         depth = float(match.group("depth"))
         return cls(borehole_id="", depth=depth, image_path=image_path)
 
+    def to_dict(self) -> dict:
+        """Return this metadata as a plain dict, e.g. for JSON serialization."""
+        return {**super().to_dict(), "depth": self.depth}
+
 
 class ApproachType(IntEnum):
     """Approach used to detect a region: per-image (SINGLE) or shared across a shape group (GROUP)."""
@@ -324,6 +328,7 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
     core: CoreSegmentResult | None = None
     tray: ImageSegmentResult | None = None
     ruler: RulerSegmentResult | None = None
+    _core_cache: Image.Image | None = None
 
     @classmethod
     def from_metadata(
@@ -332,6 +337,7 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
         core: CoreSegmentResult | None = None,
         tray: ImageSegmentResult | None = None,
         ruler: RulerSegmentResult | None = None,
+        preload: bool = False,
     ) -> "ImageMetadataProcessedCores":
         """Construct an ImageMetadataProcessedCores from an existing ImageMetadata.
 
@@ -340,11 +346,13 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
             core (CoreSegmentResult | None): Detected core bounding box, if any.
             tray (ImageSegmentResult | None): Detected tray bounding box, if any.
             ruler (RulerSegmentResult | None): Detected ruler bounding box, if any.
+            preload (bool): If True, eagerly crop and cache the core image via `load_core()`
+                right away instead of deferring to first access.
 
         Returns:
             ImageMetadataProcessedCores: A new instance containing the original metadata and the processing result.
         """
-        return cls(
+        obj = cls(
             borehole_id=metadata.borehole_id,
             depth_start=metadata.depth_start,
             depth_end=metadata.depth_end,
@@ -353,6 +361,10 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
             tray=tray,
             ruler=ruler,
         )
+        if preload:
+            obj.load_core()
+
+        return obj
 
     def load_core(self) -> Image.Image:
         """Cut a core segment from the source image, rotating to portrait if needed.
@@ -360,7 +372,8 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
         Portrait source images are first rotated to landscape to match the coordinate
         space self.core.bbox was detected in (see load_image). Cores are stored vertically
         in the output, so landscape crops (width > height) are rotated 90° clockwise so
-        the left edge (shallow end) becomes the top.
+        the left edge (shallow end) becomes the top. The crop is cached after first access
+        so repeated calls (e.g. during parallel stitching) don't re-read the source file.
 
         Returns:
             Image.Image: The cropped core segment image in portrait orientation.
@@ -371,15 +384,19 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
         if self.core is None:
             raise ValueError(f"No core region detected for image: {self.image_path}")
 
-        with Image.open(self.image_path) as src:
-            if src.height > src.width:
-                # match the landscape orientation load_image (and thus self.core.bbox) assumes
-                src = src.transpose(Image.Transpose.ROTATE_90)
-            left, upper, right, lower = (round(v) for v in self.core.bbox)
-            crop = src.crop((left, upper, right, lower))
-            if crop.width > crop.height:
-                crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
-        return crop
+        if self._core_cache is None:
+            with Image.open(self.image_path) as src:
+                if src.height > src.width:
+                    # match the landscape orientation load_image (and thus self.core.bbox) assumes
+                    src = src.transpose(Image.Transpose.ROTATE_90)
+                left, upper, right, lower = (round(v) for v in self.core.bbox)
+                crop = src.crop((left, upper, right, lower))
+                if crop.width > crop.height:
+                    crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
+                crop.load()
+            self._core_cache = crop
+
+        return self._core_cache
 
     def to_dict(self) -> dict:
         """Return this processed image's metadata and detections as a plain dict, keyed by region."""
@@ -404,31 +421,41 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
     """Metadata for a processed image with detected regions."""
 
     cuttings: CuttingsSegmentResult | None = None
+    _cuttings_cache: Image.Image | None = None
 
     @classmethod
     def from_metadata(
         cls,
         metadata: ImageMetadataCuttings,
         cuttings: CuttingsSegmentResult | None = None,
+        preload: bool = False,
     ) -> "ImageMetadataProcessedCuttings":
         """Construct an ImageMetadataProcessedCuttings from an existing ImageMetadata.
 
         Args:
             metadata (ImageMetadataCuttings): The original image metadata.
             cuttings (CuttingsSegmentResult | None): Detected cuttings bounding box, if any.
+            preload (bool): If True, eagerly load and cache the cutting image right away.
 
         Returns:
             ImageMetadataProcessedCuttings: A new instance containing the original metadata and the processing result.
         """
-        return cls(
+        obj = cls(
             borehole_id=metadata.borehole_id,
             depth=metadata.depth,
             image_path=metadata.image_path,
             cuttings=cuttings,
         )
+        if preload:
+            obj.load_cuttings()
+
+        return obj
 
     def load_cuttings(self) -> Image.Image:
         """Cut the cuttings segment from the source image.
+
+        The crop is cached after first access so repeated calls (e.g. during parallel
+        stitching) don't re-read the source file.
 
         Returns:
             Image.Image: The cropped cuttings segment image, in landscape orientation.
@@ -439,9 +466,21 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         if self.cuttings is None:
             raise ValueError(f"No cuttings region detected for image: {self.image_path}")
 
-        with Image.open(self.image_path) as src:
-            if src.height > src.width:
-                # match the landscape orientation load_image (and thus self.cuttings.bbox) assumes
-                src = src.transpose(Image.Transpose.ROTATE_90)
-            left, upper, right, lower = (round(v) for v in self.cuttings.bbox)
-            return src.crop((left, upper, right, lower))
+        if self._cuttings_cache is None:
+            with Image.open(self.image_path) as src:
+                if src.height > src.width:
+                    # match the landscape orientation load_image (and thus self.cuttings.bbox) assumes
+                    src = src.transpose(Image.Transpose.ROTATE_90)
+                left, upper, right, lower = (round(v) for v in self.cuttings.bbox)
+                crop = src.crop((left, upper, right, lower))
+                crop.load()
+            self._cuttings_cache = crop
+
+        return self._cuttings_cache
+
+    def to_dict(self) -> dict:
+        """Return this processed image's metadata and detections as a plain dict, keyed by region."""
+        return {
+            **super().to_dict(),
+            "cuttings": self.cuttings.to_dict() if self.cuttings else {},
+        }

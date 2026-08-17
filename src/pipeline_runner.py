@@ -4,13 +4,15 @@ import contextlib
 import glob
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Generic, TypeVar
 
 import mlflow
 import tifffile
 from PIL import Image
+from tqdm import tqdm
 
 from src.config import PipelineConfig, SegmentationError
 from src.evaluations.config import EvaluationConfig
@@ -30,14 +32,15 @@ from src.models import (
 )
 from src.preprocessing.cuttings import collect_cuttings
 from src.segment.config import SegmentationConfig
-from src.segment.segment_cores import segment
+from src.segment.segment_cores import segment_cores
 from src.segment.segment_cuttings import DEFAULT_CUT_TYPE, segment_cuttings
 from src.stitching.config import StitchingConfig
-from src.stitching.stitching_cores import stitching
-from src.stitching.stitching_cuttings import stitching_cuttings
+from src.stitching.stitching_cores import StitchingBatchCores, stitching_batch_cores, stitching_cores
+from src.stitching.stitching_cuttings import StitchingBatchCuttings, stitching_batch_cuttings, stitching_cuttings
 
 M = TypeVar("M", bound=ImageMetadata)
 P = TypeVar("P", bound=ImageMetadata)
+Q = TypeVar("Q")
 
 
 def _mlflow_run(
@@ -59,7 +62,7 @@ def _mlflow_run(
     return contextlib.nullcontext()
 
 
-class PipelineRunner(ABC, Generic[M, P]):
+class PipelineRunner(ABC, Generic[M, P, Q]):
     """Template-method orchestrator shared by the core and cuttings pipelines.
 
     Subclasses implement `_collect`, `_segment`, and `_stitch`; `_evaluate` is a no-op unless
@@ -91,6 +94,7 @@ class PipelineRunner(ABC, Generic[M, P]):
         config: SegmentationConfig,
         with_mlflow: bool,
         debug: bool,
+        cache: bool,
         cut_type: str = DEFAULT_CUT_TYPE,
     ) -> list[P]:
         """Segment the collected images.
@@ -100,6 +104,7 @@ class PipelineRunner(ABC, Generic[M, P]):
             config (SegmentationConfig): Tunable segmentation parameters.
             with_mlflow (bool): Whether to log artifacts to MLflow.
             debug (bool): Whether to additionally log debug images to MLflow.
+            cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
             cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
 
         Returns:
@@ -119,17 +124,66 @@ class PipelineRunner(ABC, Generic[M, P]):
         return None
 
     @abstractmethod
-    def _stitch(self, imgs: list[P], config: StitchingConfig) -> Generator[Image.Image, None, None]:
-        """Arrange the processed images into output figure(s).
+    def _collate_stitch(self, imgs: list[P], config: StitchingConfig) -> list[Q]:
+        """Split processed images into independent batches, ready to be stitched.
 
         Args:
             imgs (list[P]): Processed image metadata to stitch together.
             config (StitchingConfig): Tunable layout parameters.
 
-        Yields:
-            Image.Image: One stitched output image at a time.
+        Returns:
+            list[Q]: One batch per output figure, each self-contained.
         """
         ...
+
+    @abstractmethod
+    def _batch_stitch(self, batch: Q, config: StitchingConfig) -> Image.Image:
+        """Render a single batch into one output figure.
+
+        Args:
+            batch (Q): One batch produced by `_collate_stitch`.
+            config (StitchingConfig): Tunable layout parameters.
+
+        Returns:
+            Image.Image: The stitched output image for this batch.
+        """
+        ...
+
+    def _stitch(
+        self,
+        batch: Q,
+        prefix: str,
+        config: StitchingConfig,
+        output_dir: Path,
+        with_mlflow: bool = False,
+        run_id: str | None = None,
+    ) -> None:
+        """Render one batch and write/log its output image; unit of work for the stitching pool.
+
+        Args:
+            batch (Q): One batch produced by `_collate_stitch`.
+            prefix (str): Output filename stem (without extension) for this batch's figure.
+            config (StitchingConfig): Tunable layout parameters.
+            output_dir (Path): Directory the output files are written to.
+            with_mlflow (bool, optional): Whether to log this figure as an MLflow artifact. Defaults to False.
+            run_id (str | None, optional): MLflow run to attach the logged artifact to. Only used
+                when `with_mlflow` is True. Defaults to None.
+        """
+        img = self._batch_stitch(batch, config)
+        if with_mlflow:
+            log_artifact_with_mlflow(
+                img=img,
+                filename=prefix,
+                run_id=run_id,
+            )
+
+        img.resize(
+            (
+                int(img.size[0] * config.web_downscale_factor),
+                int(img.size[1] * config.web_downscale_factor),
+            )
+        ).save(output_dir / f"{prefix}.jpg", quality=config.web_output_quality)
+        img.save(output_dir / f"{prefix}.tif")
 
     def run(
         self,
@@ -140,6 +194,7 @@ class PipelineRunner(ABC, Generic[M, P]):
         debug: bool = False,
         nested: bool = False,
         log_path: Path | None = None,
+        cache: bool = False,
         cut_type: str = DEFAULT_CUT_TYPE,
     ) -> None:
         """Process raw photos from input_dir into stitched output figure(s) in output_dir.
@@ -154,42 +209,52 @@ class PipelineRunner(ABC, Generic[M, P]):
             nested (bool): Whether to start a nested MLflow run under an existing active run.
             log_path (Path | None): If set, upload this run's log file to MLflow once processing
                 completes. Only meaningful for a top-level (non-nested) run.
+            cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
             cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
             imgs_metadata = self._collect(input_dir, with_mlflow=with_mlflow)
 
             # segmentation
+            logging.info("--- Segmentation ---")
             detections = self._segment(
-                imgs_metadata, config=config.segmentation, with_mlflow=with_mlflow, debug=debug, cut_type=cut_type
+                imgs_metadata,
+                config=config.segmentation,
+                with_mlflow=with_mlflow,
+                debug=debug,
+                cache=cache,
+                cut_type=cut_type,
             )
 
             # evaluation of detection
+            logging.info("--- Evaluation ---")
             self._evaluate(detections, config=config.evaluation, folder_name=input_dir.name, with_mlflow=with_mlflow)
 
             # stitching
-            images = self._stitch(detections, config=config.stitching)
+            logging.info("--- Stitching ---")
+            batches = self._collate_stitch(detections, config=config.stitching)
 
-            # save output images to output_dir and optionally log to MLflow
+            # save output
             output_dir.mkdir(parents=True, exist_ok=True)
-            idx = -1  # guards against NameError in the logging call when detections is empty
-            for idx, img in enumerate(images):
-                stem = f"{input_dir.name}_{idx + 1:03d}"
+            active_run = mlflow.active_run()
 
-                if with_mlflow:
-                    log_artifact_with_mlflow(
-                        img=img,
-                        filename=stem,
-                    )
+            worker = partial(
+                self._stitch,
+                config=config.stitching,
+                output_dir=output_dir,
+                with_mlflow=with_mlflow,
+                run_id=active_run.info.run_id if with_mlflow and active_run is not None else None,
+            )
 
-                img.resize(
-                    (
-                        int(img.size[0] * config.stitching.web_downscale_factor),
-                        int(img.size[1] * config.stitching.web_downscale_factor),
-                    )
-                ).save(output_dir / f"{stem}.jpg", quality=config.stitching.web_output_quality)
-                img.save(output_dir / f"{stem}.tif")
-            logging.info("Created %d output figure(s) in %s", idx + 1, output_dir)
+            with ThreadPoolExecutor(max_workers=config.stitching.n_workers) as ex:
+                for _ in tqdm(
+                    ex.map(worker, batches, [f"{input_dir.name}_{idx + 1:03d}" for idx in range(len(batches))]),
+                    total=len(batches),
+                    desc="Stitching images",
+                ):
+                    pass
+
+            logging.info("Created %d output figure(s) in %s", len(batches), output_dir)
 
             if with_mlflow and not nested and log_path is not None:
                 upload_log_to_mlflow(log_path)
@@ -202,6 +267,7 @@ class PipelineRunner(ABC, Generic[M, P]):
         with_mlflow: bool = False,
         debug: bool = False,
         log_path: Path | None = None,
+        cache: bool = False,
         cut_type: str = DEFAULT_CUT_TYPE,
     ) -> None:
         """Accepts a root directory and runs the pipeline on all subdirectories.
@@ -216,10 +282,11 @@ class PipelineRunner(ABC, Generic[M, P]):
                 detections) to MLflow. Only applies when with_mlflow is True.
             log_path (Path | None): If set, upload the batch's log file to MLflow once processing
                 completes.
+            cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
             cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
-            subdirs = [p for p in input_dir.iterdir() if p.is_dir()]
+            subdirs = sorted([p for p in input_dir.iterdir() if p.is_dir()])
             logging.info("Found %d folders to process in %s", len(subdirs), input_dir.name)
             for i, subdir in enumerate(subdirs, start=1):
                 logging.info("Processing folder %d/%d: %s", i, len(subdirs), subdir.name)
@@ -230,6 +297,7 @@ class PipelineRunner(ABC, Generic[M, P]):
                     with_mlflow=with_mlflow,
                     debug=debug,
                     nested=True,
+                    cache=cache,
                     cut_type=cut_type,
                 )
 
@@ -239,11 +307,11 @@ class PipelineRunner(ABC, Generic[M, P]):
                     upload_log_to_mlflow(log_path)
 
 
-class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcessedCores]):
+class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcessedCores, StitchingBatchCores]):
     """Runs the core-photos pipeline: segment core/tray/ruler, evaluate, and stitch into strips."""
 
     def _collect(self, input_dir: Path, with_mlflow: bool) -> list[ImageMetadataCores]:
-        # Collect all images from the input directory and parse filename metadata
+        """Collect all TIF images from the input directory and parse filename metadata."""
         imgs_metadata: list[ImageMetadataCores] = []
         for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
             if f.suffix.lower() == ".tif":
@@ -263,9 +331,11 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
         config: SegmentationConfig,
         with_mlflow: bool,
         debug: bool,
+        cache: bool,
         cut_type: str = DEFAULT_CUT_TYPE,  # unused: the cores pipeline has no cutting-method concept
     ) -> list[ImageMetadataProcessedCores]:
-        return segment(imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug)
+        """Segment core/tray/ruler regions."""
+        return segment_cores(imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug, cache=cache)
 
     def _evaluate(
         self,
@@ -274,23 +344,38 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
         folder_name: str,
         with_mlflow: bool,
     ) -> None:
+        """Evaluate detections and log the results to MLflow, if enabled."""
         if with_mlflow:
             results = evaluate_detections(detections, config)
             log_evaluation_results_with_mlflow(results, folder_name=folder_name)
 
-    def _stitch(
+    def _collate_stitch(
         self, imgs: list[ImageMetadataProcessedCores], config: StitchingConfig
-    ) -> Generator[Image.Image, None, None]:
-        return stitching(imgs, config=config)
+    ) -> list[StitchingBatchCores]:
+        """Chunk cores into batches."""
+        return stitching_cores(imgs, config=config)
+
+    def _batch_stitch(self, batch: StitchingBatchCores, config: StitchingConfig) -> Image.Image:
+        """Stitch one batch of cores into a canvas."""
+        return stitching_batch_cores(
+            cores=batch.cores,
+            shared_ruler_steps=batch.shared_ruler_steps,
+            shared_borehole_id=batch.shared_borehole_id,
+            fallback_scale=batch.fallback_scale,
+            config=config,
+        )
 
 
-class CuttingsPipelineRunner(PipelineRunner[ImageMetadataCuttings, ImageMetadataProcessedCuttings]):
+class CuttingsPipelineRunner(
+    PipelineRunner[ImageMetadataCuttings, ImageMetadataProcessedCuttings, StitchingBatchCuttings]
+):
     """Runs the cuttings pipeline: segment the cuttings region (via --cut-type), and arrange into a grid.
 
     No evaluation step exists yet for cuttings, so `_evaluate` is left at the base class's no-op.
     """
 
     def _collect(self, input_dir: Path, with_mlflow: bool) -> list[ImageMetadataCuttings]:
+        """Collect cuttings images from the input directory."""
         return collect_cuttings(input_dir, with_mlflow=with_mlflow)
 
     def _segment(
@@ -299,11 +384,24 @@ class CuttingsPipelineRunner(PipelineRunner[ImageMetadataCuttings, ImageMetadata
         config: SegmentationConfig,
         with_mlflow: bool,
         debug: bool,
+        cache: bool,
         cut_type: str = DEFAULT_CUT_TYPE,
     ) -> list[ImageMetadataProcessedCuttings]:
-        return segment_cuttings(imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug, cut_type=cut_type)
+        """Segment the cuttings region using the selected --cut-type method."""
+        return segment_cuttings(
+            imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug, cache=cache, cut_type=cut_type
+        )
 
-    def _stitch(
+    def _collate_stitch(
         self, imgs: list[ImageMetadataProcessedCuttings], config: StitchingConfig
-    ) -> Generator[Image.Image, None, None]:
-        return stitching_cuttings(imgs, config=config)
+    ) -> list[StitchingBatchCuttings]:
+        """Chunk cuttings into pages."""
+        return stitching_cuttings(imgs, config)
+
+    def _batch_stitch(self, batch: StitchingBatchCuttings, config: StitchingConfig) -> Image.Image:
+        """Stitch one page of cuttings into a canvas."""
+        return stitching_batch_cuttings(
+            cuttings=batch.cuttings,
+            shared_borehole_id=batch.shared_borehole_id,
+            config=config,
+        )

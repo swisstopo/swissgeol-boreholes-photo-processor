@@ -1,26 +1,28 @@
 """Tests for the pipeline_runner module."""
 
-from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
 from src.config import PipelineConfig
-from src.models import ImageMetadata
 from src.pipeline_runner import CuttingsPipelineRunner, PipelineRunner
 
 
-class _FakeRunner(PipelineRunner[ImageMetadata, ImageMetadata]):
+class _FakeRunner(PipelineRunner[Any, Any, Any]):
     """Minimal concrete runner for exercising the base class's run() template in isolation."""
 
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[ImageMetadata]:
+    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[Any]:
         return []
 
-    def _segment(self, imgs_metadata, config, with_mlflow, debug, cut_type="black_circle") -> list[ImageMetadata]:
+    def _segment(self, imgs_metadata, config, with_mlflow, debug, cache, cut_type="black_circle") -> list[Any]:
         return []
 
-    def _stitch(self, imgs, config) -> Generator[Image.Image, None, None]:
-        yield from ()
+    def _collate_stitch(self, imgs, config) -> list[Any]:
+        return []
+
+    def _batch_stitch(self, batch: Any, config) -> Image.Image:
+        return Image.new("RGB", (1, 1))
 
 
 def test_run_with_no_images_creates_empty_output_dir_without_crashing(tmp_path):

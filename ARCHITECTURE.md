@@ -37,8 +37,9 @@ single source of truth for a given run.
 2. **Segment** (`src/segment/segment_cores.py`) — for each image, detect the core region,
    the wooden tray, and the depth ruler, producing `ImageMetadataProcessedCores`.
 3. **Evaluate** (`src/evaluations/core.py`, only with `--mlflow`) — flag detections whose
-   measured core width/length deviates too far from the batch median, as a segmentation
-   quality signal.
+   measured core length deviates too far from the batch median, and whose core width deviates
+   too far from its depth segment's reference (segments found via `DPCoreWidthEstimation`), as
+   a segmentation quality signal.
 4. **Stitch** (`src/stitching/stitching_cores.py`) — group processed images into chunks of
    `num_cores_per_image`, resize each core to a shared physical scale, and compose them
    onto labeled canvases with rulers.

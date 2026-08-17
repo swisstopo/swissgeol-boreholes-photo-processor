@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from src.evaluations.config import CoreWidthCheckConfig
-from src.evaluations.core import EvaluationWidthCompute
+from src.evaluations.core import DPCoreWidthEstimation, EvaluationWidthCompute
 from src.models import CoreSegmentResult, ImageMetadataProcessedCores, RulerSegmentResult
 
 
@@ -62,3 +62,43 @@ def test_check_core_width_deviation_exactly_at_tolerance_passes():
     )
 
     assert all(r is not None and r.passed for r in results)
+
+
+def test_dp_core_width_estimation_splits_into_decreasing_segments():
+    """A clear, strictly decreasing jump in width is split into two segments."""
+    depths = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
+    widths: list[float | None] = [10.0, 10.0, 10.0, 2.0, 2.0, 2.0]
+
+    estimator = DPCoreWidthEstimation(max_k=2, alpha=0.25, min_segment=1)
+    estimator.fit(depths=depths, widths=widths)
+
+    assert estimator.segments == [(10.0, 12.0), (13.0, 15.0)]
+    assert estimator.references == [10.0, 2.0]  # median of segments
+
+
+def test_dp_core_width_estimation_rejects_increasing_segments():
+    """A width jump that increases with depth is rejected even though it lowers the fit error.
+
+    Widths are expected to shrink with depth, so an increasing split falls back to a single
+    segment over the whole range instead of the (otherwise better-fitting) two-segment split.
+    """
+    depths = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
+    widths: list[float | None] = [2.0, 2.0, 2.0, 2.0, 10.0, 10.0, 10.0]
+
+    estimator = DPCoreWidthEstimation(max_k=2, alpha=0.25, min_segment=1)
+    estimator.fit(depths=depths, widths=widths)
+
+    assert estimator.segments == [(10.0, 16.0)]
+    assert estimator.references == [2.0]
+
+
+def test_dp_core_width_estimation_rejects_min_segments():
+    """A decreasing split is rejected when a resulting segment is shorter than min_segment."""
+    depths = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
+    widths: list[float | None] = [10.0, 10.0, 10.0, 2.0, 2.0, 2.0, 2.0]
+
+    estimator = DPCoreWidthEstimation(max_k=2, alpha=0.25, min_segment=4)
+    estimator.fit(depths=depths, widths=widths)
+
+    assert estimator.segments == [(10.0, 16.0)]
+    assert estimator.references == [2.0]

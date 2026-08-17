@@ -6,7 +6,7 @@ from PIL import Image
 
 from src.models import CuttingsSegmentResult, ImageMetadataCuttings, ImageMetadataProcessedCuttings
 from src.stitching.config import CuttingsStitchingConfig, StitchingConfig
-from src.stitching.stitching_cuttings import stitching_cuttings
+from src.stitching.stitching_cuttings import stitching_batch_cuttings, stitching_cuttings
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
@@ -39,7 +39,11 @@ def make_cutting(tmp_path):
 def test_padding_pixels_are_black(make_cutting):
     """Padding pixels around the grid are black, not white or some other color."""
     cutting = make_cutting(0.0, color=RED)
-    img = next(stitching_cuttings([cutting], StitchingConfig()))
+    config = StitchingConfig()
+    batches = stitching_cuttings([cutting], config)
+    img = stitching_batch_cuttings(batches[0].cuttings, batches[0].shared_borehole_id, config)
+
+    assert len(batches) == 1
     assert img.getpixel((0, 0)) == BLACK  # top-left corner
     assert img.getpixel((img.width - 1, img.height - 1)) == BLACK  # bottom-right corner
 
@@ -63,11 +67,15 @@ def test_cuttings_appear_in_grid_order(make_cutting):
             font_size=12,
         )
     )
-    img = np.array(next(stitching_cuttings([red, green, blue], config)))
+    batches = stitching_cuttings([red, green, blue], config)
+    img = np.array(stitching_batch_cuttings(batches[0].cuttings, batches[0].shared_borehole_id, config))
 
     ys_red, xs_red = np.nonzero((img == RED).all(axis=-1))
     ys_green, xs_green = np.nonzero((img == GREEN).all(axis=-1))
     ys_blue, xs_blue = np.nonzero((img == BLUE).all(axis=-1))
+
+    # Single batch predicted
+    assert len(batches) == 1
 
     # red and green share column 0 (same x range), stacked top to bottom
     assert xs_red.min() == xs_green.min()
