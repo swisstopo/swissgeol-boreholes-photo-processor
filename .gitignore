@@ -1,6 +1,7 @@
 # Environments
 .env
 .venv
+models/
 
 # Unit test / coverage reports
 .coverage

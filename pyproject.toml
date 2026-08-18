@@ -16,6 +16,7 @@ dependencies = [
     "tifffile>=2026.3.3",
     "tqdm==4.67.1",
     "pytesseract==0.3.13",
+    "fastembed",
 ]
 
 [project.optional-dependencies]
