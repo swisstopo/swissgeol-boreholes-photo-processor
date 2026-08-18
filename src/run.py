@@ -110,7 +110,7 @@ def cores_command(input_dir: Path, output_dir: Path, mlflow: bool, debug: bool, 
 @click.option(
     "--cut-type",
     "cut_type",
-    type=click.Choice(["black_circle"]),
+    type=click.Choice(["black_circle", "pebble"]),
     default=DEFAULT_CUT_TYPE,
     show_default=True,
     help="Cuttings segmentation method to use.",

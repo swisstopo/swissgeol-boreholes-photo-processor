@@ -4,9 +4,9 @@ import logging
 from timeit import default_timer as timer
 
 import numpy as np
-from skimage.color import rgb2gray
+from skimage.color import rgb2gray, rgb2hsv
 from skimage.measure import label, regionprops
-from skimage.morphology import disk, opening
+from skimage.morphology import closing, disk, opening
 from tqdm import tqdm
 
 from src.config import SegmentationConfig, SegmentationCuttingsConfig, SegmentationError
@@ -22,6 +22,90 @@ from src.models import (
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
+
+
+def segment_pebble(
+    img_metadata: ImageMetadataCuttings,
+    config: SegmentationCuttingsConfig,
+) -> CuttingsSegmentResult:
+    """Segment pebble cuttings laid out above a reference paper sheet.
+
+    Args:
+        img_metadata (ImageMetadataCuttings): Metadata for the cuttings image to segment.
+        config (SegmentationCuttingsConfig): Tunable segmentation parameters.
+
+    Returns:
+        CuttingsSegmentResult: The bounding box of the cuttings region and the time taken to
+        segment it.
+    """
+    t_start = timer()
+    img = img_metadata.load_image(factor=config.downscale_factor)
+    h, w = img.shape[:2]
+
+    hsv = rgb2hsv(img)
+    mask = (hsv[..., 2] > 0.85) & (hsv[..., 1] < 0.15)  # bright AND colorless
+
+    # the black stripes punch holes in the paper — close them
+    mask = closing(mask, disk(max(1, round(25 * config.downscale_factor))))
+
+    lbl = label(mask)
+    props = regionprops(lbl)
+
+    # the paper is a solid rectangle -- it should fill nearly all of its own
+    # bounding box (extent) and be close to convex (solidity). A merged blob of
+    # stones is porous (lots of black gaps between pebbles survive closing) and
+    # scores much lower on both, even when its raw area is larger. The paper is
+    # always anchored to an edge of the *original* photo's bottom, but load_image
+    # rotates portrait photos 90 degrees to landscape, which moves that edge to the
+    # right rather than the bottom -- so a candidate is only trustworthy if it
+    # reaches the bottom OR the right edge, no matter how high its extent/solidity.
+    # It's also always a modest slice of the frame; a blob covering most of the
+    # image (e.g. a wash of pale sand/rock filling most of the shot, which can
+    # coincidentally touch both edges) is never the paper regardless of shape score.
+    MIN_EXTENT = 0.45
+    MIN_SOLIDITY = 0.7
+    MAX_AREA_FRAC = 0.35
+    EDGE_MARGIN = 0.03  # fraction of the relevant dimension the candidate must reach to count as edge-anchored
+
+    def touches_bottom(p):
+        return p.bbox[2] >= (1 - EDGE_MARGIN) * h
+
+    def touches_right(p):
+        return p.bbox[3] >= (1 - EDGE_MARGIN) * w
+
+    candidates = [
+        p
+        for p in props
+        if p.extent >= MIN_EXTENT
+        and p.solidity >= MIN_SOLIDITY
+        and p.area <= MAX_AREA_FRAC * h * w
+        and (touches_bottom(p) or touches_right(p))
+    ]
+    paper = max(candidates, key=lambda p: p.area) if candidates else None
+
+    # crop away the side of the frame the paper sits on, preferring the bottom
+    # when it touches both (the common corner case). A degenerate paper region
+    # (spanning the full height or width) usually just means the reference sheet
+    # isn't reliably in frame, so the whole image is already the cuttings region.
+    bbox = (0, 0, w, h)
+    if paper is not None:
+        if touches_bottom(paper) and paper.bbox[0] > 0:
+            bbox = (0, 0, w, paper.bbox[0])
+        elif touches_right(paper) and paper.bbox[1] > 0:
+            bbox = (0, 0, paper.bbox[1], h)
+        else:
+            paper = None
+
+    if paper is None:
+        logger.warning(
+            "No reliable paper region found for %s; using the full image as the cuttings region",
+            img_metadata.image_path.name,
+        )
+
+    return CuttingsSegmentResult(
+        bbox=scale_bbox(bbox, factor=1 / config.downscale_factor),
+        time=timer() - t_start,
+    )
 
 
 def segment_black_circle(
@@ -60,6 +144,7 @@ def segment_black_circle(
 
 _SEGMENTERS = {
     "black_circle": segment_black_circle,
+    "pebble": segment_pebble,
 }
 
 DEFAULT_CUT_TYPE = "black_circle"
@@ -82,7 +167,7 @@ def segment_cuttings(
         debug (bool): Whether to additionally log each image's cuttings bbox overlay to MLflow.
             Only applies when with_mlflow is True.
         cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
-        cut_type (str): The type of cuttings to segment: "black_circle".
+        cut_type (str): The type of cuttings to segment: "black_circle" or "pebble".
             Defaults to "black_circle".
 
     Returns:
