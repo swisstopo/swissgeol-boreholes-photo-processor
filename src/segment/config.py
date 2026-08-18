@@ -69,6 +69,9 @@ class SegmentationCuttingsConfig:
     """Tunable parameters for the cuttings segmentation step."""
 
     downscale_factor: float = 0.25  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    black_circle_val_threshold: float = 0.16  # grayscale value above this = inside the black circle (not background)
+    opening_disk: int = 7  # radius (before downscaling) for binary opening to remove noise from the mask
+    bbox_shrink_factor: float = 0.98  # fraction of the detected circle's radius used for the square bbox half-side
 
 
 @dataclass

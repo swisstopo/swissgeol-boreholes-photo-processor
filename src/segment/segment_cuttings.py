@@ -32,8 +32,8 @@ def segment_black_circle(
     t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
     gray = rgb2gray(img)
-    mask = gray > 0.16
-    mask = opening(mask, disk(max(1, round(7 * config.downscale_factor))))
+    mask = gray > config.black_circle_val_threshold
+    mask = opening(mask, disk(max(1, round(config.opening_disk * config.downscale_factor))))
 
     # largest connected component
     lbl = label(mask)
@@ -42,7 +42,7 @@ def segment_black_circle(
 
     cy, cx = biggest.centroid
     r = np.sqrt(biggest.area / np.pi)
-    half = int(0.98 * r / np.sqrt(2))
+    half = int(config.bbox_shrink_factor * r / np.sqrt(2))
 
     return CuttingsSegmentResult(
         bbox=scale_bbox(
