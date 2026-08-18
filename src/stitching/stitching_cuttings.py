@@ -84,13 +84,13 @@ def stitching_batch_cuttings(
         + cuttings_config.padding_horizontal
     )
 
-    # rotate portrait images to landscape so they fit the grid cell horizontally
     cutting_imgs = []
-    for img in [cutting.load_cutting() for cutting in cuttings]:
-        scale = min(image_width / img.width, cell_height / img.height, 1.0)
-        cutting_imgs.append(
-            img.resize((round(img.width * scale), round(img.height * scale)), Image.Resampling.LANCZOS)
-        )
+    for cutting in cuttings:
+        src = cutting.load_cuttings()
+        # scale down (never up) to fit the cell while preserving aspect ratio
+        scale = min(image_width / src.width, cell_height / src.height, 1.0)
+        img = src.resize((round(src.width * scale), round(src.height * scale)), Image.Resampling.LANCZOS)
+        cutting_imgs.append(img)
 
     canvas = Image.new("RGB", (cuttings_config.output_width, cuttings_config.output_height), color=(0, 0, 0))
 

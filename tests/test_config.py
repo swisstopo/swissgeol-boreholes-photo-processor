@@ -7,7 +7,7 @@ import pytest
 from src.config import (
     CoreStitchingConfig,
     PipelineConfig,
-    SegmentationCoreConfig,
+    SegmentationCoreTrimConfig,
     SegmentationRulerConfig,
     SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
@@ -34,13 +34,14 @@ def test_from_yaml_reads_all_sections(tmp_path):
             """
             segmentation:
               core:
-                wood_sat_threshold: 0.5
-              ruler:
-                text_max_value: 50
-              tray_group:
-                n_min_foreground: 50
-              tray_single:
-                min_bbox_height: 200
+                core:
+                  wood_sat_threshold: 0.5
+                ruler:
+                  text_max_value: 50
+                tray_group:
+                  n_min_foreground: 50
+                tray_single:
+                  min_bbox_height: 200
             stitching:
               core:
                 max_core_width: 900
@@ -56,10 +57,10 @@ def test_from_yaml_reads_all_sections(tmp_path):
 
     config = PipelineConfig.from_yaml(path)
 
-    assert config.segmentation.core == SegmentationCoreConfig(wood_sat_threshold=0.5)
-    assert config.segmentation.ruler == SegmentationRulerConfig(text_max_value=50)
-    assert config.segmentation.tray_group == SegmentationTrayGroupConfig(n_min_foreground=50)
-    assert config.segmentation.tray_single == SegmentationTraySingleConfig(min_bbox_height=200)
+    assert config.segmentation.core.core == SegmentationCoreTrimConfig(wood_sat_threshold=0.5)
+    assert config.segmentation.core.ruler == SegmentationRulerConfig(text_max_value=50)
+    assert config.segmentation.core.tray_group == SegmentationTrayGroupConfig(n_min_foreground=50)
+    assert config.segmentation.core.tray_single == SegmentationTraySingleConfig(min_bbox_height=200)
     assert config.stitching == StitchingConfig(core=CoreStitchingConfig(max_core_width=900, max_core_height=5000))
     assert config.evaluation.core_width == CoreWidthCheckConfig(min_samples=100)
     assert config.evaluation.core_length == CoreLengthCheckConfig(min_samples=101)

@@ -7,7 +7,7 @@ from timeit import default_timer as timer
 import numpy as np
 from skimage.color import rgb2hsv
 
-from src.config import SegmentationCoreConfig
+from src.config import SegmentationCoreTrimConfig
 from src.models import CoreSegmentResult, ImageMetadataCores, ImageSegmentResult
 from src.utils import scale_bbox
 
@@ -74,14 +74,14 @@ def _intersect_intervals(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> 
     return result
 
 
-def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreConfig) -> list[tuple[int, int]]:
+def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrimConfig) -> list[tuple[int, int]]:
     """Find the column intervals to keep after trimming black background on the left/right.
 
     Falls back to the full image width if no interval survives the minimum height filter.
 
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
-        config (SegmentationCoreConfig): Tunable segmentation parameters.
+        config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
         list[tuple[int, int]]: Start and end column indices of each surviving left/right
@@ -106,7 +106,7 @@ def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreConf
 
 
 def _find_top_bottom_intervals(
-    img_hsv: np.ndarray, lr_trims: list[tuple[int, int]], config: SegmentationCoreConfig
+    img_hsv: np.ndarray, lr_trims: list[tuple[int, int]], config: SegmentationCoreTrimConfig
 ) -> list[tuple[int, int]]:
     """Find the row intervals to keep after trimming wooden tray and black background top/bottom.
 
@@ -119,7 +119,7 @@ def _find_top_bottom_intervals(
         img_hsv (np.ndarray): HSV image of the cropped tray region.
         lr_trims (list[tuple[int, int]]): Start and end column indices of the surviving
             left/right intervals, used to restrict the columns considered.
-        config (SegmentationCoreConfig): Tunable segmentation parameters.
+        config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
         list[tuple[int, int]]: Start and end row indices of each candidate top/bottom
@@ -152,7 +152,7 @@ def _find_top_bottom_intervals(
 
 
 def segment_core(
-    img_metadata: ImageMetadataCores, tray: ImageSegmentResult, config: SegmentationCoreConfig
+    img_metadata: ImageMetadataCores, tray: ImageSegmentResult, config: SegmentationCoreTrimConfig
 ) -> CoreSegmentResult:
     """Trim the bounding box to exclude the wooden tray and black background around the core.
 
@@ -163,7 +163,7 @@ def segment_core(
     Args:
         img_metadata (ImageMetadataCores): Metadata of the image to load and trim.
         tray (ImageSegmentResult): Bounding box to trim, in the original image's coordinate space.
-        config (SegmentationCoreConfig): Tunable segmentation parameters.
+        config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
         CoreSegmentResult: bbox is the trimmed bounding box as (left, top, right, bottom), in the

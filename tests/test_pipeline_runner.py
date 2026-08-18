@@ -15,7 +15,7 @@ class _FakeRunner(PipelineRunner[Any, Any, Any]):
     def _collect(self, input_dir: Path, with_mlflow: bool) -> list[Any]:
         return []
 
-    def _segment(self, imgs_metadata, config, with_mlflow, debug, cache) -> list[Any]:
+    def _segment(self, imgs_metadata, config, with_mlflow, debug, cache, cut_type="black_circle") -> list[Any]:
         return []
 
     def _collate_stitch(self, imgs, config) -> list[Any]:

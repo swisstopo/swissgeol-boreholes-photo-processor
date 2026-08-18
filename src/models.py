@@ -37,7 +37,7 @@ class ImageMetadata:
         return get_image_shape(str(self.image_path))
 
     def load_image(self, factor: float = 1.0) -> np.ndarray:
-        """Load a TIF image and normalize it to an RGB float array in [0, 1].
+        """Load an image and normalize it to an RGB float array in [0, 1].
 
         Args:
             factor (float): Downscale factor applied after loading; 1.0 leaves the image unscaled.
@@ -369,8 +369,12 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
     def load_core(self) -> Image.Image:
         """Cut a core segment from the source image, rotating to portrait if needed.
 
-        Cores are stored vertically in the output, so landscape crops (width > height)
-        are rotated 90° clockwise so the left edge (shallow end) becomes the top.
+        Reuses load_image for the source pixels, which already rotates portrait images to
+        landscape to match the coordinate space self.core.bbox was detected in. Cores are
+        stored vertically in the output, so landscape crops (width > height) are rotated 90°
+        clockwise so the left edge (shallow end) becomes the top. The crop is cached after
+        first access so repeated calls (e.g. during parallel stitching) don't re-read the
+        source file.
 
         Returns:
             Image.Image: The cropped core segment image in portrait orientation.
@@ -382,11 +386,9 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
             raise ValueError(f"No core region detected for image: {self.image_path}")
 
         if self._core_cache is None:
-            # Crop from the normalized 8-bit array (not the raw file) since the final stitched
-            # output is always 8-bit RGB; reuses the array already produced by load_image().
-            src = Image.fromarray((255 * self.load_image()).astype(np.uint8))
+            src = self.load_image()
             left, upper, right, lower = (round(v) for v in self.core.bbox)
-            crop = src.crop((left, upper, right, lower))
+            crop = Image.fromarray((255 * src[upper:lower, left:right]).astype(np.uint8))
             if crop.width > crop.height:
                 crop = crop.transpose(Image.Transpose.ROTATE_270)  # clockwise: left (shallow) → top
             self._core_cache = crop
@@ -442,20 +444,31 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
             cuttings=cuttings,
         )
         if preload:
-            obj.load_cutting()
+            obj.load_cuttings()
 
         return obj
 
-    def load_cutting(self) -> Image.Image:
-        """Load a cutting image, rotating portrait crops to landscape so they fit the stitching grid.
+    def load_cuttings(self) -> Image.Image:
+        """Cut the cuttings segment from the source image.
+
+        Reuses load_image for the source pixels, which already rotates portrait images to
+        landscape to match the coordinate space self.cuttings.bbox was detected in. The crop
+        is cached after first access so repeated calls (e.g. during parallel stitching) don't
+        re-read the source file.
 
         Returns:
-            Image.Image: The source image, rotated 90° if it was originally in portrait orientation.
+            Image.Image: The cropped cuttings segment image, in landscape orientation.
+
+        Raises:
+            ValueError: If no cuttings region was detected for this image.
         """
+        if self.cuttings is None:
+            raise ValueError(f"No cuttings region detected for image: {self.image_path}")
+
         if self._cuttings_cache is None:
-            with Image.open(self.image_path) as src:
-                img = src.transpose(Image.Transpose.ROTATE_90) if src.height > src.width else src.copy()
-            self._cuttings_cache = img
+            src = self.load_image()
+            left, upper, right, lower = (round(v) for v in self.cuttings.bbox)
+            self._cuttings_cache = Image.fromarray((255 * src[upper:lower, left:right]).astype(np.uint8))
 
         return self._cuttings_cache
 

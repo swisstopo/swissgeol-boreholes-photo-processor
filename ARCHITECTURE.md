@@ -2,48 +2,58 @@
 
 ## Overview
 
-This pipeline turns individual close-up photos of borehole core/cuttings segments into
-composite "sheet" images: several core segments placed side by side on a black canvas,
-flanked by a depth ruler, labeled with depth values and the borehole ID. It's built for
-batch processing across many boreholes (folders) at once, run either locally or via CLI
-in a deployed environment, with optional MLflow tracking. See [README.md](README.md) for
-installation, CLI usage, and the expected input/output folder layout — this document
-covers *how the pipeline works internally and why*.
+This pipeline turns individual close-up photos of borehole core or cuttings segments into
+composite "sheet" images for a borehole. It's built for batch processing across many
+boreholes (folders) at once, run either locally or via CLI in a deployed environment, with
+optional MLflow tracking. See [README.md](README.md) for installation, CLI usage, and the
+expected input/output folder layout — this document covers *how the pipeline works
+internally and why*.
 
-## Data flow
-
-Entry point: `src/run.py::main()` → `run()` (single borehole folder) or `batch_run()`
-(root folder containing one subfolder per borehole).
-
-For each borehole folder, `run()` does, in order:
-
-1. **Scan** the folder for `.tif` files, parse `ImageMetadata` (borehole ID + depth range)
-   from each filename, skip unreadable/non-image files (`src/run.py`).
-2. **Segment** (`src/segment/segment.py`) — for each image, detect the core region, the
-   wooden tray, and the depth ruler, producing `ImageMetadataProcessed`.
-3. **Evaluate** (`src/evaluations/core.py`, only with `--mlflow`) — flag detections whose
-   measured core length deviates too far from the batch median, and whose core width deviates
-   too far from its depth segment's reference (segments found via `DPCoreWidthEstimation`), as
-   a segmentation quality signal.
-4. **Stitch** (`src/stitching/stitching.py`) — group processed images into chunks of
-   `num_cores_per_image`, resize each core to a shared physical scale, and compose them
-   onto labeled canvases with rulers.
+Cores and cuttings are two independent pipelines (`cores`/`cuttings` CLI subcommands,
+`main_cores()`/`main_cuttings()` in `src/run.py`), each backed by a `PipelineRunner`
+subclass (`src/pipeline_runner.py`): `CorePipelineRunner` or `CuttingsPipelineRunner`. Both
+share `PipelineRunner.run()` (single borehole folder) / `batch_run()` (root folder
+containing one subfolder per borehole) — a template method that calls the subclass's
+`_collect` → `_segment` → `_evaluate` (no-op for cuttings) → `_stitch` in order, then saves
+the stitched pages. The two pipelines differ in segmentation approach and output layout
+because they're photographed under very different physical setups: cores are
+consistently-shaped rock cylinders in a wooden tray with a printed ruler, while cuttings
+are loose rock fragments whose layout (tray, paper sheet, black circle) varies by
+borehole.
 
 All tunable parameters (segmentation thresholds, stitching layout, evaluation tolerances)
 live in `src/config.py` / `src/evaluations/config.py`, loaded from `config.yaml`
 (`PipelineConfig.from_yaml`) — there are no CLI flags for these, so a config file is the
 single source of truth for a given run.
 
-## Segmentation
+## Cores pipeline
 
-The core detection problem is: given a raw photo of a tray with a core/cuttings segment
-in it, find the bounding box of just the rock (excluding the wooden tray, background, and
-printed ruler). Both detectors follow the same shared-group-with-per-image-fallback
-pattern (`ProcessGroupByShape` in `src/segment/utils/misc.py`): compute one aggregated
-result per shape group when the group is large enough, otherwise detect each image in
-that group independently. They are no longer fully independent, though: ruler detection
-runs first, and its bbox is passed into the tray's per-image fallback so a candidate
-region overlapping the ruler is never mistaken for the core.
+### Data flow
+
+`CorePipelineRunner`, in order:
+
+1. **Collect** — scan the folder for `.tif` files, parse `ImageMetadataCores` (borehole ID
+   + depth range) from each filename, skip unreadable/non-image files.
+2. **Segment** (`src/segment/segment_cores.py`) — for each image, detect the core region,
+   the wooden tray, and the depth ruler, producing `ImageMetadataProcessedCores`.
+3. **Evaluate** (`src/evaluations/core.py`, only with `--mlflow`) — flag detections whose
+   measured core length deviates too far from the batch median, and whose core width deviates
+   too far from its depth segment's reference (segments found via `DPCoreWidthEstimation`), as
+   a segmentation quality signal.
+4. **Stitch** (`src/stitching/stitching_cores.py`) — group processed images into chunks of
+   `num_cores_per_image`, resize each core to a shared physical scale, and compose them
+   onto labeled canvases with rulers.
+
+### Segmentation
+
+The core detection problem is: given a raw photo of a tray with a core segment in it, find
+the bounding box of just the rock (excluding the wooden tray, background, and printed
+ruler). Both detectors follow the same shared-group-with-per-image-fallback pattern
+(`ProcessGroupByShape` in `src/segment/utils/misc.py`): compute one aggregated result per
+shape group when the group is large enough, otherwise detect each image in that group
+independently. They are no longer fully independent, though: ruler detection runs first,
+and its bbox is passed into the tray's per-image fallback so a candidate region overlapping
+the ruler is never mistaken for the core.
 
 ```mermaid
 flowchart TD
@@ -113,9 +123,9 @@ failures are logged and that image is dropped (`SegmentationError`). Both the sh
 aggregation and the per-image fallback pass run in parallel worker pools sized by the same
 `config.n_workers`.
 
-## Stitching / Output
+### Stitching / Output
 
-`src/stitching/stitching.py` chunks the processed images into groups of
+`src/stitching/stitching_cores.py` chunks the processed images into groups of
 `num_cores_per_image` and, per chunk, produces one canvas image
 (`stitching_batch`/`_draw_*` in `src/stitching/draw.py`):
 
@@ -134,31 +144,97 @@ aggregation and the per-image fallback pass run in parallel worker pools sized b
 - Each canvas is saved as both `.png` and `.tif` in the output directory, mirroring the
   input's folder structure (single borehole vs. one subfolder per borehole in batch mode).
 
+## Cuttings pipeline
+
+### Data flow
+
+`CuttingsPipelineRunner`, in order:
+
+1. **Collect** (`src/preprocessing/cuttings.py`, `collect_cuttings`) — scan the folder for
+   image files (`.jpg`/`.jpeg`/`.bmp`/`.tif`/`.tiff`), parse a single point depth per
+   filename into `ImageMetadataCuttings`, exclude sample-vial photos, and drop
+   duplicate-depth images (keeping the first by filename).
+2. **Segment** (`src/segment/segment_cuttings.py`) — crop the cuttings region using one of
+   three interchangeable per-image methods, selected via `--cut-type`, producing
+   `ImageMetadataProcessedCuttings`.
+3. *(No evaluation step yet — `_evaluate` is a no-op for this pipeline.)*
+4. **Stitch** (`src/stitching/stitching_cuttings.py`) — arrange into fixed-size grid pages.
+
+Unlike cores, cuttings filenames follow no single convention — different boreholes/labs
+name files differently — so `ImageMetadataCuttings.from_path` tries six borehole-specific
+regexes in turn (GEo-02's dash-separated numbers, IMG-trailing-depth, plain leading-depth,
+the V1SM and Montagny prefixed forms, and a generic Forsthaus trailing-depth fallback) and
+raises if none match. `borehole_id` isn't parsed from the filename at all — it's assigned
+by the caller from the input folder name — since none of these conventions carry a
+reliably-parseable id prefix.
+
+### Segmentation
+
+Unlike core segmentation, cuttings are segmented **independently per image** — there's no
+shared-group/fallback split, because there's no batch-wide consistency to exploit (no
+common tray shape or fixed camera rig across a borehole's cuttings photos) and no ruler to
+coordinate with. `segment_cuttings` dispatches each image to a segmenter
+(`src/segment/segment_cuttings.py`), chosen once per run via `--cut-type` to match the
+physical layout used at that borehole:
+
+- **`black_circle`** (default) — cuttings sit inside a black circular tray. Threshold on
+  grayscale brightness, take the largest connected component, and crop a square around its
+  centroid sized from its area.
+
+Each segmenter returns one bbox per image; failures (`ValueError`/`OSError`/
+`SegmentationError`) are logged and that image is dropped, same as cores. There's no
+parallel worker pool here (`segment_cuttings` runs a plain loop) since per-image
+segmentation is already cheap relative to core's optical-flow/GMM group step.
+
+### Stitching / Output
+
+`src/stitching/stitching_cuttings.py` arranges all of a borehole's cuttings into pages of a
+**fixed grid** (`num_cuttings_columns` × `num_cuttings_rows`), filled column-major (top to
+bottom within a column, then the next column) — unlike cores, there's no shared physical
+scale to preserve, so layout is purely grid-based:
+
+- Portrait crops are rotated 90° to landscape, then each is scaled down (never up) to fit
+  its grid cell while preserving aspect ratio, and left-aligned so every row's left margin
+  is consistent.
+- Each cell gets a depth annotation to its right; the top/bottom of each column additionally
+  shows the depth of that column's first/last cutting as a border label.
+- The borehole ID is drawn once per page, shared across all pages like the core pipeline's
+  ID label.
+
 ## Assumptions & edge cases
 
-- **Filename contract is load-bearing.** Every image filename must contain
-  `_XXXX.XX-YYYY.YY` (depth range); the borehole ID is inferred as everything before it.
-  Files that don't match are skipped with a warning, not fatal to the whole batch.
-- **Shape grouping assumes a static camera per batch of same-shaped images.** If two
-  genuinely different camera setups happen to produce images of the same pixel
+- **Filename contract is load-bearing.** Cores require `_XXXX.XX-YYYY.YY` (depth range) in
+  the filename; the borehole ID is inferred as everything before it. Cuttings require a
+  depth parseable under one of six borehole-specific conventions (see Cuttings pipeline
+  above); the borehole ID instead comes from the folder name. Files that don't match are
+  skipped with a warning, not fatal to the whole batch.
+- **Shape grouping (cores only) assumes a static camera per batch of same-shaped images.**
+  If two genuinely different camera setups happen to produce images of the same pixel
   dimensions, they'd incorrectly share a foreground/ruler estimate. This is a deliberate
   trade-off — using filename/shape as a cheap proxy for "same rig" rather than requiring
-  explicit camera metadata.
-- **Only 3-channel (or RGBA-with-alpha-dropped) TIFs are supported**; grayscale input
-  raises `SegmentationError`. Loading uses `tifffile` rather than PIL specifically because
-  raw scans may be 16-bit, which PIL handles less reliably (`src/utils.py`).
+  explicit camera metadata. Cuttings has no equivalent assumption since it segments
+  per-image.
+- **Cuttings' `--cut-type` must match the physical layout at that borehole** and is picked
+  manually — there's no auto-detection, so the wrong choice produces a garbage crop rather
+  than an error.
+- **Only 3-channel (or RGBA-with-alpha-dropped) images are supported**; grayscale input
+  raises `SegmentationError`. Cores load via `tifffile` rather than PIL specifically
+  because raw scans may be 16-bit, which PIL handles less reliably (`src/utils.py`).
+  Cuttings additionally accept `.jpg`/`.jpeg`/`.bmp` (no 16-bit concern there).
 - **Downscaling before detection, not before output.** Segmentation and OCR run on
   downscaled copies of images (`downscale_factor` per detector) for speed; all resulting
   bounding boxes are scaled back up before being applied to full-resolution images for
   cropping/stitching.
 
 <!-- arch-sync:metadata
-generated-at: 2026-08-03
-git-ref: b7c8ddb
+generated-at: 2026-08-14
+git-ref: a3f492d
 covered-paths:
   - src/run.py
+  - src/pipeline_runner.py
   - src/segment/
   - src/stitching/
+  - src/preprocessing/
   - src/evaluations/
   - src/models.py
   - src/config.py

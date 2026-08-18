@@ -24,7 +24,7 @@ def make_processed(tmp_path):
     def _factory(
         depth_start: float,
         depth_end: float,
-        size: tuple[int, int] = (20, TEST_MAX_OUTPUT_PX // 2),
+        size: tuple[int, int] = (TEST_MAX_OUTPUT_PX // 2, 20),
         color: tuple[int, int, int] = (128, 128, 128),
     ) -> ImageMetadataProcessedCores:
         """Creates a simple ImageMetadataProcessedCores with a single solid-color crop of the specified size."""
@@ -113,10 +113,10 @@ def test_cores_appear_in_order_left_to_right(make_processed):
 
 
 def test_outlier_core_width_matches_the_reference_core(make_processed):
-    """An outlier core is placed and sized consistently with the resize step."""
-    normal_a = make_processed(0.0, 1.0, size=(20, 100), color=RED)
-    normal_b = make_processed(1.0, 2.0, size=(20, 100), color=GREEN)
-    outlier = make_processed(2.0, 102.0, size=(20, 1000), color=BLUE)
+    """An outlier core is scaled to exactly fill max_core_height; shorter cores share its scale, so end up smaller."""
+    normal_a = make_processed(0.0, 1.0, size=(100, 20), color=RED)
+    normal_b = make_processed(1.0, 2.0, size=(100, 20), color=GREEN)
+    outlier = make_processed(2.0, 102.0, size=(1000, 20), color=BLUE)
 
     config = StitchingConfig(core=CoreStitchingConfig(max_core_height=1000))
     batches = stitching_cores([normal_a, normal_b, outlier], config)
@@ -135,8 +135,9 @@ def test_outlier_core_width_matches_the_reference_core(make_processed):
     ys_normal_b, _ = np.nonzero((img == GREEN).all(axis=-1))
     ys_outlier, _ = np.nonzero((img == BLUE).all(axis=-1))
 
-    assert ys_normal_a.max() - ys_normal_a.min() + 1 == TEST_MAX_OUTPUT_PX
-    assert ys_normal_b.max() - ys_normal_b.min() + 1 == TEST_MAX_OUTPUT_PX
+    # normal cores are 10x shorter than the outlier, so at a shared scale they're 10x shorter on screen too
+    assert ys_normal_a.max() - ys_normal_a.min() + 1 == TEST_MAX_OUTPUT_PX // 10
+    assert ys_normal_b.max() - ys_normal_b.min() + 1 == TEST_MAX_OUTPUT_PX // 10
     assert ys_outlier.max() - ys_outlier.min() + 1 == TEST_MAX_OUTPUT_PX
 
 

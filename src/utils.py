@@ -18,12 +18,14 @@ _TIFF_EXTENSIONS = {".tif", ".tiff"}
 # Store up to 4 different image (downscaled) in memory
 @lru_cache(maxsize=4)
 def load_image(path: str, factor: float = 1.0) -> np.ndarray:
-    """Load an image and normalize it to an RGB float array in [0, 1].
+    """Load an image and normalize it to an RGB float array in [0, 1], oriented landscape.
 
     Only 3-channel images are supported; grayscale (2D) input raises an error.
     TIFs are read via tifffile since raw borehole scans may be 16-bit, which
     PIL does not handle as reliably for downstream processing; other formats
-    (e.g. JPEG, BMP) are read via PIL.
+    (e.g. JPEG, BMP) are read via PIL. Portrait images (height > width) are
+    rotated 90 degrees counter-clockwise so every downstream detector can
+    assume landscape input, matching get_image_shape.
 
     Args:
         path (str): Path to the image to load.
@@ -47,6 +49,9 @@ def load_image(path: str, factor: float = 1.0) -> np.ndarray:
     elif img.shape[-1] != 3:
         raise SegmentationError(f"Input should be RGB(A): {path}")
 
+    if img.shape[0] > img.shape[1]:
+        img = np.rot90(img)
+
     # normalize to [0, 1]
     if img.dtype == np.uint8:
         img = img.astype(float) / 255.0
@@ -61,6 +66,9 @@ def load_image(path: str, factor: float = 1.0) -> np.ndarray:
 @cache
 def get_image_shape(path: str) -> tuple[int, int, int]:
     """Get the shape of an image without loading the entire image into memory.
+
+    Reflects the landscape-oriented shape load_image would return, not necessarily
+    the file's raw on-disk shape.
 
     Args:
         path (str): Path to the image.
@@ -80,8 +88,12 @@ def get_image_shape(path: str) -> tuple[int, int, int]:
 
     if len(img_shape) != 3 or img_shape[-1] not in (3, 4):
         raise SegmentationError(f"Input should be RGB: {path}")
+
+    height, width = img_shape[:2]
+    if height > width:
+        height, width = width, height
     # RGBA scans get their alpha channel dropped by load_image, so report the RGB shape
-    return (*img_shape[:2], 3)
+    return (height, width, 3)
 
 
 def scale_bbox(
