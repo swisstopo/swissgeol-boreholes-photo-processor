@@ -65,10 +65,39 @@ class SegmentationCoreConfig:
 
 
 @dataclass
+class SegmentationCuttingsPebbleConfig:
+    """Tunable parameters for segmenting pebble cuttings via paper-sheet detection."""
+
+    min_extent: float = 0.45  # minimum bounding-box fill fraction for a paper candidate
+    min_solidity: float = 0.7  # minimum convexity for a paper candidate
+    min_area_frac: float = 0.002  # minimum paper candidate area, as a fraction of the image area
+    max_area_frac: float = 0.35  # maximum paper candidate area, as a fraction of the image area
+    edge_margin: float = 0.03  # fraction of the relevant dimension a candidate must reach to count as edge-anchored
+    closing_disk: int = 25  # radius for binary closing that fills the black stripes punched into the paper mask
+    sat_threshold: float = 0.15  # saturation (HSV) below this = colorless (candidate paper)
+    val_threshold_strict: float = 0.85  # brightness (HSV) above this = bright paper, tried first
+    val_threshold_loose: float = 0.45  # looser brightness fallback for darker exposures, tried if the strict one fails
+    stripe_min_drop: float = 0.2  # brightness drop (vs. the patch's 85th percentile) that counts as a dark stripe
+    stripe_max_width_frac: float = 0.1  # stripes wider than this fraction (x3) of the patch are a shadow, not a tick
+    max_cropped_frac: float = 0.5  # a paper candidate cropping away more than this fraction of the image is rejected
+
+
+@dataclass
+class SegmentationCuttingsBlackCircleConfig:
+    """Tunable parameters for segmenting cuttings laid out inside a black circle."""
+
+    val_threshold: float = 0.16  # grayscale value above this = inside the circle (not black background)
+    opening_disk: int = 7  # radius for binary opening (removes noise)
+    radius_shrink: float = 0.98  # shrink the detected circle's radius by this factor before inscribing the square crop
+
+
+@dataclass
 class SegmentationCuttingsConfig:
     """Tunable parameters for the cuttings segmentation step."""
 
     downscale_factor: float = 0.25  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    pebble: SegmentationCuttingsPebbleConfig = field(default_factory=SegmentationCuttingsPebbleConfig)
+    black_circle: SegmentationCuttingsBlackCircleConfig = field(default_factory=SegmentationCuttingsBlackCircleConfig)
 
 
 @dataclass

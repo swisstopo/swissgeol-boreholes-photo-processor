@@ -6,7 +6,7 @@ from timeit import default_timer as timer
 import numpy as np
 from skimage.color import rgb2gray, rgb2hsv
 from skimage.measure import label, regionprops
-from skimage.morphology import closing, disk, opening
+from skimage.morphology import disk, opening
 from tqdm import tqdm
 
 from src.config import SegmentationConfig, SegmentationCuttingsConfig, SegmentationError
@@ -19,6 +19,7 @@ from src.models import (
     ImageMetadataCuttings,
     ImageMetadataProcessedCuttings,
 )
+from src.segment.utils.cuttings import confirm_stripe, detect_paper
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
@@ -41,57 +42,29 @@ def segment_pebble(
     t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
     h, w = img.shape[:2]
-
     hsv = rgb2hsv(img)
-    mask = (hsv[..., 2] > 0.85) & (hsv[..., 1] < 0.15)  # bright AND colorless
+    pebble_config = config.pebble
 
-    # the black stripes punch holes in the paper — close them
-    mask = closing(mask, disk(max(1, round(25 * config.downscale_factor))))
+    # fixed threshold first; some images are shot at a much darker exposure and
+    # never produce a usable candidate there, so retry with a much looser
+    # brightness cutoff -- still "bright relative to the surrounding rock", just
+    # not absolute-white
+    paper = detect_paper(
+        hsv, h, w, pebble_config.val_threshold_strict, config.downscale_factor, pebble_config
+    ) or detect_paper(hsv, h, w, pebble_config.val_threshold_loose, config.downscale_factor, pebble_config)
+    paper = confirm_stripe(paper, hsv, h, w, pebble_config)
 
-    lbl = label(mask)
-    props = regionprops(lbl)
-
-    # the paper is a solid rectangle -- it should fill nearly all of its own
-    # bounding box (extent) and be close to convex (solidity). A merged blob of
-    # stones is porous (lots of black gaps between pebbles survive closing) and
-    # scores much lower on both, even when its raw area is larger. The paper is
-    # always anchored to an edge of the *original* photo's bottom, but load_image
-    # rotates portrait photos 90 degrees to landscape, which moves that edge to the
-    # right rather than the bottom -- so a candidate is only trustworthy if it
-    # reaches the bottom OR the right edge, no matter how high its extent/solidity.
-    # It's also always a modest slice of the frame; a blob covering most of the
-    # image (e.g. a wash of pale sand/rock filling most of the shot, which can
-    # coincidentally touch both edges) is never the paper regardless of shape score.
-    MIN_EXTENT = 0.45
-    MIN_SOLIDITY = 0.7
-    MAX_AREA_FRAC = 0.35
-    EDGE_MARGIN = 0.03  # fraction of the relevant dimension the candidate must reach to count as edge-anchored
-
-    def touches_bottom(p):
-        return p.bbox[2] >= (1 - EDGE_MARGIN) * h
-
-    def touches_right(p):
-        return p.bbox[3] >= (1 - EDGE_MARGIN) * w
-
-    candidates = [
-        p
-        for p in props
-        if p.extent >= MIN_EXTENT
-        and p.solidity >= MIN_SOLIDITY
-        and p.area <= MAX_AREA_FRAC * h * w
-        and (touches_bottom(p) or touches_right(p))
-    ]
-    paper = max(candidates, key=lambda p: p.area) if candidates else None
-
-    # crop away the side of the frame the paper sits on, preferring the bottom
-    # when it touches both (the common corner case). A degenerate paper region
-    # (spanning the full height or width) usually just means the reference sheet
-    # isn't reliably in frame, so the whole image is already the cuttings region.
+    # the paper always sits toward the bottom-right of the frame, so the cuttings
+    # region is always everything to the left of its left edge -- never crop by
+    # height, even when the candidate was accepted for touching the bottom rather
+    # than the right. A degenerate paper region (left edge at column 0, i.e.
+    # nothing left to keep) usually just means the reference sheet isn't reliably
+    # in frame, so the whole image is already the cuttings region. The paper is
+    # also always a modest slice of the frame, so a candidate that would crop away
+    # more than half the image is more likely a misdetection than a real card.
     bbox = (0, 0, w, h)
     if paper is not None:
-        if touches_bottom(paper) and paper.bbox[0] > 0:
-            bbox = (0, 0, w, paper.bbox[0])
-        elif touches_right(paper) and paper.bbox[1] > 0:
+        if paper.bbox[1] > 0 and (w - paper.bbox[1]) <= pebble_config.max_cropped_frac * w:
             bbox = (0, 0, paper.bbox[1], h)
         else:
             paper = None
@@ -115,9 +88,10 @@ def segment_black_circle(
     """Segment cuttings that are inside a black circle."""
     t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
+    black_circle_config = config.black_circle
     gray = rgb2gray(img)
-    mask = gray > 0.16
-    mask = opening(mask, disk(max(1, round(7 * config.downscale_factor))))
+    mask = gray > black_circle_config.val_threshold
+    mask = opening(mask, disk(max(1, round(black_circle_config.opening_disk * config.downscale_factor))))
 
     # largest connected component
     lbl = label(mask)
@@ -126,7 +100,7 @@ def segment_black_circle(
 
     cy, cx = biggest.centroid
     r = np.sqrt(biggest.area / np.pi)
-    half = int(0.98 * r / np.sqrt(2))
+    half = int(black_circle_config.radius_shrink * r / np.sqrt(2))
 
     return CuttingsSegmentResult(
         bbox=scale_bbox(
