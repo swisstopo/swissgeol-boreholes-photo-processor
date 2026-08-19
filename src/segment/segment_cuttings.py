@@ -18,6 +18,7 @@ from src.models import (
     CuttingsSegmentResult,
     ImageMetadataCuttings,
     ImageMetadataProcessedCuttings,
+    PaperDetectionStatus,
 )
 from src.segment.utils.cuttings import confirm_stripe, detect_paper
 from src.utils import scale_bbox
@@ -49,10 +50,15 @@ def segment_pebble(
     # never produce a usable candidate there, so retry with a much looser
     # brightness cutoff -- still "bright relative to the surrounding rock", just
     # not absolute-white
-    paper = detect_paper(
+    candidate = detect_paper(
         hsv, h, w, pebble_config.val_threshold_strict, config.downscale_factor, pebble_config
     ) or detect_paper(hsv, h, w, pebble_config.val_threshold_loose, config.downscale_factor, pebble_config)
-    paper = confirm_stripe(paper, hsv, h, w, pebble_config)
+    paper = confirm_stripe(candidate, hsv, h, w, pebble_config)
+
+    if candidate is None:
+        status = PaperDetectionStatus.NO_CANDIDATE
+    elif paper is None:
+        status = PaperDetectionStatus.NO_STRIPE_PATTERN
 
     # the paper always sits toward the bottom-right of the frame, so the cuttings
     # region is always everything to the left of its left edge -- never crop by
@@ -64,20 +70,27 @@ def segment_pebble(
     # more than half the image is more likely a misdetection than a real card.
     bbox = (0, 0, w, h)
     if paper is not None:
-        if paper.bbox[1] > 0 and (w - paper.bbox[1]) <= pebble_config.max_cropped_frac * w:
-            bbox = (0, 0, paper.bbox[1], h)
-        else:
+        if paper.bbox[1] == 0:
+            status = PaperDetectionStatus.DEGENERATE_LEFT_EDGE
             paper = None
+        elif (w - paper.bbox[1]) > pebble_config.max_cropped_frac * w:
+            status = PaperDetectionStatus.CROPPED_TOO_MUCH
+            paper = None
+        else:
+            bbox = (0, 0, paper.bbox[1], h)
+            status = PaperDetectionStatus.FOUND
 
     if paper is None:
         logger.warning(
-            "No reliable paper region found for %s; using the full image as the cuttings region",
+            "No reliable paper region found for %s (%s); using the full image as the cuttings region",
             img_metadata.image_path.name,
+            status.value,
         )
 
     return CuttingsSegmentResult(
         bbox=scale_bbox(bbox, factor=1 / config.downscale_factor),
         time=timer() - t_start,
+        paper_status=status,
     )
 
 
