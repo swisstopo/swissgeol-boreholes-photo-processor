@@ -180,6 +180,13 @@ physical layout used at that borehole:
 - **`black_circle`** (default) — cuttings sit inside a black circular tray. Threshold on
   grayscale brightness, take the largest connected component, and crop a square around its
   centroid sized from its area.
+- **`pebble`** (`segment_pebble` in `src/segment/segment_cuttings.py`) — cuttings sit next to
+  a printed reference paper sheet, the one visually consistent thing to threshold (bright,
+  colorless, rectangular) since raw pebble texture varies too much. Detect it via HSV
+  brightness/saturation and shape/edge filtering, confirm it by its printed tick stripes to
+  rule out other bright regions, then crop everything left of its left edge. Falls back to
+  the full, uncropped image (tracked via `PaperDetectionStatus`) whenever detection or
+  confirmation is unreliable, rather than risk a wrong crop.
 
 Each segmenter returns one bbox per image; failures (`ValueError`/`OSError`/
 `SegmentationError`) are logged and that image is dropped, same as cores. There's no
@@ -215,8 +222,9 @@ scale to preserve, so layout is purely grid-based:
   explicit camera metadata. Cuttings has no equivalent assumption since it segments
   per-image.
 - **Cuttings' `--cut-type` must match the physical layout at that borehole** and is picked
-  manually — there's no auto-detection, so the wrong choice produces a garbage crop rather
-  than an error.
+  manually — there's no auto-detection. A wrong choice still produces a garbage crop for
+  `black_circle`; `pebble` degrades to an uncropped fallback instead, but neither fails loudly
+  enough to make the mismatch obvious (tracked in #75).
 - **Only 3-channel (or RGBA-with-alpha-dropped) images are supported**; grayscale input
   raises `SegmentationError`. Cores load via `tifffile` rather than PIL specifically
   because raw scans may be 16-bit, which PIL handles less reliably (`src/utils.py`).
