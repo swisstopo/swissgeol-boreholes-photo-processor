@@ -1,13 +1,19 @@
 """Low-level helpers for pebble cuttings detection: paper-sheet region scoring and edge checks."""
 
+from typing import Any
+
 import numpy as np
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, disk
 
 from src.segment.config import SegmentationCuttingsPebbleConfig
 
+# skimage.measure.regionprops returns RegionProperties, but that class lives in a private
+# module (skimage.measure._regionprops); alias to Any rather than import it.
+RegionProps = Any
 
-def touches_bottom(p, h: int, edge_margin: float) -> bool:
+
+def touches_bottom(p: RegionProps, h: int, edge_margin: float) -> bool:
     """Check whether a region's bounding box reaches the bottom edge of the image.
 
     Args:
@@ -21,7 +27,7 @@ def touches_bottom(p, h: int, edge_margin: float) -> bool:
     return p.bbox[2] >= (1 - edge_margin) * h
 
 
-def touches_right(p, w: int, edge_margin: float) -> bool:
+def touches_right(p: RegionProps, w: int, edge_margin: float) -> bool:
     """Check whether a region's bounding box reaches the right edge of the image.
 
     Args:
@@ -35,7 +41,7 @@ def touches_right(p, w: int, edge_margin: float) -> bool:
     return p.bbox[3] >= (1 - edge_margin) * w
 
 
-def touches_left(p, w: int, edge_margin: float) -> bool:
+def touches_left(p: RegionProps, w: int, edge_margin: float) -> bool:
     """Check whether a region's bounding box reaches the left edge of the image.
 
     Args:
@@ -49,7 +55,7 @@ def touches_left(p, w: int, edge_margin: float) -> bool:
     return p.bbox[1] <= edge_margin * w
 
 
-def touches_top(p, h: int, edge_margin: float) -> bool:
+def touches_top(p: RegionProps, h: int, edge_margin: float) -> bool:
     """Check whether a region's bounding box reaches the top edge of the image.
 
     Args:
@@ -70,7 +76,7 @@ def detect_paper(
     v_thresh: float,
     downscale_factor: float,
     config: SegmentationCuttingsPebbleConfig,
-):
+) -> RegionProps | None:
     """Detect the reference paper sheet as the best-scoring bright, colorless region.
 
     The paper is a solid rectangle -- it should fill nearly all of its own bounding box

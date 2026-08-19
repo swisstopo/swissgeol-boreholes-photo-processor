@@ -413,8 +413,8 @@ class PaperDetectionStatus(StrEnum):
 
     FOUND = "found"
     NO_CANDIDATE = "no_candidate"  # no region passed the shape/area/edge-anchoring filters, at either threshold
-    DEGENERATE_LEFT_EDGE = "degenerate_left_edge"  # confirmed paper's left edge is at column 0 -- nothing to crop
-    CROPPED_TOO_MUCH = "cropped_too_much"  # confirmed paper would crop away more than max_cropped_frac of the image
+    DEGENERATE_LEFT_EDGE = "degenerate_left_edge"  # detected paper's left edge is at column 0 -- nothing to crop
+    CROPPED_TOO_MUCH = "cropped_too_much"  # detected paper would crop away more than max_cropped_frac of the image
 
 
 @dataclass

@@ -183,10 +183,11 @@ physical layout used at that borehole:
 - **`pebble`** (`segment_pebble` in `src/segment/segment_cuttings.py`) — cuttings sit next to
   a printed reference paper sheet, the one visually consistent thing to threshold (bright,
   colorless, rectangular) since raw pebble texture varies too much. Detect it via HSV
-  brightness/saturation and shape/edge filtering, confirm it by its printed tick stripes to
-  rule out other bright regions, then crop everything left of its left edge. Falls back to
-  the full, uncropped image (tracked via `PaperDetectionStatus`) whenever detection or
-  confirmation is unreliable, rather than risk a wrong crop.
+  brightness/saturation and shape/edge filtering (extent, solidity, area, edge-anchoring),
+  then crop everything left of its left edge. Falls back to the full, uncropped image
+  (tracked via `PaperDetectionStatus`) whenever no candidate passes those filters or the
+  candidate is geometrically implausible (e.g. would crop away more than half the image),
+  rather than risk a wrong crop.
 
 Each segmenter returns one bbox per image; failures (`ValueError`/`OSError`/
 `SegmentationError`) are logged and that image is dropped, same as cores. There's no

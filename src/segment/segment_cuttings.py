@@ -37,8 +37,8 @@ def segment_pebble(
         config (SegmentationCuttingsConfig): Tunable segmentation parameters.
 
     Returns:
-        CuttingsSegmentResult: The bounding box of the cuttings region and the time taken to
-        segment it.
+        CuttingsSegmentResult: The bounding box of the cuttings region, the time taken to
+        segment it, and the PaperDetectionStatus outcome of the paper-sheet detection.
     """
     t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
@@ -54,9 +54,6 @@ def segment_pebble(
         hsv, h, w, pebble_config.val_threshold_strict, config.downscale_factor, pebble_config
     ) or detect_paper(hsv, h, w, pebble_config.val_threshold_loose, config.downscale_factor, pebble_config)
 
-    if paper is None:
-        status = PaperDetectionStatus.NO_CANDIDATE
-
     # the paper always sits toward the bottom-right of the frame, so the cuttings
     # region is always everything to the left of its left edge -- never crop by
     # height, even when the candidate was accepted for touching the bottom rather
@@ -65,19 +62,21 @@ def segment_pebble(
     # in frame, so the whole image is already the cuttings region. The paper is
     # also always a modest slice of the frame, so a candidate that would crop away
     # more than half the image is more likely a misdetection than a real card.
-    bbox = (0, 0, w, h)
-    if paper is not None:
-        if paper.bbox[1] == 0:
-            status = PaperDetectionStatus.DEGENERATE_LEFT_EDGE
-            paper = None
-        elif (w - paper.bbox[1]) > pebble_config.max_cropped_frac * w:
-            status = PaperDetectionStatus.CROPPED_TOO_MUCH
-            paper = None
-        else:
-            bbox = (0, 0, paper.bbox[1], h)
-            status = PaperDetectionStatus.FOUND
-
     if paper is None:
+        status = PaperDetectionStatus.NO_CANDIDATE
+    elif paper.bbox[1] == 0:
+        status = PaperDetectionStatus.DEGENERATE_LEFT_EDGE
+        paper = None
+    elif (w - paper.bbox[1]) > pebble_config.max_cropped_frac * w:
+        status = PaperDetectionStatus.CROPPED_TOO_MUCH
+        paper = None
+    else:
+        status = PaperDetectionStatus.FOUND
+
+    if paper is not None:
+        bbox = (0, 0, paper.bbox[1], h)
+    else:
+        bbox = (0, 0, w, h)
         logger.warning(
             "No reliable paper region found for %s (%s); using the full image as the cuttings region",
             img_metadata.image_path.name,
@@ -95,7 +94,16 @@ def segment_black_circle(
     img_metadata: ImageMetadataCuttings,
     config: SegmentationCuttingsConfig,
 ) -> CuttingsSegmentResult:
-    """Segment cuttings that are inside a black circle."""
+    """Segment cuttings that are inside a black circle.
+
+    Args:
+        img_metadata (ImageMetadataCuttings): Metadata for the cuttings image to segment.
+        config (SegmentationCuttingsConfig): Tunable segmentation parameters.
+
+    Returns:
+        CuttingsSegmentResult: The bounding box of the cuttings region and the time taken to
+        segment it.
+    """
     t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
     black_circle_config = config.black_circle
