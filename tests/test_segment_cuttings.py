@@ -57,7 +57,7 @@ def test_segment_black_circle_detects_bbox_inside_circle(make_metadata):
 
 
 def _fake_paper(bbox: tuple[int, int, int, int]) -> SimpleNamespace:
-    """A stand-in for the regionprops object detect_paper/confirm_stripe would return."""
+    """A stand-in for the regionprops object detect_paper would return."""
     return SimpleNamespace(bbox=bbox)
 
 
@@ -67,39 +67,19 @@ def pebble_metadata(make_metadata):
 
 
 def test_segment_pebble_crops_left_of_confirmed_paper(pebble_metadata):
-    """A confirmed paper region crops everything left of its left edge."""
+    """A detected paper region crops everything left of its left edge."""
     paper = _fake_paper((20, 300, 200, 400))  # bbox = (min_row, min_col, max_row, max_col)
 
-    with (
-        patch("src.segment.segment_cuttings.detect_paper", return_value=paper),
-        patch("src.segment.segment_cuttings.confirm_stripe", return_value=paper),
-    ):
+    with patch("src.segment.segment_cuttings.detect_paper", return_value=paper):
         result = segment_pebble(pebble_metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
 
     assert result.bbox == (0, 0, 300, 200)
     assert result.paper_status == PaperDetectionStatus.FOUND
 
 
-def test_segment_pebble_falls_back_when_no_stripe_pattern(pebble_metadata):
-    """A bright region shaped like paper but with no printed ticks nearby is rejected (issue #69)."""
-    paper = _fake_paper((20, 300, 200, 400))
-
-    with (
-        patch("src.segment.segment_cuttings.detect_paper", return_value=paper),
-        patch("src.segment.segment_cuttings.confirm_stripe", return_value=None),
-    ):
-        result = segment_pebble(pebble_metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
-
-    assert result.bbox == (0, 0, 400, 200)
-    assert result.paper_status == PaperDetectionStatus.NO_STRIPE_PATTERN
-
-
 def test_segment_pebble_falls_back_when_no_candidate_found(pebble_metadata):
     """No bright/colorless region at all keeps the full image instead of guessing."""
-    with (
-        patch("src.segment.segment_cuttings.detect_paper", return_value=None),
-        patch("src.segment.segment_cuttings.confirm_stripe", return_value=None),
-    ):
+    with patch("src.segment.segment_cuttings.detect_paper", return_value=None):
         result = segment_pebble(pebble_metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
 
     assert result.bbox == (0, 0, 400, 200)
@@ -114,13 +94,10 @@ def test_segment_pebble_falls_back_when_no_candidate_found(pebble_metadata):
     ],
 )
 def test_segment_pebble_rejects_unreliable_paper_region(pebble_metadata, paper_bbox, expected_status):
-    """A confirmed paper region that's still geometrically implausible falls back to the full image."""
+    """A detected paper region that's still geometrically implausible falls back to the full image."""
     paper = _fake_paper(paper_bbox)
 
-    with (
-        patch("src.segment.segment_cuttings.detect_paper", return_value=paper),
-        patch("src.segment.segment_cuttings.confirm_stripe", return_value=paper),
-    ):
+    with patch("src.segment.segment_cuttings.detect_paper", return_value=paper):
         result = segment_pebble(pebble_metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
 
     assert result.bbox == (0, 0, 400, 200)

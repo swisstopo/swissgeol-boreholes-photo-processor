@@ -47,7 +47,6 @@ def test_cuttings_segment_result_paper_status_counts_tallies_every_outcome():
     assert counts == {
         "found": 2,
         "no_candidate": 1,
-        "no_stripe_pattern": 0,
         "degenerate_left_edge": 0,
         "cropped_too_much": 0,
     }

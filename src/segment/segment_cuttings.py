@@ -20,7 +20,7 @@ from src.models import (
     ImageMetadataProcessedCuttings,
     PaperDetectionStatus,
 )
-from src.segment.utils.cuttings import confirm_stripe, detect_paper
+from src.segment.utils.cuttings import detect_paper
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
@@ -50,15 +50,12 @@ def segment_pebble(
     # never produce a usable candidate there, so retry with a much looser
     # brightness cutoff -- still "bright relative to the surrounding rock", just
     # not absolute-white
-    candidate = detect_paper(
+    paper = detect_paper(
         hsv, h, w, pebble_config.val_threshold_strict, config.downscale_factor, pebble_config
     ) or detect_paper(hsv, h, w, pebble_config.val_threshold_loose, config.downscale_factor, pebble_config)
-    paper = confirm_stripe(candidate, hsv, h, w, pebble_config)
 
-    if candidate is None:
+    if paper is None:
         status = PaperDetectionStatus.NO_CANDIDATE
-    elif paper is None:
-        status = PaperDetectionStatus.NO_STRIPE_PATTERN
 
     # the paper always sits toward the bottom-right of the frame, so the cuttings
     # region is always everything to the left of its left edge -- never crop by

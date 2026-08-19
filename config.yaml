@@ -53,8 +53,6 @@ segmentation:
       sat_threshold: 0.15 # saturation (HSV) below this = colorless (candidate paper)
       val_threshold_strict: 0.85 # brightness (HSV) above this = bright paper, tried first
       val_threshold_loose: 0.45 # looser brightness fallback for darker exposures, tried if the strict one fails
-      stripe_min_drop: 0.2 # brightness drop (relative to the patch's 85th percentile) that counts as a dark stripe
-      stripe_max_width_frac: 0.1 # stripes wider than this fraction (x3) of the patch are a shadow, not a tick
       max_cropped_frac: 0.5 # a paper candidate that would crop away more than this fraction of the image is rejected
 
     black_circle:

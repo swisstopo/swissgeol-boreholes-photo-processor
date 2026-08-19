@@ -77,8 +77,6 @@ class SegmentationCuttingsPebbleConfig:
     sat_threshold: float = 0.15  # saturation (HSV) below this = colorless (candidate paper)
     val_threshold_strict: float = 0.85  # brightness (HSV) above this = bright paper, tried first
     val_threshold_loose: float = 0.45  # looser brightness fallback for darker exposures, tried if the strict one fails
-    stripe_min_drop: float = 0.2  # brightness drop (vs. the patch's 85th percentile) that counts as a dark stripe
-    stripe_max_width_frac: float = 0.1  # stripes wider than this fraction (x3) of the patch are a shadow, not a tick
     max_cropped_frac: float = 0.5  # a paper candidate cropping away more than this fraction of the image is rejected
 
 

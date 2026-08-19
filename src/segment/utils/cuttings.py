@@ -1,4 +1,4 @@
-"""Low-level helpers for pebble cuttings detection: paper-sheet edge checks and stripe confirmation."""
+"""Low-level helpers for pebble cuttings detection: paper-sheet region scoring and edge checks."""
 
 import numpy as np
 from skimage.measure import label, regionprops
@@ -112,63 +112,3 @@ def detect_paper(
         )  # ignore degenerate candidates touching both top and left
     ]
     return max(candidates, key=lambda p: p.area) if candidates else None
-
-
-def has_stripe_pattern(v_patch: np.ndarray, min_drop: float, max_width_frac: float) -> bool:
-    """Check whether a brightness patch carries the paper card's printed depth-marker ticks.
-
-    Every real paper card carries printed depth-marker ticks: 1-4 narrow, sharply darker
-    vertical bands against an otherwise uniform background. A pebble cluster mistaken for
-    paper never has this.
-
-    Args:
-        v_patch (np.ndarray): Brightness (HSV value channel) patch to search for stripes.
-        min_drop (float): Brightness drop, relative to the patch's 85th percentile, that counts as a dark stripe.
-        max_width_frac (float): Stripes wider than this fraction (x3) of the patch are treated as a shadow, not a tick.
-
-    Returns:
-        bool: True if at least one narrow dark stripe is found.
-    """
-    col = v_patch.mean(axis=0)
-    baseline = np.percentile(col, 85)
-    dark = col < (baseline - min_drop)
-    n_stripes = 0
-    i = 0
-    while i < len(dark):
-        if dark[i]:
-            j = i
-            while j < len(dark) and dark[j]:
-                j += 1
-            if j - i <= max_width_frac * len(dark) * 3:  # narrow-ish, not a broad shadow
-                n_stripes += 1
-            i = j
-        else:
-            i += 1
-    return n_stripes >= 1
-
-
-def confirm_stripe(p, hsv: np.ndarray, h: int, w: int, config: SegmentationCuttingsPebbleConfig):
-    """Reject a paper candidate outright if no stripe pattern is found around it.
-
-    The shape filter in `detect_paper` already tends to exclude the striped part of the card
-    itself, so the stripes are looked for just outside the candidate's own bbox, not inside it.
-    We'd rather not crop at all than crop something that was never actually the paper.
-
-    Args:
-        p: A skimage regionprops region (the paper candidate), or None.
-        hsv (np.ndarray): HSV image the candidate was detected in.
-        h (int): Height of the image, in pixels.
-        w (int): Width of the image, in pixels.
-        config (SegmentationCuttingsPebbleConfig): Tunable segmentation parameters.
-
-    Returns:
-        The input region `p` if a stripe pattern is confirmed around it, otherwise None.
-    """
-    if p is None:
-        return None
-    minr, minc, maxr, maxc = p.bbox
-    ph, pw = maxr - minr, maxc - minc
-    r0, r1 = max(0, minr - ph), min(h, maxr + ph)
-    c0, c1 = max(0, minc - pw), min(w, maxc + pw)
-    patch = hsv[r0:r1, c0:c1, 2]
-    return p if has_stripe_pattern(patch, config.stripe_min_drop, config.stripe_max_width_frac) else None
