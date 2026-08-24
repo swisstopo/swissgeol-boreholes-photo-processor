@@ -4,13 +4,14 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
 from src.models import ApproachType, ImageMetadataCuttings, PaperDetectionStatus
 from src.segment.config import SegmentationCuttingsConfig, SegmentationCuttingsPebbleGroupConfig
-from src.segment.segment_cuttings import segment_black_circle, segment_cuttings, segment_pebble
+from src.segment.segment_cuttings import segment_black_circle, segment_cuttings, segment_pebble, segment_tray
 from src.segment.utils.cuttings import ProcessPebblePaperGroupByShape, resolve_paper_crop
 
 
@@ -55,6 +56,62 @@ def test_segment_black_circle_detects_bbox_inside_circle(make_metadata):
     assert (x1 - x0) == pytest.approx(y1 - y0)  # square
     assert (x0 + x1) / 2 == pytest.approx(cx, abs=2)
     assert (y0 + y1) / 2 == pytest.approx(cy, abs=2)
+
+
+def _make_textured_metadata(tmp_path, depth: float, size: tuple[int, int], patches: list[tuple[int, int, int, int]]):
+    """Creates an ImageMetadataCuttings for a flat image with noisy (textured) rectangular patches.
+
+    segment_tray keys off local edge-density, so plain ImageDraw shapes (flat fill) aren't textured
+    enough to register; each patch gets independent random noise instead.
+
+    Args:
+        tmp_path: pytest tmp_path fixture, used as the save location.
+        depth (float): Depth in metres, stored on the returned metadata.
+        size (tuple[int, int]): Size (width, height) of the image.
+        patches (list[tuple[int, int, int, int]]): Noisy rectangles as (x0, y0, x1, y1).
+
+    Returns:
+        ImageMetadataCuttings: Metadata pointing at the saved synthetic image.
+    """
+    rng = np.random.default_rng(0)
+    w, h = size
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    for x0, y0, x1, y1 in patches:
+        img[y0:y1, x0:x1] = rng.integers(0, 255, size=(y1 - y0, x1 - x0, 3), dtype=np.uint8)
+
+    image_path = tmp_path / f"{depth:g}m_tray.jpg"
+    Image.fromarray(img).save(image_path, quality=95)
+    return ImageMetadataCuttings(image_path=image_path, borehole_id="B", depth=depth)
+
+
+def test_segment_tray_detects_bbox_of_textured_region(tmp_path):
+    """A single textured patch on a flat background yields a bbox around that patch."""
+    pile = (50, 150, 350, 380)
+    metadata = _make_textured_metadata(tmp_path, 1.0, size=(500, 400), patches=[pile])
+
+    result = segment_tray(metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    x0, y0, x1, y1 = result.bbox
+    assert (x0, y0) == pytest.approx(pile[:2], abs=5)
+    assert (x1, y1) == pytest.approx(pile[2:], abs=5)
+
+
+def test_segment_tray_excludes_disconnected_label_blob(tmp_path):
+    """A separate textured label above the pile (printed text has its own edge-density) is excluded.
+
+    Regression test: taking quantiles over every mask pixel (including the label's) would pull
+    the box upward to cover the label too.
+    """
+    pile = (50, 150, 350, 380)
+    label_tag = (100, 10, 300, 60)  # disconnected from the pile by a smooth gap
+    metadata = _make_textured_metadata(tmp_path, 1.0, size=(500, 400), patches=[pile, label_tag])
+
+    result = segment_tray(metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    x0, y0, x1, y1 = result.bbox
+    assert y0 > label_tag[3]  # box top starts below the label, not at/above it
+    assert (x0, y0) == pytest.approx(pile[:2], abs=5)
+    assert (x1, y1) == pytest.approx(pile[2:], abs=5)
 
 
 def _fake_paper(bbox: tuple[int, int, int, int]) -> SimpleNamespace:

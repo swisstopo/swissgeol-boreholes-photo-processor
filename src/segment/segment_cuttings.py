@@ -4,9 +4,12 @@ import logging
 from timeit import default_timer as timer
 
 import numpy as np
+from scipy.ndimage import uniform_filter
 from skimage.color import rgb2gray, rgb2hsv
+from skimage.filters import scharr, threshold_otsu
 from skimage.measure import label, regionprops
 from skimage.morphology import disk, opening
+from skimage.transform import resize
 from tqdm import tqdm
 
 from src.config import SegmentationConfig, SegmentationCuttingsConfig, SegmentationError
@@ -23,6 +26,70 @@ from src.segment.utils.cuttings import ProcessPebblePaperGroupByShape, detect_pa
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
+
+
+def segment_tray(
+    img_metadata: ImageMetadataCuttings,
+    config: SegmentationCuttingsConfig,
+) -> CuttingsSegmentResult:
+    """Segment cuttings that are inside a tray, via an edge-density quantile bounding box.
+
+    Args:
+        img_metadata (ImageMetadataCuttings): Metadata for the cuttings image to segment.
+        config (SegmentationCuttingsConfig): Tunable segmentation parameters.
+
+    Returns:
+        CuttingsSegmentResult: The bounding box of the cuttings region and the time taken to
+        segment it.
+    """
+    t_start = timer()
+    img = img_metadata.load_image(factor=config.downscale_factor)
+    h, w = img.shape[:2]
+    tray_config = config.tray
+
+    # texture energy
+    g = rgb2gray(resize(img, (tray_config.work, tray_config.work), anti_aliasing=True))  # float in [0,1]
+    grad = scharr(g)  # gradient magnitude
+    energy = uniform_filter(grad, size=33)  # 33x33 local mean
+
+    # otsu mask
+    otsu_t = threshold_otsu(energy)
+    m = energy > otsu_t
+
+    # keep only the largest connected component: a printed label/tag has its own
+    # high edge-density text, so it can show up as a second, disconnected blob in
+    # the mask, and taking quantiles over all mask pixels would pull the box
+    # toward the label instead of the tray. `opening` first drops thin
+    # bridges/specks so the label can't be connected to the pile through a noisy
+    # sliver, then we keep only the single biggest component (assumed to be the
+    # tray/pile) before computing quantiles.
+    m_open = opening(m, disk(tray_config.open_radius))
+    lbl = label(m_open)
+    props = regionprops(lbl)
+    m_main = (lbl == max(props, key=lambda r: r.area).label) if props else m
+
+    ys, xs = np.nonzero(m_main)
+    if len(xs) == 0:
+        bbox = (0, 0, w, h)
+    else:
+        q = (1 - tray_config.coverage**0.5) / 2
+        x0, x1 = np.quantile(xs, [q, 1 - q])
+        y0, y1 = np.quantile(ys, [q, 1 - q])
+        if tray_config.square:
+            s = max(x1 - x0, y1 - y0) / 2
+            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+            x0, x1, y0, y1 = cx - s, cx + s, cy - s, cy + s
+        bbox = (
+            x0 * w / tray_config.work,
+            y0 * h / tray_config.work,
+            x1 * w / tray_config.work,
+            y1 * h / tray_config.work,
+        )
+
+    return CuttingsSegmentResult(
+        bbox=scale_bbox(bbox, factor=1 / config.downscale_factor),
+        time=timer() - t_start,
+    )
 
 
 def segment_pebble(
@@ -109,6 +176,7 @@ def segment_black_circle(
 _SEGMENTERS = {
     "black_circle": segment_black_circle,
     "pebble": segment_pebble,
+    "tray": segment_tray,
 }
 
 DEFAULT_CUT_TYPE = "black_circle"
@@ -131,7 +199,7 @@ def segment_cuttings(
         debug (bool): Whether to additionally log each image's cuttings bbox overlay to MLflow.
             Only applies when with_mlflow is True.
         cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
-        cut_type (str): The type of cuttings to segment: "black_circle" or "pebble".
+        cut_type (str): The type of cuttings to segment: "black_circle", "pebble", or "tray".
             Defaults to "black_circle".
 
     Returns:
