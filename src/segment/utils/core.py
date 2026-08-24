@@ -5,7 +5,9 @@ from itertools import groupby
 from timeit import default_timer as timer
 
 import numpy as np
-from skimage.color import rgb2hsv
+from skimage.color import rgb2gray, rgb2hsv
+from skimage.filters import prewitt_h
+from skimage.transform import hough_line, hough_line_peaks
 
 from src.config import SegmentationCoreTrimConfig
 from src.models import CoreSegmentResult, ImageMetadataCores, ImageSegmentResult
@@ -14,12 +16,11 @@ from src.utils import scale_bbox
 logger = logging.getLogger(__name__)
 
 
-def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) -> list[tuple[int, int]]:
-    """Find the contiguous row intervals that are valid, based on a per-pixel value map.
+def _compute_row_stats(values: np.ndarray, threshold: float, ratio: float) -> np.ndarray:
+    """Classify each row of a per-pixel value map as valid or invalid (tray/background).
 
-    A row is classified as invalid (tray/background) if the fraction of its pixels above
-    `threshold` reaches `ratio`; consecutive valid rows are grouped into intervals. Pass a
-    transposed value map to find column intervals instead (e.g. to trim left/right).
+    A row is invalid if the fraction of its pixels above `threshold` reaches `ratio`. Pass a
+    transposed value map to classify columns instead (e.g. to trim left/right).
 
     Args:
         values (np.ndarray): 2D per-pixel value map (e.g. saturation channel) to threshold.
@@ -27,51 +28,57 @@ def _find_valid_intervals(values: np.ndarray, threshold: float, ratio: float) ->
         ratio (float): Fraction of tray/background pixels in a row required to classify the row as invalid.
 
     Returns:
-        list[tuple[int, int]]: Start and end row indices of each valid interval, sorted by
-            length in descending order.
+        np.ndarray: Boolean mask, True for rows classified as valid.
     """
     confs_row = (values > threshold).mean(axis=1)
-    detections = np.nonzero(confs_row < ratio)[0]
+    return confs_row < ratio
 
-    if detections.size == 0:
-        return [(0, values.shape[0] - 1)]
 
+def _find_valid_intervals(detections: np.ndarray) -> list[tuple[int, int]]:
+    """Group valid row/column indices into contiguous intervals.
+
+    Args:
+        detections (np.ndarray): Sorted indices of rows/columns classified as valid.
+
+    Returns:
+        list[tuple[int, int]]: Start and end index of each interval, sorted by length in
+            descending order. Single-index (empty) intervals are dropped.
+    """
     # Group detections to intervals
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
     results = np.array([[g[0], g[-1]] for g in groups])
     results = [tuple(x) for x in sorted(results.tolist(), key=lambda x: x[1] - x[0], reverse=True)]
 
     # Remove empty intervals [x, x]
-    results = [result for result in results if result[0] != result[1]]
-
-    if not results:
-        logger.warning("No valid interval detected, return input interval")
-        return [(0, values.shape[0] - 1)]
-
-    return results
+    return [result for result in results if result[0] != result[1]]
 
 
-def _intersect_intervals(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Compute the pairwise intersection of two sets of intervals.
+def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimConfig) -> list[int]:
+    """Detect y-coordinates of prominent horizontal lines (e.g. tray dividers) in the image.
 
-    Every interval in `a` is intersected with every interval in `b`; pairs that do not
-    overlap are dropped.
+    Runs a Hough transform on the horizontal-edge map (Prewitt) restricted to near-horizontal
+    lines, keeping only the strongest peaks. Used to split the tray into bands for top/bottom
+    trimming.
 
     Args:
-        a (list[tuple[int, int]]): First set of (start, end) intervals.
-        b (list[tuple[int, int]]): Second set of (start, end) intervals.
+        img_gray (np.ndarray): Grayscale image of the cropped tray region.
+        config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
-        list[tuple[int, int]]: Overlapping (start, end) interval for each intersecting pair.
+        list[int]: Row indices of the detected horizontal lines, sorted ascending.
     """
-    result = []
-    for s1, e1 in a:
-        for s2, e2 in b:
-            lo = max(s1, s2)
-            hi = min(e1, e2)
-            if lo <= hi:
-                result.append((lo, hi))
-    return result
+    min_distance = int(config.downscale_factor * config.min_hough_line_interval)
+
+    tested_angles = np.linspace(-np.pi / 2, -np.pi / 2 + np.pi / 16, 1, endpoint=False)
+    h, theta, d = hough_line(prewitt_h(img_gray) > 0.01, theta=tested_angles)
+    y_lines = sorted(
+        [
+            int(dist * np.sin(angle))
+            for _, angle, dist in zip(*hough_line_peaks(h, theta, d, min_distance=min_distance), strict=True)
+        ]
+    )
+    # Remove line too close from border
+    return [y_line for y_line in y_lines if y_line - min_distance > 0 and y_line + min_distance < img_gray.shape[0]]
 
 
 def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrimConfig) -> list[tuple[int, int]]:
@@ -88,14 +95,15 @@ def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrim
             interval, sorted by length in descending order.
     """
     # Get all segments that are valid and drop short ones
-    lr_trims = _find_valid_intervals(
-        values=-img_hsv[:, :, 2].T,
-        threshold=-config.background_val_threshold,
-        ratio=config.background_val_vratio,
-    )
+    detections = np.nonzero(
+        _compute_row_stats(
+            values=-img_hsv[:, :, 2].T, threshold=-config.background_val_threshold, ratio=config.background_val_vratio
+        )
+    )[0]
+
     lr_trims = [
         lr_trim
-        for lr_trim in lr_trims
+        for lr_trim in _find_valid_intervals(detections=detections)
         if config.downscale_factor * config.min_segment_height_px <= lr_trim[1] - lr_trim[0]
     ]
 
@@ -106,7 +114,7 @@ def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrim
 
 
 def _find_top_bottom_intervals(
-    img_hsv: np.ndarray, lr_trims: list[tuple[int, int]], config: SegmentationCoreTrimConfig
+    img_hsv: np.ndarray, img_gray: np.ndarray, lr_trims: list[tuple[int, int]], config: SegmentationCoreTrimConfig
 ) -> list[tuple[int, int]]:
     """Find the row intervals to keep after trimming wooden tray and black background top/bottom.
 
@@ -117,6 +125,7 @@ def _find_top_bottom_intervals(
 
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
+        img_gray (np.ndarray): Gray image of the cropped tray region.
         lr_trims (list[tuple[int, int]]): Start and end column indices of the surviving
             left/right intervals, used to restrict the columns considered.
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
@@ -125,19 +134,29 @@ def _find_top_bottom_intervals(
         list[tuple[int, int]]: Start and end row indices of each candidate top/bottom
             interval, sorted by score in descending order.
     """
-    tb_wood = _find_valid_intervals(
-        values=np.concatenate([img_hsv[:, lr[0] : lr[1] + 1, 1] for lr in lr_trims], axis=1),
-        threshold=config.wood_sat_threshold,
-        ratio=config.wood_sat_hratio,
-    )
+    y_lines = _find_horizontal_lines(img_gray=img_gray, config=config)
 
-    tb_background = _find_valid_intervals(
-        values=-np.concatenate([img_hsv[:, lr[0] : lr[1] + 1, 2] for lr in lr_trims], axis=1),
-        threshold=-config.background_val_threshold,
-        ratio=config.background_val_hratio,
-    )
+    detections = []
+    for start, end in zip([0] + y_lines, y_lines + [img_gray.shape[0]], strict=True):
+        wood_stats = _compute_row_stats(
+            values=np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, 1] for lr in lr_trims], axis=1),
+            threshold=config.wood_sat_threshold,
+            ratio=config.wood_sat_hratio,
+        )
 
-    tb_intersects = _intersect_intervals(tb_wood, tb_background)
+        background_stats = _compute_row_stats(
+            values=-np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, 2] for lr in lr_trims], axis=1),
+            threshold=-config.background_val_threshold,
+            ratio=config.background_val_hratio,
+        )
+
+        if np.mean(wood_stats) > 0.5 and np.mean(background_stats) > 0.5:
+            detections.extend(list(range(start, end)))
+
+    if len(detections) <= 1:
+        detections = list(range(0, img_gray.shape[0]))
+
+    tb_intersects = _find_valid_intervals(np.array(detections))
 
     return (
         # Look for interval that is large (x1-x0) and close to center (1 - |(x1+x0-H)/H|)
@@ -176,6 +195,7 @@ def segment_core(
     x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 
     hsv = rgb2hsv(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
+    gray = rgb2gray(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
 
     # Remove black background (left/right)
     lr_trims = _find_left_right_intervals(img_hsv=hsv, config=config)
@@ -184,7 +204,7 @@ def segment_core(
 
     # Remove wood / background (top/bottom). Pick the best-scored interval (large and
     # close to vertical center)
-    top_trim, bottom_trim = _find_top_bottom_intervals(img_hsv=hsv, lr_trims=lr_trims, config=config)[0]
+    top_trim, bottom_trim = _find_top_bottom_intervals(img_hsv=hsv, img_gray=gray, lr_trims=lr_trims, config=config)[0]
 
     return CoreSegmentResult(
         bbox=scale_bbox(

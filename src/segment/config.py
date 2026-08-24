@@ -8,10 +8,11 @@ class SegmentationCoreTrimConfig:
     """Tunable parameters for trimming the wooden tray and black background off, and filtering thin segments."""
 
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    min_hough_line_interval: int = 40  # minimum spacing (px) enforced between detected horizontal divider lines
     background_val_hratio: float = 0.90  # fraction of dark-background pixels in a row required to trim that row
     background_val_vratio: float = 0.70  # fraction of dark-background pixels in a column required to trim that column
     background_val_threshold: float = 0.15  # value (HSV) below this = black background (not rock)
-    wood_sat_hratio: float = 0.75  # fraction of tray-saturated pixels in a row required to classify that row as tray
+    wood_sat_hratio: float = 0.90  # fraction of tray-saturated pixels in a row required to classify that row as tray
     wood_sat_threshold: float = 0.28  # saturation above this = wooden tray (not rock)
     min_segment_height_px: int = 100  # minimum height (px) for a left/right segment to be kept as core
 
