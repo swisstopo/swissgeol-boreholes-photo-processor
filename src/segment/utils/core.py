@@ -67,10 +67,10 @@ def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimCon
     Returns:
         list[int]: Row indices of the detected horizontal lines, sorted ascending.
     """
-    min_distance = int(config.downscale_factor * config.min_hough_line_interval)
+    min_distance = int(config.downscale_factor * config.min_line_hough_interval)
 
     tested_angles = np.linspace(-np.pi / 2, -np.pi / 2 + np.pi / 16, 1, endpoint=False)
-    h, theta, d = hough_line(prewitt_h(img_gray) > 0.01, theta=tested_angles)
+    h, theta, d = hough_line(np.abs(prewitt_h(img_gray)) > config.min_line_edge_value, theta=tested_angles)
     y_lines = sorted(
         [
             int(dist * np.sin(angle))

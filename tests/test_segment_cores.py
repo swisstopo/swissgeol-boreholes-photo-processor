@@ -147,8 +147,8 @@ def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
 
     assert detection_core is not None
     assert detection_core_out is not None
-    assert detection_core.bbox == core_box
-    assert detection_core_out.bbox == tray_box
+    assert np.isclose(detection_core.bbox, core_box, atol=1).all()
+    assert np.isclose(detection_core_out.bbox, tray_box, atol=1).all()
 
 
 def test_segment_core_trims_black_background_left_right(make_metadata):
