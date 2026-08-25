@@ -16,6 +16,24 @@ from src.utils import scale_bbox
 logger = logging.getLogger(__name__)
 
 
+def _is_in_range_ratio(
+    values: np.ndarray, threshold_low: float = 0.0, threshold_high: float = 1.0, ratio: float = 0.0
+):
+    """Check whether the fraction of values within (threshold_low, threshold_high) exceeds ratio.
+
+    Args:
+        values (np.ndarray): Per-pixel value map to threshold (e.g. an HSV saturation or value channel).
+        threshold_low (float): Lower bound of the range values must fall strictly above.
+        threshold_high (float): Upper bound of the range values must fall strictly below.
+        ratio (float): Fraction of in-range pixels required for the check to pass.
+
+    Returns:
+        bool: True if the fraction of pixels within (threshold_low, threshold_high) is greater than ratio.
+    """
+    im_thresh = (threshold_low < values) & (values < threshold_high)
+    return im_thresh.mean() > ratio
+
+
 def _compute_row_stats(values: np.ndarray, threshold: float, ratio: float) -> np.ndarray:
     """Classify each row of a per-pixel value map as valid or invalid (tray/background).
 
@@ -69,8 +87,7 @@ def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimCon
     """
     min_distance = int(config.downscale_factor * config.min_line_hough_interval)
 
-    tested_angles = np.linspace(-np.pi / 2, -np.pi / 2 + np.pi / 16, 1, endpoint=False)
-    h, theta, d = hough_line(np.abs(prewitt_h(img_gray)) > config.min_line_edge_value, theta=tested_angles)
+    h, theta, d = hough_line(np.abs(prewitt_h(img_gray)) > config.min_line_edge_value, theta=np.array([np.pi / 2]))
     y_lines = sorted(
         [
             int(dist * np.sin(angle))
@@ -78,7 +95,8 @@ def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimCon
         ]
     )
     # Remove line too close from border
-    return [y_line for y_line in y_lines if y_line - min_distance > 0 and y_line + min_distance < img_gray.shape[0]]
+    y_lines = [y_line for y_line in y_lines if y_line - min_distance > 0 and y_line + min_distance < img_gray.shape[0]]
+    return [0] + y_lines + [img_gray.shape[0]]
 
 
 def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrimConfig) -> list[tuple[int, int]]:
@@ -114,7 +132,7 @@ def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrim
 
 
 def _find_top_bottom_intervals(
-    img_hsv: np.ndarray, img_gray: np.ndarray, lr_trims: list[tuple[int, int]], config: SegmentationCoreTrimConfig
+    img_hsv: np.ndarray, y_lines: list[int], lr_trims: list[tuple[int, int]], config: SegmentationCoreTrimConfig
 ) -> list[tuple[int, int]]:
     """Find the row intervals to keep after trimming wooden tray and black background top/bottom.
 
@@ -125,7 +143,7 @@ def _find_top_bottom_intervals(
 
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
-        img_gray (np.ndarray): Gray image of the cropped tray region.
+        y_lines (list[int]): Row indices of detected horizontal dividers, sorted ascending.
         lr_trims (list[tuple[int, int]]): Start and end column indices of the surviving
             left/right intervals, used to restrict the columns considered.
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
@@ -134,27 +152,26 @@ def _find_top_bottom_intervals(
         list[tuple[int, int]]: Start and end row indices of each candidate top/bottom
             interval, sorted by score in descending order.
     """
-    y_lines = _find_horizontal_lines(img_gray=img_gray, config=config)
-
     detections = []
-    for start, end in zip([0] + y_lines, y_lines + [img_gray.shape[0]], strict=True):
-        wood_stats = _compute_row_stats(
+    for start, end in zip(y_lines[:-1], y_lines[1:], strict=True):
+        is_wood = _is_in_range_ratio(
             values=np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, 1] for lr in lr_trims], axis=1),
-            threshold=config.wood_sat_threshold,
+            threshold_low=config.wood_sat_threshold_low,
+            threshold_high=config.wood_sat_threshold_high,
             ratio=config.wood_sat_hratio,
         )
 
-        background_stats = _compute_row_stats(
-            values=-np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, 2] for lr in lr_trims], axis=1),
-            threshold=-config.background_val_threshold,
+        is_background = _is_in_range_ratio(
+            values=np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, 2] for lr in lr_trims], axis=1),
+            threshold_high=config.background_val_threshold,
             ratio=config.background_val_hratio,
         )
 
-        if np.mean(wood_stats) > 0.5 and np.mean(background_stats) > 0.5:
+        if not is_wood and not is_background:
             detections.extend(list(range(start, end)))
 
     if len(detections) <= 1:
-        detections = list(range(0, img_gray.shape[0]))
+        detections = list(range(0, y_lines[-1]))
 
     tb_intersects = _find_valid_intervals(np.array(detections))
 
@@ -204,7 +221,13 @@ def segment_core(
 
     # Remove wood / background (top/bottom). Pick the best-scored interval (large and
     # close to vertical center)
-    top_trim, bottom_trim = _find_top_bottom_intervals(img_hsv=hsv, img_gray=gray, lr_trims=lr_trims, config=config)[0]
+    y_lines = _find_horizontal_lines(img_gray=gray, config=config)
+    top_trim, bottom_trim = _find_top_bottom_intervals(
+        img_hsv=hsv,
+        y_lines=y_lines,
+        lr_trims=lr_trims,
+        config=config,
+    )[0]
 
     return CoreSegmentResult(
         bbox=scale_bbox(
@@ -229,4 +252,5 @@ def segment_core(
             for left_trim, right_trim in lr_trims
         ],
         time=timer() - t_start,
+        y_lines=((y_min + np.array(y_lines)) / config.downscale_factor).tolist(),
     )

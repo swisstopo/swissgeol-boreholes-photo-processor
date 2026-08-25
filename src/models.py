@@ -294,6 +294,7 @@ class CoreSegmentResult(ImageSegmentResult):
 
     # Per-segment bboxes before merging into `bbox`; kept only for MLflow debug visualization.
     bbox_segments: list[tuple[float, float, float, float]] | None = None
+    y_lines: list[float] | None = None
 
 
 @dataclass

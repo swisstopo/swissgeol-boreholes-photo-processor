@@ -35,7 +35,7 @@ def test_from_yaml_reads_all_sections(tmp_path):
             segmentation:
               core:
                 core:
-                  wood_sat_threshold: 0.5
+                  wood_sat_threshold_low: 0.5
                 ruler:
                   text_max_value: 50
                 tray_group:
@@ -57,7 +57,7 @@ def test_from_yaml_reads_all_sections(tmp_path):
 
     config = PipelineConfig.from_yaml(path)
 
-    assert config.segmentation.core.core == SegmentationCoreTrimConfig(wood_sat_threshold=0.5)
+    assert config.segmentation.core.core == SegmentationCoreTrimConfig(wood_sat_threshold_low=0.5)
     assert config.segmentation.core.ruler == SegmentationRulerConfig(text_max_value=50)
     assert config.segmentation.core.tray_group == SegmentationTrayGroupConfig(n_min_foreground=50)
     assert config.segmentation.core.tray_single == SegmentationTraySingleConfig(min_bbox_height=200)
