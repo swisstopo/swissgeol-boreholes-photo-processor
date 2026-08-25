@@ -6,6 +6,7 @@ from timeit import default_timer as timer
 
 import numpy as np
 from skimage.color import rgb2gray, rgb2hsv
+from skimage.feature import canny
 from skimage.filters import prewitt_h
 from skimage.transform import hough_line, hough_line_peaks
 
@@ -132,7 +133,11 @@ def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrim
 
 
 def _find_top_bottom_intervals(
-    img_hsv: np.ndarray, y_lines: list[int], lr_trims: list[tuple[int, int]], config: SegmentationCoreTrimConfig
+    img_hsv: np.ndarray,
+    img_gray: np.ndarray,
+    y_lines: list[int],
+    lr_trims: list[tuple[int, int]],
+    config: SegmentationCoreTrimConfig,
 ) -> list[tuple[int, int]]:
     """Find the row intervals to keep after trimming wooden tray and black background top/bottom.
 
@@ -143,6 +148,7 @@ def _find_top_bottom_intervals(
 
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
+        img_gray (np.ndarray): Gray image of the cropped tray region.
         y_lines (list[int]): Row indices of detected horizontal dividers, sorted ascending.
         lr_trims (list[tuple[int, int]]): Start and end column indices of the surviving
             left/right intervals, used to restrict the columns considered.
@@ -152,22 +158,35 @@ def _find_top_bottom_intervals(
         list[tuple[int, int]]: Start and end row indices of each candidate top/bottom
             interval, sorted by score in descending order.
     """
+    im_canny = canny(img_gray, sigma=config.wood_texture_sigma)
     detections = []
     for start, end in zip(y_lines[:-1], y_lines[1:], strict=True):
-        is_wood = _is_in_range_ratio(
-            values=np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, 1] for lr in lr_trims], axis=1),
+        im_segment = np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, :] for lr in lr_trims], axis=1)
+        im_hue, im_sat, im_val = np.moveaxis(im_segment, 2, 0)
+
+        is_wood_texture = (im_canny[start:end]).mean() < config.wood_texture_ratio
+
+        is_wood_hue = _is_in_range_ratio(
+            values=im_hue,
+            threshold_low=config.wood_hue_threshold_low,
+            threshold_high=config.wood_hue_threshold_high,
+            ratio=config.wood_hratio,
+        )
+
+        is_wood_sat = _is_in_range_ratio(
+            values=im_sat,
             threshold_low=config.wood_sat_threshold_low,
             threshold_high=config.wood_sat_threshold_high,
-            ratio=config.wood_sat_hratio,
+            ratio=config.wood_hratio,
         )
 
         is_background = _is_in_range_ratio(
-            values=np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, 2] for lr in lr_trims], axis=1),
+            values=im_val,
             threshold_high=config.background_val_threshold,
             ratio=config.background_val_hratio,
         )
 
-        if not is_wood and not is_background:
+        if not (is_wood_sat and is_wood_hue and is_wood_texture) and not is_background:
             detections.extend(list(range(start, end)))
 
     if len(detections) <= 1:
@@ -224,6 +243,7 @@ def segment_core(
     y_lines = _find_horizontal_lines(img_gray=gray, config=config)
     top_trim, bottom_trim = _find_top_bottom_intervals(
         img_hsv=hsv,
+        img_gray=gray,
         y_lines=y_lines,
         lr_trims=lr_trims,
         config=config,
