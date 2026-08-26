@@ -7,7 +7,7 @@ from timeit import default_timer as timer
 import numpy as np
 from skimage.color import rgb2gray, rgb2hsv
 from skimage.feature import canny
-from skimage.filters import prewitt_h
+from skimage.filters import prewitt_h, prewitt_v
 from skimage.transform import hough_line, hough_line_peaks
 
 from src.config import SegmentationCoreTrimConfig
@@ -161,7 +161,7 @@ def _find_top_bottom_intervals(
         list[tuple[int, int]]: Start and end row indices of each candidate top/bottom
             interval, sorted by score in descending order.
     """
-    im_canny = canny(img_gray, sigma=config.wood_texture_sigma)
+    im_canny = np.abs(prewitt_v(canny(img_gray, sigma=config.wood_texture_sigma)))
     detections = []
     for start, end in zip(y_lines[:-1], y_lines[1:], strict=True):
         im_segment = np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, :] for lr in lr_trims], axis=1)
