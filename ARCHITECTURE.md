@@ -105,8 +105,8 @@ excludes ruler bbox)"]
   enough data.
 - Either way, `segment_core` then trims wood (saturation) and black background
   (brightness) off all four sides. Fragmented cores are kept as separate `bbox_segments`;
-  `bbox` is their union. Left/right trimming is a single row-wise threshold check across
-  the full height. Top/bottom trimming instead splits the tray into row bands at horizontal
+  `bbox` is their union. Left/right trimming applies a single column-wise threshold check
+  across the full width. Top/bottom trimming instead splits the tray into row bands at horizontal
   lines detected via a Hough transform on horizontal edge gradients
   (`_find_horizontal_lines`), then keeps only the bands that are mostly non-wood and mostly
   non-background, merging consecutive surviving bands into candidate intervals (falls back

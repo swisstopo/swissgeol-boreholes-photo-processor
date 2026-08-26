@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def _is_in_range_ratio(
     values: np.ndarray, threshold_low: float = 0.0, threshold_high: float = 1.0, ratio: float = 0.0
-):
+) -> bool:
     """Check whether the fraction of values within (threshold_low, threshold_high) exceeds ratio.
 
     Args:
@@ -84,7 +84,8 @@ def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimCon
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
-        list[int]: Row indices of the detected horizontal lines, sorted ascending.
+        list[int]: Row indices of the detected horizontal lines, sorted ascending, bracketed
+            by `0` and `img_gray.shape[0]`.
     """
     min_distance = int(config.downscale_factor * config.min_line_hough_interval)
 
@@ -141,10 +142,12 @@ def _find_top_bottom_intervals(
 ) -> list[tuple[int, int]]:
     """Find the row intervals to keep after trimming wooden tray and black background top/bottom.
 
-    Intersects the wood-free intervals (saturation channel) with the background-free intervals
-    (value channel), restricted to the surviving left/right columns, then ranks the resulting
-    intervals by a score favoring intervals that are both large and close to the vertical center.
-    Falls back to the full image height if no intersection survives.
+    Splits the tray into row bands at the detected horizontal divider lines (`y_lines`), then
+    classifies each band as tray/background if it is mostly wood-colored (hue, saturation, and
+    low edge texture) or mostly dark background (value channel), restricted to the surviving
+    left/right columns. Surviving (non-tray, non-background) bands are merged into candidate
+    intervals, ranked by a score favoring intervals that are both large and close to the
+    vertical center. Falls back to the full image height if fewer than two rows survive.
 
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
@@ -162,9 +165,10 @@ def _find_top_bottom_intervals(
     detections = []
     for start, end in zip(y_lines[:-1], y_lines[1:], strict=True):
         im_segment = np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, :] for lr in lr_trims], axis=1)
+        im_canny_segment = np.concatenate([im_canny[start:end, lr[0] : lr[1] + 1] for lr in lr_trims], axis=1)
         im_hue, im_sat, im_val = np.moveaxis(im_segment, 2, 0)
 
-        is_wood_texture = (im_canny[start:end]).mean() < config.wood_texture_ratio
+        is_wood_texture = im_canny_segment.mean() < config.wood_texture_ratio
 
         is_wood_hue = _is_in_range_ratio(
             values=im_hue,
@@ -211,9 +215,10 @@ def segment_core(
 ) -> CoreSegmentResult:
     """Trim the bounding box to exclude the wooden tray and black background around the core.
 
-    Trims left/right based on the value (brightness) channel to drop black background, and
-    trims top/bottom based on both the saturation channel (wooden tray) and the value channel
-    (black background), keeping the intersection of the two vertical trims.
+    Trims left/right based on the value (brightness) channel to drop black background. Trims
+    top/bottom by splitting the tray into row bands at Hough-detected horizontal divider lines,
+    then keeping the bands that don't match a wooden-tray profile (saturation, hue, and edge
+    texture) and aren't black background.
 
     Args:
         img_metadata (ImageMetadataCores): Metadata of the image to load and trim.
@@ -223,7 +228,8 @@ def segment_core(
     Returns:
         CoreSegmentResult: bbox is the trimmed bounding box as (left, top, right, bottom), in the
             original image's coordinate space. bbox_segments holds one bbox per surviving
-            left/right sub-segment.
+            left/right sub-segment. y_lines holds the detected horizontal divider row positions,
+            for debug visualization.
     """
     t_start = timer()
 
