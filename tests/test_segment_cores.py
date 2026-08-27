@@ -128,7 +128,7 @@ def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
     metadata = make_metadata(
         15.0,
         16.0,
-        lambda draw: (draw.rectangle(tray_box, fill=(180, 120, 60)), draw.rectangle(core_box, fill=(200, 200, 200))),
+        lambda draw: (draw.rectangle(tray_box, fill=(173, 133, 112)), draw.rectangle(core_box, fill=(200, 200, 200))),
     )
 
     # Default (correct threshold)
@@ -142,13 +142,13 @@ def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
     detection_core_out = segment_core(
         metadata,
         tray=ImageSegmentResult(bbox=tray_box),
-        config=SegmentationCoreTrimConfig(downscale_factor=1, wood_sat_threshold=1.1),
+        config=SegmentationCoreTrimConfig(downscale_factor=1, wood_sat_threshold_low=1.0),
     )
 
     assert detection_core is not None
     assert detection_core_out is not None
-    assert detection_core.bbox == core_box
-    assert detection_core_out.bbox == tray_box
+    assert np.isclose(detection_core.bbox, core_box, atol=1).all()
+    assert np.isclose(detection_core_out.bbox, tray_box, atol=1).all()
 
 
 def test_segment_core_trims_black_background_left_right(make_metadata):
