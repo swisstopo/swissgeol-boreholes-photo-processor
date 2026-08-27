@@ -40,6 +40,41 @@ segmentation:
       wood_sat_threshold: 0.28 # saturation above this = wooden tray (not rock)
       min_segment_height_px: 100 # minimum height (px) for a left/right segment to be kept as core
 
+  cuttings:
+    downscale_factor: 0.25 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+
+    pebble:
+      min_extent: 0.45 # minimum bounding-box fill fraction for a paper candidate
+      min_solidity: 0.7 # minimum convexity for a paper candidate
+      min_area_frac: 0.002 # minimum paper candidate area, as a fraction of the image area
+      max_area_frac: 0.35 # maximum paper candidate area, as a fraction of the image area
+      edge_margin: 0.03 # fraction of the relevant dimension a candidate must reach to count as edge-anchored
+      closing_disk: 25 # radius for binary closing that fills the black stripes punched into the paper mask
+      sat_threshold: 0.15 # saturation (HSV) below this = colorless (candidate paper)
+      val_threshold_strict: 0.85 # brightness (HSV) above this = bright paper, tried first
+      val_threshold_loose: 0.45 # looser brightness fallback for darker exposures, tried if the strict one fails
+      max_cropped_frac: 0.5 # a paper candidate that would crop away more than this fraction of the image is rejected
+
+    pebble_group:
+      n_min_group: 10 # minimum images in a shape group required to attempt a shared estimate
+      seed: 0 # seed for randomly sampling images within each group
+      downscale_factor: 0.25 # scale images by this factor before estimating (< 1.0 speeds up morphology)
+      std_percentile: 12 # pixels below this percentile of cross-image std = "consistently in the same spot"
+      val_threshold: 0.55 # brightness (HSV), on the mean image, above this = bright enough to be paper
+      sat_threshold: 0.20 # saturation (HSV), on the mean image, below this = colorless enough
+      closing_disk: 25 # radius for binary closing that fills the black stripes punched into the paper mask
+      min_extent: 0.6 # minimum bounding-box fill fraction for a paper candidate
+      min_solidity: 0.75 # minimum convexity for a paper candidate
+      min_area_frac: 0.003 # minimum paper candidate area, as a fraction of the group image area
+      max_area_frac: 0.35 # maximum paper candidate area, as a fraction of the group image area
+      edge_margin: 0.05 # fraction of the relevant dimension a candidate must reach to count as edge-anchored
+      max_cropped_frac: 0.5 # a paper candidate that would crop away more than this fraction of the image is rejected
+
+    black_circle:
+      val_threshold: 0.16 # grayscale value above this = inside the circle (not black background)
+      opening_disk: 7 # radius for binary opening (removes noise)
+      radius_shrink: 0.98 # shrink the detected circle's radius by this factor before inscribing the square crop
+
 stitching:
   n_workers: 4 # number of worker threads used to stitch output figures in parallel
   web_output_quality: 95 # output JPG quality/compression tradeoff, in the range 0–100

@@ -65,13 +65,63 @@ class SegmentationCoreConfig:
 
 
 @dataclass
+class SegmentationCuttingsPebbleConfig:
+    """Tunable parameters for segmenting pebble cuttings via paper-sheet detection."""
+
+    min_extent: float = 0.45  # minimum bounding-box fill fraction for a paper candidate
+    min_solidity: float = 0.7  # minimum convexity for a paper candidate
+    min_area_frac: float = 0.002  # minimum paper candidate area, as a fraction of the image area
+    max_area_frac: float = 0.35  # maximum paper candidate area, as a fraction of the image area
+    edge_margin: float = 0.03  # fraction of the relevant dimension a candidate must reach to count as edge-anchored
+    closing_disk: int = 25  # radius for binary closing that fills the black stripes punched into the paper mask
+    sat_threshold: float = 0.15  # saturation (HSV) below this = colorless (candidate paper)
+    val_threshold_strict: float = 0.85  # brightness (HSV) above this = bright paper, tried first
+    val_threshold_loose: float = 0.45  # looser brightness fallback for darker exposures, tried if the strict one fails
+    max_cropped_frac: float = 0.5  # a paper candidate cropping away more than this fraction of the image is rejected
+
+
+@dataclass
+class SegmentationCuttingsPebbleGroupConfig:
+    """Tunable parameters for estimating a shared paper-sheet position across a group of same-shaped pebble images.
+
+    Averaging many same-shape images washes the cuttings (different rock every shot) into a
+    formless blur, but the paper survives sharp wherever the camera framing places it
+    consistently -- so this detects the paper via cross-image standard deviation (low = stayed
+    in the same place across the group) rather than per-frame brightness thresholding.
+    """
+
+    n_min_group: int = 10  # minimum images in a shape group required to attempt a shared estimate
+    seed: int = 0  # seed for randomly sampling images within each group
+    downscale_factor: float = 0.25  # scale images by this factor before estimating (< 1.0 speeds up morphology)
+    std_percentile: float = 12  # pixels below this percentile of cross-image std = "consistently in the same spot"
+    val_threshold: float = 0.55  # brightness (HSV), on the mean image, above this = bright enough to be paper
+    sat_threshold: float = 0.20  # saturation (HSV), on the mean image, below this = colorless enough
+    closing_disk: int = 25  # radius for binary closing that fills the black stripes punched into the paper mask
+    min_extent: float = 0.6  # minimum bounding-box fill fraction for a paper candidate
+    min_solidity: float = 0.75  # minimum convexity for a paper candidate
+    min_area_frac: float = 0.003  # minimum paper candidate area, as a fraction of the group image area
+    max_area_frac: float = 0.35  # maximum paper candidate area, as a fraction of the group image area
+    edge_margin: float = 0.05  # fraction of the relevant dimension a candidate must reach to count as edge-anchored
+    max_cropped_frac: float = 0.5  # a paper candidate cropping away more than this fraction of the image is rejected
+
+
+@dataclass
+class SegmentationCuttingsBlackCircleConfig:
+    """Tunable parameters for segmenting cuttings laid out inside a black circle."""
+
+    val_threshold: float = 0.16  # grayscale value above this = inside the circle (not black background)
+    opening_disk: int = 7  # radius for binary opening (removes noise)
+    radius_shrink: float = 0.98  # shrink the detected circle's radius by this factor before inscribing the square crop
+
+
+@dataclass
 class SegmentationCuttingsConfig:
     """Tunable parameters for the cuttings segmentation step."""
 
     downscale_factor: float = 0.25  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    black_circle_val_threshold: float = 0.16  # grayscale value above this = inside the black circle (not background)
-    opening_disk: int = 7  # radius (before downscaling) for binary opening to remove noise from the mask
-    bbox_shrink_factor: float = 0.98  # fraction of the detected circle's radius used for the square bbox half-side
+    pebble: SegmentationCuttingsPebbleConfig = field(default_factory=SegmentationCuttingsPebbleConfig)
+    pebble_group: SegmentationCuttingsPebbleGroupConfig = field(default_factory=SegmentationCuttingsPebbleGroupConfig)
+    black_circle: SegmentationCuttingsBlackCircleConfig = field(default_factory=SegmentationCuttingsBlackCircleConfig)
 
 
 @dataclass

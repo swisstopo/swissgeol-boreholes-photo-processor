@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from enum import IntEnum, auto
+from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from typing import ClassVar
 
@@ -405,12 +405,45 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
         }
 
 
+class PaperDetectionStatus(StrEnum):
+    """Outcome of the pebble method's reference-paper-sheet detection (segment_pebble).
+
+    Unset (None) for cuttings methods that don't rely on paper detection (e.g. black_circle).
+    """
+
+    FOUND = "found"
+    NO_CANDIDATE = "no_candidate"  # no region passed the shape/area/edge-anchoring filters, at either threshold
+    DEGENERATE_LEFT_EDGE = "degenerate_left_edge"  # detected paper's left edge is at column 0 -- nothing to crop
+    CROPPED_TOO_MUCH = "cropped_too_much"  # detected paper would crop away more than max_cropped_frac of the image
+
+
 @dataclass
 class CuttingsSegmentResult(ImageSegmentResult):
     """Result of detecting the cuttings bbox (bbox is used downstream for cropping/evaluation/stitching)."""
 
     # Per-segment bboxes before merging into `bbox`; kept only for MLflow debug visualization.
     bbox_segments: list[tuple[float, float, float, float]] | None = None
+    paper_status: PaperDetectionStatus | None = None  # outcome of paper detection; see PaperDetectionStatus
+
+    def to_dict(self) -> dict:
+        """Return this result as a plain dict, including the paper detection status."""
+        return {**super().to_dict(), "paper_status": self.paper_status.value if self.paper_status else None}
+
+    @staticmethod
+    def paper_status_counts(results: list["CuttingsSegmentResult | None"]) -> dict[str, int]:
+        """Count how many results ended in each PaperDetectionStatus outcome.
+
+        Only counts results that actually set a paper_status (i.e. went through segment_pebble);
+        results from other cuttings methods, or failed detections (None), are ignored.
+
+        Args:
+            results (list[CuttingsSegmentResult | None]): Per-image cuttings detection results for one batch.
+
+        Returns:
+            dict[str, int]: Number of results per PaperDetectionStatus value.
+        """
+        statuses = [result.paper_status for result in results if result and result.paper_status is not None]
+        return {status.value: statuses.count(status) for status in PaperDetectionStatus}
 
 
 @dataclass
