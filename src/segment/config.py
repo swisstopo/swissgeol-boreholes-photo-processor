@@ -15,7 +15,8 @@ class SegmentationCoreTrimConfig:
     background_val_threshold: float = 0.15  # value (HSV) below this = black background (not rock)
     wood_texture_sigma: float = 0.25  # canny edge Gaussian sigma used to score row texture (higher = less sensitive)
     wood_texture_ratio: float = 0.15  # fraction of textured pixels above which a row is NOT classified as wood
-    wood_hratio: float = 0.70  # fraction of tray pixels in a row required to classify that row as tray
+    wood_hratio: float = 0.70  # fraction of tray pixels in a band required to classify that row as tray
+    wood_vratio: float = 0.75  # fraction of tray pixels in a row required to classify that col as tray
     wood_hue_threshold_low: float = 0.00  # hue above this = wooden tray (not rock)
     wood_hue_threshold_high: float = 0.20  # hue below this = wooden tray (not rock)
     wood_sat_threshold_low: float = 0.23  # saturation above this = wooden tray (not rock)

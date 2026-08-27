@@ -35,47 +35,6 @@ def _is_in_range_ratio(
     return im_thresh.mean() > ratio
 
 
-def _compute_row_stats(values: np.ndarray, threshold: float, ratio: float) -> np.ndarray:
-    """Classify each row of a per-pixel value map as valid or invalid (tray/background).
-
-    A row is invalid if the fraction of its pixels above `threshold` reaches `ratio`. Pass a
-    transposed value map to classify columns instead (e.g. to trim left/right).
-
-    Args:
-        values (np.ndarray): 2D per-pixel value map (e.g. saturation channel) to threshold.
-        threshold (float): Value above which a pixel is considered tray/background.
-        ratio (float): Fraction of tray/background pixels in a row required to classify the row as invalid.
-
-    Returns:
-        np.ndarray: Boolean mask, True for rows classified as valid.
-    """
-    confs_row = (values > threshold).mean(axis=1)
-    return confs_row < ratio
-
-
-def _intersect_intervals(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Compute the pairwise intersection of two sets of intervals.
-
-    Every interval in `a` is intersected with every interval in `b`; pairs that do not
-    overlap are dropped.
-
-    Args:
-        a (list[tuple[int, int]]): First set of (start, end) intervals.
-        b (list[tuple[int, int]]): Second set of (start, end) intervals.
-
-    Returns:
-        list[tuple[int, int]]: Overlapping (start, end) interval for each intersecting pair.
-    """
-    result = []
-    for s1, e1 in a:
-        for s2, e2 in b:
-            lo = max(s1, s2)
-            hi = min(e1, e2)
-            if lo <= hi:
-                result.append((lo, hi))
-    return result
-
-
 def _find_valid_intervals(detections: np.ndarray) -> list[tuple[int, int]]:
     """Group valid row/column indices into contiguous intervals.
 
@@ -136,8 +95,11 @@ def _find_left_right_intervals(
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
-        list[tuple[int, int]]: Start and end column indices of each surviving left/right
-            interval, sorted by length in descending order.
+        tuple[list[tuple[int, int]], list[tuple[int, int]]]: Two sets of surviving column
+            intervals, each sorted by length in descending order. The first is based on
+            black-background trimming only (falls back to the full image width if empty).
+            The second additionally excludes wood-colored (hue/saturation) columns, and
+            falls back to the first set if empty.
     """
     # Get all segments that are valid and drop short ones
     feature_col_foreground = (img_hsv[:, :, 2] < config.background_val_threshold).mean(axis=0)
@@ -150,7 +112,7 @@ def _find_left_right_intervals(
         & (img_hsv[:, :, 1] < config.wood_sat_threshold_high)
     ).mean(axis=0)
     indicator_col_no_wood = np.nonzero(
-        (feature_col_no_wood < 0.75) & (feature_col_foreground < config.background_val_vratio)
+        (feature_col_no_wood < config.wood_vratio) & (feature_col_foreground < config.background_val_vratio)
     )[0]
 
     lr_trims_foreground = [
@@ -192,7 +154,7 @@ def _find_top_bottom_intervals(
 
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
-        img_gray (np.ndarray): Gray image of the cropped tray region.
+        img_gray (np.ndarray): Grayscale image of the cropped tray region.
         y_lines (list[int]): Row indices of detected horizontal dividers, sorted ascending.
         lr_trims (list[tuple[int, int]]): Start and end column indices of the surviving
             left/right intervals, used to restrict the columns considered.
@@ -202,14 +164,14 @@ def _find_top_bottom_intervals(
         list[tuple[int, int]]: Start and end row indices of each candidate top/bottom
             interval, sorted by score in descending order.
     """
-    im_canny = np.abs(prewitt_v(canny(img_gray, sigma=config.wood_texture_sigma)))
+    im_edges = np.abs(prewitt_v(canny(img_gray, sigma=config.wood_texture_sigma)))
     detections = []
     for start, end in zip(y_lines[:-1], y_lines[1:], strict=True):
         im_segment = np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, :] for lr in lr_trims], axis=1)
-        im_canny_segment = np.concatenate([im_canny[start:end, lr[0] : lr[1] + 1] for lr in lr_trims], axis=1)
+        im_edges_segment = np.concatenate([im_edges[start:end, lr[0] : lr[1] + 1] for lr in lr_trims], axis=1)
         im_hue, im_sat, im_val = np.moveaxis(im_segment, 2, 0)
 
-        is_wood_texture = im_canny_segment.mean() < config.wood_texture_ratio
+        is_wood_texture = im_edges_segment.mean() < config.wood_texture_ratio
         is_wood_hue = _is_in_range_ratio(
             values=im_hue,
             threshold_low=config.wood_hue_threshold_low,
@@ -255,10 +217,11 @@ def segment_core(
 ) -> CoreSegmentResult:
     """Trim the bounding box to exclude the wooden tray and black background around the core.
 
-    Trims left/right based on the value (brightness) channel to drop black background. Trims
-    top/bottom by splitting the tray into row bands at Hough-detected horizontal divider lines,
-    then keeping the bands that don't match a wooden-tray profile (saturation, hue, and edge
-    texture) and aren't black background.
+    Trims left/right based on the value (brightness) channel to drop black background for the
+    outer bbox; the surviving sub-segments used for `bbox_segments` are additionally restricted
+    to columns that aren't wood-colored (hue/saturation). Trims top/bottom by splitting the tray
+    into row bands at Hough-detected horizontal divider lines, then keeping the bands that don't
+    match a wooden-tray profile (saturation, hue, and edge texture) and aren't black background.
 
     Args:
         img_metadata (ImageMetadataCores): Metadata of the image to load and trim.
@@ -273,8 +236,6 @@ def segment_core(
     """
     t_start = timer()
 
-    # TODO: Detect wood horizontal then discard from vertical compute
-    # TODO: Adjust background tresh for new cut vertical (change ratio for background_val_vratio)
     img = img_metadata.load_image(factor=config.downscale_factor)
     x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 

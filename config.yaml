@@ -40,7 +40,8 @@ segmentation:
       background_val_threshold: 0.15 # value (HSV) below this = black background (not rock)
       wood_texture_sigma: 0.25 # canny edge Gaussian sigma used to score row texture (higher = less sensitive)
       wood_texture_ratio: 0.15 # fraction of textured pixels above which a row is NOT classified as wood
-      wood_hratio: 0.70 # fraction of tray pixels in a row required to classify that row as tray
+      wood_hratio: 0.70 # fraction of tray pixels in a band required to classify that row as tray
+      wood_vratio: 0.75 # fraction of tray pixels in a row required to classify that col as tray
       wood_hue_threshold_low: 0.00 # hue above this = wooden tray (not rock)
       wood_hue_threshold_high: 0.20 # hue below this = wooden tray (not rock)
       wood_sat_threshold_low: 0.23 # saturation above this = wooden tray (not rock)
