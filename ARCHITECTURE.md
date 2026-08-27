@@ -103,14 +103,15 @@ excludes ruler bbox)"]
   single global threshold) + morphology, then dropping any candidate region that overlaps
   the detected ruler bbox — noisier than the shared path, but the only option without
   enough data.
-- Either way, `segment_core` then trims wood (saturation) and black background
-  (brightness) off all four sides. Fragmented cores are kept as separate `bbox_segments`;
-  `bbox` is their union. Left/right trimming applies a single column-wise threshold check
-  across the full width. Top/bottom trimming instead splits the tray into row bands at horizontal
-  lines detected via a Hough transform on horizontal edge gradients
+- Either way, `segment_core` then trims wood (hue, saturation, and edge texture) and black
+  background (brightness) off all four sides. `bbox` is trimmed left/right by a single
+  column-wise black-background check across the full width. Fragmented cores are kept as
+  separate `bbox_segments`, which apply a second, independent column-wise check that also
+  excludes wood-colored columns. Top/bottom trimming instead splits the tray into row bands
+  at horizontal lines detected via a Hough transform on horizontal edge gradients
   (`_find_horizontal_lines`), then keeps only the bands that are mostly non-wood and mostly
   non-background, merging consecutive surviving bands into candidate intervals (falls back
-  to the full height if none survive).
+  to the full height if fewer than two bands survive).
 
 **Depth ruler** (`ProcessRulerGroupByShape` + `segment_ruler` in
 `src/segment/utils/ruler.py`):
