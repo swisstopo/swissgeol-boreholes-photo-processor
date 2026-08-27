@@ -203,6 +203,11 @@ chosen once per run via `--cut-type` to match the physical layout used at that b
   things that are also consistent across every shot but aren't paper (e.g. a fixed
   lens-vignette corner). The status/bbox decision logic (`resolve_paper_crop`) is shared
   between the per-image and group paths.
+- **`tray`** (`segment_tray` in `src/segment/segment_cuttings.py`) — cuttings sit in an open
+  tray on a table, so texture, not brightness, separates pile from background. Compute local
+  edge-density (Scharr gradient, box-averaged) and Otsu-threshold it, keep the largest
+  connected component (excluding a separate textured label tag), erode it slightly to trim
+  the smoothed-edge halo, then take a quantile-trimmed bbox over the remaining mask.
 
 Each segmenter returns one bbox per image; failures (`ValueError`/`OSError`/
 `SegmentationError`) are logged and that image is dropped, same as cores. The per-image loop
