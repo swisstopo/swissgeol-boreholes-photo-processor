@@ -427,7 +427,10 @@ class CuttingsSegmentResult(ImageSegmentResult):
 
     def to_dict(self) -> dict:
         """Return this result as a plain dict, including the paper detection status."""
-        return {**super().to_dict(), "paper_status": self.paper_status.value if self.paper_status else None}
+        return {
+            **super().to_dict(),
+            "paper_status": self.paper_status.value if self.paper_status is not None else None,
+        }
 
     @staticmethod
     def paper_status_counts(results: list["CuttingsSegmentResult | None"]) -> dict[str, int]:
