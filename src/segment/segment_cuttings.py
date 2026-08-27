@@ -8,7 +8,7 @@ from scipy.ndimage import uniform_filter
 from skimage.color import rgb2gray, rgb2hsv
 from skimage.filters import scharr, threshold_otsu
 from skimage.measure import label, regionprops
-from skimage.morphology import disk, opening
+from skimage.morphology import disk, erosion, opening
 from skimage.transform import resize
 from tqdm import tqdm
 
@@ -67,6 +67,10 @@ def segment_tray(
     lbl = label(m_open)
     props = regionprops(lbl)
     m_main = (lbl == max(props, key=lambda r: r.area).label) if props else m
+
+    # the local-mean energy smoothing above bleeds a sliver of the mask past the true edge onto
+    # the surrounding tray/table; erode it back before taking the bbox
+    m_main = erosion(m_main, disk(tray_config.erosion_radius))
 
     ys, xs = np.nonzero(m_main)
     if len(xs) == 0:

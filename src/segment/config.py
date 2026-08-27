@@ -122,6 +122,7 @@ class SegmentationCuttingsTrayConfig:
     square: bool = False  # force a square box
     work: int = 800  # working resolution the image is resized to before computing texture energy
     open_radius: int = 3  # radius for opening (drops thin bridges/specks before picking the main component)
+    erosion_radius: int = 2  # radius for eroding the main component before the bbox, to trim the residual tray border
 
 
 @dataclass
