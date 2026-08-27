@@ -13,6 +13,7 @@ from src.segment.config import (
     SegmentationCuttingsBlackCircleConfig,
     SegmentationCuttingsConfig,
     SegmentationCuttingsPebbleConfig,
+    SegmentationCuttingsPebbleGroupConfig,
     SegmentationRulerConfig,
     SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
@@ -63,6 +64,9 @@ class PipelineConfig:
                 ),
                 cuttings=SegmentationCuttingsConfig(
                     pebble=SegmentationCuttingsPebbleConfig(**(raw_segmentation_cuttings.pop("pebble", None) or {})),
+                    pebble_group=SegmentationCuttingsPebbleGroupConfig(
+                        **(raw_segmentation_cuttings.pop("pebble_group", None) or {})
+                    ),
                     black_circle=SegmentationCuttingsBlackCircleConfig(
                         **(raw_segmentation_cuttings.pop("black_circle", None) or {})
                     ),

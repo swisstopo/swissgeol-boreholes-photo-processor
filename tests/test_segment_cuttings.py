@@ -8,9 +8,10 @@ import pytest
 from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
-from src.models import ImageMetadataCuttings, PaperDetectionStatus
-from src.segment.config import SegmentationCuttingsConfig
+from src.models import ApproachType, ImageMetadataCuttings, PaperDetectionStatus
+from src.segment.config import SegmentationCuttingsConfig, SegmentationCuttingsPebbleGroupConfig
 from src.segment.segment_cuttings import segment_black_circle, segment_cuttings, segment_pebble
+from src.segment.utils.cuttings import ProcessPebblePaperGroupByShape, resolve_paper_crop
 
 
 @pytest.fixture
@@ -124,3 +125,149 @@ def test_segment_cuttings_skips_unsegmentable_image_without_crashing_batch(make_
     )
 
     assert [d.depth for d in detections] == [2.0]
+
+
+@pytest.mark.parametrize(
+    ("paper_bbox", "expected_status", "expected_bbox"),
+    [
+        ((20, 300, 200, 400), PaperDetectionStatus.FOUND, (0, 0, 300, 200)),
+        (None, PaperDetectionStatus.NO_CANDIDATE, (0, 0, 400, 200)),
+        ((20, 0, 200, 100), PaperDetectionStatus.DEGENERATE_LEFT_EDGE, (0, 0, 400, 200)),  # left edge at column 0
+        ((20, 50, 200, 400), PaperDetectionStatus.CROPPED_TOO_MUCH, (0, 0, 400, 200)),  # crops away most of the image
+    ],
+)
+def test_resolve_paper_crop_outcomes(paper_bbox, expected_status, expected_bbox):
+    """Shared decision logic used by both per-image and group paper detection."""
+    paper = _fake_paper(paper_bbox) if paper_bbox is not None else None
+
+    status, bbox = resolve_paper_crop(paper, h=200, w=400, max_cropped_frac=0.5)
+
+    assert status == expected_status
+    assert bbox == expected_bbox
+
+
+_PAPER_COLOR = (235, 235, 235)  # bright, colorless — stands in for the reference paper sheet
+_PAPER_BOX = (140, 30, 199, 100)  # anchored to the right edge, away from top/bottom/left
+
+
+@pytest.fixture
+def make_group_metadata(tmp_path):
+    def _factory(n: int, fills: list[int] | None = None, draw_paper: bool = True, size=(200, 150)):
+        """Creates n synthetic images of a shared shape, each with different "cuttings" content.
+
+        A varying-fill background stands in for cuttings material (different rock every shot);
+        a paper rectangle, when drawn, is identical across every image so it survives averaging.
+        """
+        fills = fills or [20 + 10 * i for i in range(n)]
+        imgs = []
+        for i in range(n):
+            f = fills[i % len(fills)]
+            img = Image.new("RGB", size, color=(f, f, f))
+            if draw_paper:
+                ImageDraw.Draw(img).rectangle(_PAPER_BOX, fill=_PAPER_COLOR)
+            path = tmp_path / f"{i}m.jpg"
+            img.save(path)
+            imgs.append(ImageMetadataCuttings(image_path=path, borehole_id="B", depth=float(i)))
+        return imgs
+
+    return _factory
+
+
+def test_process_pebble_paper_group_by_shape_skips_shape_group_below_n_min(make_group_metadata):
+    """A shape group with too few images doesn't get a shared estimate."""
+    imgs = make_group_metadata(4)
+
+    results = ProcessPebblePaperGroupByShape(
+        SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+    ).run(imgs)
+
+    assert results == {}
+
+
+def test_process_pebble_paper_group_by_shape_finds_consistent_paper_region(make_group_metadata):
+    """A paper region that's identical across the group survives averaging and gets detected."""
+    imgs = make_group_metadata(12)
+
+    results = ProcessPebblePaperGroupByShape(
+        SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+    ).run(imgs)
+
+    shape = imgs[0].shape
+    assert set(results) == {shape}
+    result = results[shape]
+    assert result.paper_status == PaperDetectionStatus.FOUND
+    assert result.approach == ApproachType.GROUP
+    assert result.bbox == (0, 0, pytest.approx(_PAPER_BOX[0], abs=6), 150)
+
+
+def test_process_pebble_paper_group_by_shape_ignores_a_fixed_dark_region(make_group_metadata):
+    """A region that's fixed across the group but dark (e.g. a lens-vignette corner) isn't mistaken for paper."""
+    imgs = make_group_metadata(12, draw_paper=False)
+    for img_metadata in imgs:
+        with Image.open(img_metadata.image_path) as img:
+            ImageDraw.Draw(img).rectangle(_PAPER_BOX, fill=(10, 10, 10))
+            img.save(img_metadata.image_path)
+
+    results = ProcessPebblePaperGroupByShape(
+        SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+    ).run(imgs)
+
+    shape = imgs[0].shape
+    assert results[shape].paper_status == PaperDetectionStatus.NO_CANDIDATE
+    assert results[shape].bbox == (0, 0, 200, 150)
+
+
+def test_process_pebble_paper_group_by_shape_returns_no_candidate_when_paper_absent(make_group_metadata):
+    """A shape group with no paper anywhere still gets a result, falling back to the full frame."""
+    imgs = make_group_metadata(12, draw_paper=False)
+
+    results = ProcessPebblePaperGroupByShape(
+        SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+    ).run(imgs)
+
+    shape = imgs[0].shape
+    assert results[shape].paper_status == PaperDetectionStatus.NO_CANDIDATE
+    assert results[shape].bbox == (0, 0, 200, 150)
+
+
+def test_segment_cuttings_pebble_reuses_shared_group_crop_across_the_shape_group(make_group_metadata):
+    """A large enough shape group is segmented via the shared group estimate, not per-image detection."""
+    imgs = make_group_metadata(12)
+
+    detections = segment_cuttings(
+        imgs,
+        config=SegmentationConfig(
+            cuttings=SegmentationCuttingsConfig(
+                downscale_factor=1.0,
+                pebble_group=SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+            )
+        ),
+        cut_type="pebble",
+    )
+
+    assert len(detections) == len(imgs)
+    for detection in detections:
+        assert detection.cuttings is not None
+        assert detection.cuttings.paper_status == PaperDetectionStatus.FOUND
+        assert detection.cuttings.approach == ApproachType.GROUP
+
+
+def test_segment_cuttings_pebble_falls_back_to_per_image_below_n_min_group(make_group_metadata):
+    """A shape group too small for a shared estimate still gets segmented, per-image."""
+    imgs = make_group_metadata(4)
+
+    detections = segment_cuttings(
+        imgs,
+        config=SegmentationConfig(
+            cuttings=SegmentationCuttingsConfig(
+                downscale_factor=1.0,
+                pebble_group=SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+            )
+        ),
+        cut_type="pebble",
+    )
+
+    assert len(detections) == len(imgs)
+    for detection in detections:
+        assert detection.cuttings is not None
+        assert detection.cuttings.approach == ApproachType.SINGLE

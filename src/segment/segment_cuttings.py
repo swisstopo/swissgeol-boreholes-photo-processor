@@ -18,9 +18,8 @@ from src.models import (
     CuttingsSegmentResult,
     ImageMetadataCuttings,
     ImageMetadataProcessedCuttings,
-    PaperDetectionStatus,
 )
-from src.segment.utils.cuttings import detect_paper
+from src.segment.utils.cuttings import ProcessPebblePaperGroupByShape, detect_paper, resolve_paper_crop
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
@@ -54,34 +53,7 @@ def segment_pebble(
         hsv, h, w, pebble_config.val_threshold_strict, config.downscale_factor, pebble_config
     ) or detect_paper(hsv, h, w, pebble_config.val_threshold_loose, config.downscale_factor, pebble_config)
 
-    # the paper always sits toward the bottom-right of the frame, so the cuttings
-    # region is always everything to the left of its left edge -- never crop by
-    # height, even when the candidate was accepted for touching the bottom rather
-    # than the right. A degenerate paper region (left edge at column 0, i.e.
-    # nothing left to keep) usually just means the reference sheet isn't reliably
-    # in frame, so the whole image is already the cuttings region. The paper is
-    # also always a modest slice of the frame, so a candidate that would crop away
-    # more than half the image is more likely a misdetection than a real card.
-    if paper is None:
-        status = PaperDetectionStatus.NO_CANDIDATE
-    elif paper.bbox[1] == 0:
-        status = PaperDetectionStatus.DEGENERATE_LEFT_EDGE
-        paper = None
-    elif (w - paper.bbox[1]) > pebble_config.max_cropped_frac * w:
-        status = PaperDetectionStatus.CROPPED_TOO_MUCH
-        paper = None
-    else:
-        status = PaperDetectionStatus.FOUND
-
-    if paper is not None:
-        bbox = (0, 0, paper.bbox[1], h)
-    else:
-        bbox = (0, 0, w, h)
-        logger.warning(
-            "No reliable paper region found for %s (%s); using the full image as the cuttings region",
-            img_metadata.image_path.name,
-            status.value,
-        )
+    status, bbox = resolve_paper_crop(paper, h, w, pebble_config.max_cropped_frac)
 
     return CuttingsSegmentResult(
         bbox=scale_bbox(bbox, factor=1 / config.downscale_factor),
@@ -176,11 +148,23 @@ def segment_cuttings(
     config = config or SegmentationConfig()
     t_start = timer()
 
+    # Pebble cuttings share a physical layout (a reference paper sheet) with the rest of a
+    # same-shape batch far more often than per-image thresholding alone can reliably tell --
+    # estimate it once per shape group and reuse it, falling back to per-image detection for
+    # images whose shape group is too small (or inconsistent) to trust a shared estimate.
+    paper_by_shape: dict[tuple[int, int, int], CuttingsSegmentResult] = {}
+    if cut_type == "pebble":
+        logger.info("Processing pebble paper regions by group ...")
+        paper_by_shape = ProcessPebblePaperGroupByShape(config.cuttings.pebble_group, config.n_workers).run(
+            imgs_metadata
+        )
+
     detections: list[ImageMetadataProcessedCuttings] = []
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting cuttings images", mininterval=1.0):
         try:
-            # segmentation
-            cuttings = segmenter(img_metadata, config.cuttings)
+            # segmentation: reuse the shared group detection for this image's shape, if any
+            shared_paper = paper_by_shape.get(img_metadata.shape)
+            cuttings = shared_paper if shared_paper is not None else segmenter(img_metadata, config.cuttings)
             detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings, preload=cache)
             detections.append(detection)
 
