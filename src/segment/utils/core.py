@@ -53,6 +53,29 @@ def _compute_row_stats(values: np.ndarray, threshold: float, ratio: float) -> np
     return confs_row < ratio
 
 
+def _intersect_intervals(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Compute the pairwise intersection of two sets of intervals.
+
+    Every interval in `a` is intersected with every interval in `b`; pairs that do not
+    overlap are dropped.
+
+    Args:
+        a (list[tuple[int, int]]): First set of (start, end) intervals.
+        b (list[tuple[int, int]]): Second set of (start, end) intervals.
+
+    Returns:
+        list[tuple[int, int]]: Overlapping (start, end) interval for each intersecting pair.
+    """
+    result = []
+    for s1, e1 in a:
+        for s2, e2 in b:
+            lo = max(s1, s2)
+            hi = min(e1, e2)
+            if lo <= hi:
+                result.append((lo, hi))
+    return result
+
+
 def _find_valid_intervals(detections: np.ndarray) -> list[tuple[int, int]]:
     """Group valid row/column indices into contiguous intervals.
 
@@ -101,7 +124,9 @@ def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimCon
     return [0] + y_lines + [img_gray.shape[0]]
 
 
-def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrimConfig) -> list[tuple[int, int]]:
+def _find_left_right_intervals(
+    img_hsv: np.ndarray, config: SegmentationCoreTrimConfig
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     """Find the column intervals to keep after trimming black background on the left/right.
 
     Falls back to the full image width if no interval survives the minimum height filter.
@@ -115,22 +140,38 @@ def _find_left_right_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrim
             interval, sorted by length in descending order.
     """
     # Get all segments that are valid and drop short ones
-    detections = np.nonzero(
-        _compute_row_stats(
-            values=-img_hsv[:, :, 2].T, threshold=-config.background_val_threshold, ratio=config.background_val_vratio
-        )
+    feature_col_foreground = (img_hsv[:, :, 2] < config.background_val_threshold).mean(axis=0)
+    indicator_col_foreground = np.nonzero(feature_col_foreground < config.background_val_vratio)[0]
+
+    feature_col_no_wood = (
+        (config.wood_hue_threshold_low < img_hsv[:, :, 0])
+        & (img_hsv[:, :, 0] < config.wood_hue_threshold_high)
+        & (config.wood_sat_threshold_low < img_hsv[:, :, 1])
+        & (img_hsv[:, :, 1] < config.wood_sat_threshold_high)
+    ).mean(axis=0)
+    indicator_col_no_wood = np.nonzero(
+        (feature_col_no_wood < 0.75) & (feature_col_foreground < config.background_val_vratio)
     )[0]
 
-    lr_trims = [
+    lr_trims_foreground = [
         lr_trim
-        for lr_trim in _find_valid_intervals(detections=detections)
+        for lr_trim in _find_valid_intervals(detections=indicator_col_foreground)
         if config.downscale_factor * config.min_segment_height_px <= lr_trim[1] - lr_trim[0]
     ]
 
-    if len(lr_trims) == 0:
-        lr_trims = [(0, img_hsv.shape[1] - 1)]
+    lr_trims_no_wood = [
+        lr_trim
+        for lr_trim in _find_valid_intervals(detections=indicator_col_no_wood)
+        if config.downscale_factor * config.min_segment_height_px <= lr_trim[1] - lr_trim[0]
+    ]
 
-    return lr_trims
+    if len(lr_trims_foreground) == 0:
+        lr_trims_foreground = [(0, img_hsv.shape[1] - 1)]
+
+    if len(lr_trims_no_wood) == 0:
+        lr_trims_no_wood = lr_trims_foreground
+
+    return lr_trims_foreground, lr_trims_no_wood
 
 
 def _find_top_bottom_intervals(
@@ -169,7 +210,6 @@ def _find_top_bottom_intervals(
         im_hue, im_sat, im_val = np.moveaxis(im_segment, 2, 0)
 
         is_wood_texture = im_canny_segment.mean() < config.wood_texture_ratio
-
         is_wood_hue = _is_in_range_ratio(
             values=im_hue,
             threshold_low=config.wood_hue_threshold_low,
@@ -233,6 +273,8 @@ def segment_core(
     """
     t_start = timer()
 
+    # TODO: Detect wood horizontal then discard from vertical compute
+    # TODO: Adjust background tresh for new cut vertical (change ratio for background_val_vratio)
     img = img_metadata.load_image(factor=config.downscale_factor)
     x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 
@@ -240,9 +282,9 @@ def segment_core(
     gray = rgb2gray(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
 
     # Remove black background (left/right)
-    lr_trims = _find_left_right_intervals(img_hsv=hsv, config=config)
-    left_trim_background = np.array(lr_trims)[:, 0].min().item()
-    right_trim_background = np.array(lr_trims)[:, 1].max().item()
+    lr_trims_foreground, lr_trims_no_wood = _find_left_right_intervals(img_hsv=hsv, config=config)
+    left_trim_background = np.array(lr_trims_foreground)[:, 0].min().item()
+    right_trim_background = np.array(lr_trims_foreground)[:, 1].max().item()
 
     # Remove wood / background (top/bottom). Pick the best-scored interval (large and
     # close to vertical center)
@@ -251,7 +293,7 @@ def segment_core(
         img_hsv=hsv,
         img_gray=gray,
         y_lines=y_lines,
-        lr_trims=lr_trims,
+        lr_trims=lr_trims_no_wood,
         config=config,
     )[0]
 
@@ -275,7 +317,7 @@ def segment_core(
                 ),
                 factor=1 / config.downscale_factor,
             )
-            for left_trim, right_trim in lr_trims
+            for left_trim, right_trim in lr_trims_no_wood
         ],
         time=timer() - t_start,
         y_lines=((y_min + np.array(y_lines)) / config.downscale_factor).tolist(),
