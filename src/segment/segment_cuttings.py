@@ -188,28 +188,33 @@ _SEGMENTERS = {
 DEFAULT_CUT_TYPE = "black_circle"
 
 
-def _normalize_crop_sizes(cuttings: list[CuttingsSegmentResult]) -> None:
-    """Shrink every bbox in place to a common width and height, so all cuttings crops stitch at the same size.
+def _normalize_tray_scale(cuttings: list[CuttingsSegmentResult]) -> None:
+    """Set a common resize target on every tray bbox, so all trays render at the same pixel size.
 
-    The target width/height is the smallest seen across the batch, so every other bbox only ever
-    shrinks -- centered on its own middle -- and the result is always a subset of the originally
-    detected region. This never requires upscaling, padding, or re-clamping to image bounds, and
-    only bbox tuples are touched, not pixel data, so memory use doesn't scale with image resolution.
+    Unlike pebble/black_circle crops -- where the area outside the detected object is just
+    background -- the tray bbox *is* the tray, and every tray is the same physical size, so
+    differences in its detected pixel size only reflect how close the photo was taken.
+    Rescaling to a shared size (rather than cropping into it) turns that pixel-size difference
+    into a genuine common scale without discarding any of the tray. The target is the median
+    detected size across the batch: a single far-off outlier doesn't drag every other image's
+    resolution down, and only images far from the median need much up/down-sampling. Only bbox
+    tuples are read here, not pixel data; the actual resize happens lazily per image when its
+    crop is loaded.
 
     Args:
-        cuttings (list[CuttingsSegmentResult]): Per-image cuttings detection results to normalize
-            in place.
+        cuttings (list[CuttingsSegmentResult]): Per-image tray detection results to set
+            resize_to on, in place.
     """
     if not cuttings:
         return
 
-    target_w = min(c.bbox[2] - c.bbox[0] for c in cuttings)
-    target_h = min(c.bbox[3] - c.bbox[1] for c in cuttings)
+    widths = sorted(c.bbox[2] - c.bbox[0] for c in cuttings)
+    heights = sorted(c.bbox[3] - c.bbox[1] for c in cuttings)
+    target_w = round(widths[len(widths) // 2])
+    target_h = round(heights[len(heights) // 2])
 
     for c in cuttings:
-        left, top, right, bottom = c.bbox
-        cx, cy = (left + right) / 2, (top + bottom) / 2
-        c.bbox = (cx - target_w / 2, cy - target_h / 2, cx + target_w / 2, cy + target_h / 2)
+        c.resize_to = (target_w, target_h)
 
 
 def segment_cuttings(
@@ -267,9 +272,11 @@ def segment_cuttings(
         except (ValueError, OSError, SegmentationError) as e:
             logger.warning("Skipping %s: %s", img_metadata.image_path.name, e)
 
-    # normalize crop sizes across the whole batch before building/preloading the cropped images,
-    # so all cuttings stitch at the same size regardless of cut_type
-    _normalize_crop_sizes([cuttings for _, cuttings in segmented])
+    # tray is a fixed physical size, so normalize its pixel scale across the batch before
+    # building/preloading the cropped images; pebble/black_circle have no such reference
+    # object, so their crops are left at their native detected size
+    if cut_type == "tray":
+        _normalize_tray_scale([cuttings for _, cuttings in segmented])
 
     detections: list[ImageMetadataProcessedCuttings] = []
     for img_metadata, cuttings in segmented:

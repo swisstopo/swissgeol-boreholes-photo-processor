@@ -425,11 +425,17 @@ class CuttingsSegmentResult(ImageSegmentResult):
     bbox_segments: list[tuple[float, float, float, float]] | None = None
     paper_status: PaperDetectionStatus | None = None  # outcome of paper detection; see PaperDetectionStatus
 
+    # (width, height) in pixels the cropped cuttings image should be resized to after cropping,
+    # e.g. so every tray -- a fixed physical size -- renders at a shared scale regardless of how
+    # close the photo was taken. None means keep the crop at its native bbox size.
+    resize_to: tuple[int, int] | None = None
+
     def to_dict(self) -> dict:
         """Return this result as a plain dict, including the paper detection status."""
         return {
             **super().to_dict(),
             "paper_status": self.paper_status.value if self.paper_status is not None else None,
+            "resize_to": self.resize_to,
         }
 
     @staticmethod
@@ -488,12 +494,16 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         """Cut the cuttings segment from the source image.
 
         Reuses load_image for the source pixels, which already rotates portrait images to
-        landscape to match the coordinate space self.cuttings.bbox was detected in. The crop
-        is cached after first access so repeated calls (e.g. during parallel stitching) don't
-        re-read the source file.
+        landscape to match the coordinate space self.cuttings.bbox was detected in. If
+        self.cuttings.resize_to is set, the crop is resized to that size afterwards (e.g. so
+        every tray -- a fixed physical size -- renders at the same scale regardless of how
+        close the photo was taken), rather than cropping into the region itself. The result is
+        cached after first access so repeated calls (e.g. during parallel stitching) don't
+        re-read or re-resize the source file.
 
         Returns:
-            Image.Image: The cropped cuttings segment image, in landscape orientation.
+            Image.Image: The cropped (and possibly resized) cuttings segment image, in
+            landscape orientation.
 
         Raises:
             ValueError: If no cuttings region was detected for this image.
@@ -504,7 +514,10 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         if self._cuttings_cache is None:
             src = self.load_image()
             left, upper, right, lower = (round(v) for v in self.cuttings.bbox)
-            self._cuttings_cache = Image.fromarray((255 * src[upper:lower, left:right]).astype(np.uint8))
+            crop = Image.fromarray((255 * src[upper:lower, left:right]).astype(np.uint8))
+            if self.cuttings.resize_to is not None:
+                crop = crop.resize(self.cuttings.resize_to, Image.Resampling.LANCZOS)
+            self._cuttings_cache = crop
 
         return self._cuttings_cache
 

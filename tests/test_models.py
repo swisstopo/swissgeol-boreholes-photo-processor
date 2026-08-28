@@ -1,8 +1,15 @@
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
-from src.models import CuttingsSegmentResult, ImageMetadataCores, PaperDetectionStatus
+from src.models import (
+    CuttingsSegmentResult,
+    ImageMetadataCores,
+    ImageMetadataCuttings,
+    ImageMetadataProcessedCuttings,
+    PaperDetectionStatus,
+)
 
 
 @pytest.mark.parametrize(
@@ -59,3 +66,27 @@ def test_cuttings_segment_result_to_dict_serializes_paper_status():
 
     assert found.to_dict()["paper_status"] == "found"
     assert unset.to_dict()["paper_status"] is None
+
+
+def test_load_cuttings_resizes_when_resize_to_is_set(tmp_path):
+    """resize_to rescales the crop to that size, e.g. so trays of the same physical size stitch at one scale."""
+    image_path = tmp_path / "img.jpg"
+    Image.new("RGB", (200, 200), color=(100, 150, 200)).save(image_path)
+    metadata = ImageMetadataCuttings(image_path=image_path, borehole_id="B", depth=1.0)
+    cuttings = CuttingsSegmentResult(bbox=(0, 0, 100, 100), resize_to=(50, 25))
+
+    crop = ImageMetadataProcessedCuttings.from_metadata(metadata, cuttings=cuttings).load_cuttings()
+
+    assert crop.size == (50, 25)
+
+
+def test_load_cuttings_keeps_native_crop_size_when_resize_to_is_none(tmp_path):
+    """Without resize_to, the crop stays at whatever size the bbox itself defines."""
+    image_path = tmp_path / "img.jpg"
+    Image.new("RGB", (200, 200), color=(100, 150, 200)).save(image_path)
+    metadata = ImageMetadataCuttings(image_path=image_path, borehole_id="B", depth=1.0)
+    cuttings = CuttingsSegmentResult(bbox=(0, 0, 100, 60))
+
+    crop = ImageMetadataProcessedCuttings.from_metadata(metadata, cuttings=cuttings).load_cuttings()
+
+    assert crop.size == (100, 60)
