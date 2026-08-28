@@ -188,6 +188,30 @@ _SEGMENTERS = {
 DEFAULT_CUT_TYPE = "black_circle"
 
 
+def _normalize_crop_sizes(cuttings: list[CuttingsSegmentResult]) -> None:
+    """Shrink every bbox in place to a common width and height, so all cuttings crops stitch at the same size.
+
+    The target width/height is the smallest seen across the batch, so every other bbox only ever
+    shrinks -- centered on its own middle -- and the result is always a subset of the originally
+    detected region. This never requires upscaling, padding, or re-clamping to image bounds, and
+    only bbox tuples are touched, not pixel data, so memory use doesn't scale with image resolution.
+
+    Args:
+        cuttings (list[CuttingsSegmentResult]): Per-image cuttings detection results to normalize
+            in place.
+    """
+    if not cuttings:
+        return
+
+    target_w = min(c.bbox[2] - c.bbox[0] for c in cuttings)
+    target_h = min(c.bbox[3] - c.bbox[1] for c in cuttings)
+
+    for c in cuttings:
+        left, top, right, bottom = c.bbox
+        cx, cy = (left + right) / 2, (top + bottom) / 2
+        c.bbox = (cx - target_w / 2, cy - target_h / 2, cx + target_w / 2, cy + target_h / 2)
+
+
 def segment_cuttings(
     imgs_metadata: list[ImageMetadataCuttings],
     config: SegmentationConfig | None = None,
@@ -233,25 +257,31 @@ def segment_cuttings(
             imgs_metadata
         )
 
-    detections: list[ImageMetadataProcessedCuttings] = []
+    segmented: list[tuple[ImageMetadataCuttings, CuttingsSegmentResult]] = []
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting cuttings images", mininterval=1.0):
         try:
-            # segmentation: reuse the shared group detection for this image's shape, if any
+            # reuse the shared group detection for this image's shape, if any
             shared_paper = paper_by_shape.get(img_metadata.shape)
             cuttings = shared_paper if shared_paper is not None else segmenter(img_metadata, config.cuttings)
-            detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings, preload=cache)
-            detections.append(detection)
-
-            # tracking
-            if with_mlflow and debug:
-                log_image_metadata_processed_cuttings_mlflow(
-                    result=detection,
-                    filename=f"{img_metadata.image_path.stem}",
-                    subfolder="debug",
-                )
-
+            segmented.append((img_metadata, cuttings))
         except (ValueError, OSError, SegmentationError) as e:
             logger.warning("Skipping %s: %s", img_metadata.image_path.name, e)
+
+    # normalize crop sizes across the whole batch before building/preloading the cropped images,
+    # so all cuttings stitch at the same size regardless of cut_type
+    _normalize_crop_sizes([cuttings for _, cuttings in segmented])
+
+    detections: list[ImageMetadataProcessedCuttings] = []
+    for img_metadata, cuttings in segmented:
+        detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings, preload=cache)
+        detections.append(detection)
+
+        if with_mlflow and debug:
+            log_image_metadata_processed_cuttings_mlflow(
+                result=detection,
+                filename=f"{img_metadata.image_path.stem}",
+                subfolder="debug",
+            )
 
     if with_mlflow:
         log_cuttings_segmentation_results_with_mlflow(detections, time=timer() - t_start)
