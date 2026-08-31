@@ -137,6 +137,18 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
         ...
 
     @abstractmethod
+    def _web_downscale_factor(self, config: StitchingConfig) -> float:
+        """Downscale factor applied to the stitched canvas when writing the web JPG.
+
+        Args:
+            config (StitchingConfig): Tunable layout parameters.
+
+        Returns:
+            float: The core/cuttings-specific downscale factor.
+        """
+        ...
+
+    @abstractmethod
     def _batch_stitch(self, batch: Q, config: StitchingConfig) -> Image.Image:
         """Render a single batch into one output figure.
 
@@ -177,10 +189,11 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                 run_id=run_id,
             )
 
+        web_downscale_factor = self._web_downscale_factor(config)
         img.resize(
             (
-                int(img.size[0] * config.web_downscale_factor),
-                int(img.size[1] * config.web_downscale_factor),
+                int(img.size[0] * web_downscale_factor),
+                int(img.size[1] * web_downscale_factor),
             )
         ).save(output_dir / f"{prefix}.jpg", quality=config.web_output_quality)
         img.save(output_dir / f"{prefix}.tif")
@@ -355,6 +368,10 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
         """Chunk cores into batches."""
         return stitching_cores(imgs, config=config)
 
+    def _web_downscale_factor(self, config: StitchingConfig) -> float:
+        """Downscale factor for the core canvas, which is built well above web size."""
+        return config.core.web_downscale_factor
+
     def _batch_stitch(self, batch: StitchingBatchCores, config: StitchingConfig) -> Image.Image:
         """Stitch one batch of cores into a canvas."""
         return stitching_batch_cores(
@@ -397,6 +414,10 @@ class CuttingsPipelineRunner(
     ) -> list[StitchingBatchCuttings]:
         """Chunk cuttings into pages."""
         return stitching_cuttings(imgs, config)
+
+    def _web_downscale_factor(self, config: StitchingConfig) -> float:
+        """The cuttings canvas (output_width/output_height) is already sized for the final output."""
+        return 1.0
 
     def _batch_stitch(self, batch: StitchingBatchCuttings, config: StitchingConfig) -> Image.Image:
         """Stitch one page of cuttings into a canvas."""
