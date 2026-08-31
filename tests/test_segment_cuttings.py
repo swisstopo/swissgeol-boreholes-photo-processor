@@ -1,14 +1,18 @@
 """Tests for the segment_cuttings module."""
 
 from collections.abc import Callable
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
-from src.models import ImageMetadataCuttings
-from src.segment.config import SegmentationCuttingsConfig
-from src.segment.segment_cuttings import segment_black_circle, segment_cuttings
+from src.models import ApproachType, ImageMetadataCuttings, PaperDetectionStatus
+from src.segment.config import SegmentationCuttingsConfig, SegmentationCuttingsPebbleGroupConfig
+from src.segment.segment_cuttings import segment_black_circle, segment_cuttings, segment_pebble, segment_tray
+from src.segment.utils.cuttings import ProcessPebblePaperGroupByShape, resolve_paper_crop
 
 
 @pytest.fixture
@@ -54,6 +58,110 @@ def test_segment_black_circle_detects_bbox_inside_circle(make_metadata):
     assert (y0 + y1) / 2 == pytest.approx(cy, abs=2)
 
 
+def _make_textured_metadata(tmp_path, depth: float, size: tuple[int, int], patches: list[tuple[int, int, int, int]]):
+    """Creates an ImageMetadataCuttings for a flat image with noisy (textured) rectangular patches.
+
+    segment_tray keys off local edge-density, so plain ImageDraw shapes (flat fill) aren't textured
+    enough to register; each patch gets independent random noise instead.
+
+    Args:
+        tmp_path: pytest tmp_path fixture, used as the save location.
+        depth (float): Depth in metres, stored on the returned metadata.
+        size (tuple[int, int]): Size (width, height) of the image.
+        patches (list[tuple[int, int, int, int]]): Noisy rectangles as (x0, y0, x1, y1).
+
+    Returns:
+        ImageMetadataCuttings: Metadata pointing at the saved synthetic image.
+    """
+    rng = np.random.default_rng(0)
+    w, h = size
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    for x0, y0, x1, y1 in patches:
+        img[y0:y1, x0:x1] = rng.integers(0, 255, size=(y1 - y0, x1 - x0, 3), dtype=np.uint8)
+
+    image_path = tmp_path / f"{depth:g}m_tray.jpg"
+    Image.fromarray(img).save(image_path, quality=95)
+    return ImageMetadataCuttings(image_path=image_path, borehole_id="B", depth=depth)
+
+
+def test_segment_tray_detects_bbox_of_textured_region(tmp_path):
+    """A single textured patch on a flat background yields a bbox around that patch."""
+    pile = (50, 150, 350, 380)
+    metadata = _make_textured_metadata(tmp_path, 1.0, size=(500, 400), patches=[pile])
+
+    result = segment_tray(metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    x0, y0, x1, y1 = result.bbox
+    assert (x0, y0) == pytest.approx(pile[:2], abs=5)
+    assert (x1, y1) == pytest.approx(pile[2:], abs=5)
+
+
+def test_segment_tray_excludes_disconnected_label_blob(tmp_path):
+    """A separate textured label above the pile (printed text has its own edge-density) is excluded.
+
+    Regression test: taking quantiles over every mask pixel (including the label's) would pull
+    the box upward to cover the label too.
+    """
+    pile = (50, 150, 350, 380)
+    label_tag = (100, 10, 300, 60)  # disconnected from the pile by a smooth gap
+    metadata = _make_textured_metadata(tmp_path, 1.0, size=(500, 400), patches=[pile, label_tag])
+
+    result = segment_tray(metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    x0, y0, x1, y1 = result.bbox
+    assert y0 > label_tag[3]  # box top starts below the label, not at/above it
+    assert (x0, y0) == pytest.approx(pile[:2], abs=5)
+    assert (x1, y1) == pytest.approx(pile[2:], abs=5)
+
+
+def _fake_paper(bbox: tuple[int, int, int, int]) -> SimpleNamespace:
+    """A stand-in for the regionprops object detect_paper would return."""
+    return SimpleNamespace(bbox=bbox)
+
+
+@pytest.fixture
+def pebble_metadata(make_metadata):
+    return make_metadata(1.0, size=(400, 200))  # w=400, h=200, landscape so load_image won't rotate it
+
+
+def test_segment_pebble_crops_left_of_confirmed_paper(pebble_metadata):
+    """A detected paper region crops everything left of its left edge."""
+    paper = _fake_paper((20, 300, 200, 400))  # bbox = (min_row, min_col, max_row, max_col)
+
+    with patch("src.segment.segment_cuttings.detect_paper", return_value=paper):
+        result = segment_pebble(pebble_metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    assert result.bbox == (0, 0, 300, 200)
+    assert result.paper_status == PaperDetectionStatus.FOUND
+
+
+def test_segment_pebble_falls_back_when_no_candidate_found(pebble_metadata):
+    """No bright/colorless region at all keeps the full image instead of guessing."""
+    with patch("src.segment.segment_cuttings.detect_paper", return_value=None):
+        result = segment_pebble(pebble_metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    assert result.bbox == (0, 0, 400, 200)
+    assert result.paper_status == PaperDetectionStatus.NO_CANDIDATE
+
+
+@pytest.mark.parametrize(
+    ("paper_bbox", "expected_status"),
+    [
+        ((20, 0, 200, 100), PaperDetectionStatus.DEGENERATE_LEFT_EDGE),  # left edge at column 0
+        ((20, 50, 200, 400), PaperDetectionStatus.CROPPED_TOO_MUCH),  # would crop away most of the image
+    ],
+)
+def test_segment_pebble_rejects_unreliable_paper_region(pebble_metadata, paper_bbox, expected_status):
+    """A detected paper region that's still geometrically implausible falls back to the full image."""
+    paper = _fake_paper(paper_bbox)
+
+    with patch("src.segment.segment_cuttings.detect_paper", return_value=paper):
+        result = segment_pebble(pebble_metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    assert result.bbox == (0, 0, 400, 200)
+    assert result.paper_status == expected_status
+
+
 def test_segment_cuttings_raises_for_unknown_cut_type(make_metadata):
     """An unrecognized cut_type fails fast instead of silently doing nothing."""
     metadata = make_metadata(1.0)
@@ -74,3 +182,149 @@ def test_segment_cuttings_skips_unsegmentable_image_without_crashing_batch(make_
     )
 
     assert [d.depth for d in detections] == [2.0]
+
+
+@pytest.mark.parametrize(
+    ("paper_bbox", "expected_status", "expected_bbox"),
+    [
+        ((20, 300, 200, 400), PaperDetectionStatus.FOUND, (0, 0, 300, 200)),
+        (None, PaperDetectionStatus.NO_CANDIDATE, (0, 0, 400, 200)),
+        ((20, 0, 200, 100), PaperDetectionStatus.DEGENERATE_LEFT_EDGE, (0, 0, 400, 200)),  # left edge at column 0
+        ((20, 50, 200, 400), PaperDetectionStatus.CROPPED_TOO_MUCH, (0, 0, 400, 200)),  # crops away most of the image
+    ],
+)
+def test_resolve_paper_crop_outcomes(paper_bbox, expected_status, expected_bbox):
+    """Shared decision logic used by both per-image and group paper detection."""
+    paper = _fake_paper(paper_bbox) if paper_bbox is not None else None
+
+    status, bbox = resolve_paper_crop(paper, h=200, w=400, max_cropped_frac=0.5)
+
+    assert status == expected_status
+    assert bbox == expected_bbox
+
+
+_PAPER_COLOR = (235, 235, 235)  # bright, colorless — stands in for the reference paper sheet
+_PAPER_BOX = (140, 30, 199, 100)  # anchored to the right edge, away from top/bottom/left
+
+
+@pytest.fixture
+def make_group_metadata(tmp_path):
+    def _factory(n: int, fills: list[int] | None = None, draw_paper: bool = True, size=(200, 150)):
+        """Creates n synthetic images of a shared shape, each with different "cuttings" content.
+
+        A varying-fill background stands in for cuttings material (different rock every shot);
+        a paper rectangle, when drawn, is identical across every image so it survives averaging.
+        """
+        fills = fills or [20 + 10 * i for i in range(n)]
+        imgs = []
+        for i in range(n):
+            f = fills[i % len(fills)]
+            img = Image.new("RGB", size, color=(f, f, f))
+            if draw_paper:
+                ImageDraw.Draw(img).rectangle(_PAPER_BOX, fill=_PAPER_COLOR)
+            path = tmp_path / f"{i}m.jpg"
+            img.save(path)
+            imgs.append(ImageMetadataCuttings(image_path=path, borehole_id="B", depth=float(i)))
+        return imgs
+
+    return _factory
+
+
+def test_process_pebble_paper_group_by_shape_skips_shape_group_below_n_min(make_group_metadata):
+    """A shape group with too few images doesn't get a shared estimate."""
+    imgs = make_group_metadata(4)
+
+    results = ProcessPebblePaperGroupByShape(
+        SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+    ).run(imgs)
+
+    assert results == {}
+
+
+def test_process_pebble_paper_group_by_shape_finds_consistent_paper_region(make_group_metadata):
+    """A paper region that's identical across the group survives averaging and gets detected."""
+    imgs = make_group_metadata(12)
+
+    results = ProcessPebblePaperGroupByShape(
+        SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+    ).run(imgs)
+
+    shape = imgs[0].shape
+    assert set(results) == {shape}
+    result = results[shape]
+    assert result.paper_status == PaperDetectionStatus.FOUND
+    assert result.approach == ApproachType.GROUP
+    assert result.bbox == (0, 0, pytest.approx(_PAPER_BOX[0], abs=6), 150)
+
+
+def test_process_pebble_paper_group_by_shape_ignores_a_fixed_dark_region(make_group_metadata):
+    """A region that's fixed across the group but dark (e.g. a lens-vignette corner) isn't mistaken for paper."""
+    imgs = make_group_metadata(12, draw_paper=False)
+    for img_metadata in imgs:
+        with Image.open(img_metadata.image_path) as img:
+            ImageDraw.Draw(img).rectangle(_PAPER_BOX, fill=(10, 10, 10))
+            img.save(img_metadata.image_path)
+
+    results = ProcessPebblePaperGroupByShape(
+        SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+    ).run(imgs)
+
+    shape = imgs[0].shape
+    assert results[shape].paper_status == PaperDetectionStatus.NO_CANDIDATE
+    assert results[shape].bbox == (0, 0, 200, 150)
+
+
+def test_process_pebble_paper_group_by_shape_returns_no_candidate_when_paper_absent(make_group_metadata):
+    """A shape group with no paper anywhere still gets a result, falling back to the full frame."""
+    imgs = make_group_metadata(12, draw_paper=False)
+
+    results = ProcessPebblePaperGroupByShape(
+        SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+    ).run(imgs)
+
+    shape = imgs[0].shape
+    assert results[shape].paper_status == PaperDetectionStatus.NO_CANDIDATE
+    assert results[shape].bbox == (0, 0, 200, 150)
+
+
+def test_segment_cuttings_pebble_reuses_shared_group_crop_across_the_shape_group(make_group_metadata):
+    """A large enough shape group is segmented via the shared group estimate, not per-image detection."""
+    imgs = make_group_metadata(12)
+
+    detections = segment_cuttings(
+        imgs,
+        config=SegmentationConfig(
+            cuttings=SegmentationCuttingsConfig(
+                downscale_factor=1.0,
+                pebble_group=SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+            )
+        ),
+        cut_type="pebble",
+    )
+
+    assert len(detections) == len(imgs)
+    for detection in detections:
+        assert detection.cuttings is not None
+        assert detection.cuttings.paper_status == PaperDetectionStatus.FOUND
+        assert detection.cuttings.approach == ApproachType.GROUP
+
+
+def test_segment_cuttings_pebble_falls_back_to_per_image_below_n_min_group(make_group_metadata):
+    """A shape group too small for a shared estimate still gets segmented, per-image."""
+    imgs = make_group_metadata(4)
+
+    detections = segment_cuttings(
+        imgs,
+        config=SegmentationConfig(
+            cuttings=SegmentationCuttingsConfig(
+                downscale_factor=1.0,
+                pebble_group=SegmentationCuttingsPebbleGroupConfig(downscale_factor=1.0, n_min_group=10),
+            )
+        ),
+        cut_type="pebble",
+    )
+
+    assert len(detections) == len(imgs)
+    for detection in detections:
+        assert detection.cuttings is not None
+        assert detection.cuttings.approach == ApproachType.SINGLE
