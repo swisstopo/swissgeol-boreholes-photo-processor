@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.evaluations.config import CoreCheckResult
 from src.models import (
+    CuttingsSegmentResult,
     ImageMetadataProcessedCores,
     ImageMetadataProcessedCuttings,
     ImageSegmentResult,
@@ -193,7 +194,8 @@ def log_cuttings_segmentation_results_with_mlflow(
     """Log a summary of the cuttings segmentation timing to MLflow.
 
     Dumps a single JSON artifact ("segmentation_summary.json") containing the overall
-    time for the run and every image's full detection result.
+    time for the run, a breakdown of the pebble method's paper-detection outcomes across
+    the batch, and every image's full detection result.
 
     Args:
         detections (list[ImageMetadataProcessedCuttings]): Per-image processed results.
@@ -205,6 +207,9 @@ def log_cuttings_segmentation_results_with_mlflow(
                 "overall": time,
                 "cuttings": ImageSegmentResult.approach_to_json([detection.cuttings for detection in detections]),
             },
+            "paper_status": CuttingsSegmentResult.paper_status_counts(
+                [detection.cuttings for detection in detections]
+            ),
             "detections": [detection.to_dict() for detection in detections],
         },
         "segmentation_summary.json",
