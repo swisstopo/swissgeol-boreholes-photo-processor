@@ -135,14 +135,16 @@ def _draw_cuttings_border_label(
     depth: float,
     loc: tuple[int, int],
     font_size: int,
+    anchor: str = "lm",
 ) -> Image.Image:
-    """Draw a column's top/bottom depth label (FROM/TO), left-anchored at loc.
+    """Draw a column's top/bottom depth label (FROM/TO) at loc.
 
     Args:
         canvas (Image.Image): The canvas to draw onto.
         depth (float): Depth value to display.
-        loc (tuple[int, int]): Position of the label (left-middle anchor).
+        loc (tuple[int, int]): Position of the label.
         font_size (int): Font size used for the label.
+        anchor (str): PIL text anchor, e.g. "lm" (left-middle) or "rm" (right-middle).
 
     Returns:
         Image.Image: The canvas with the label drawn on it.
@@ -154,7 +156,7 @@ def _draw_cuttings_border_label(
         _format_depth(depth),
         fill=(255, 255, 255),
         font=font,
-        anchor="lm",
+        anchor=anchor,
     )
     return canvas
 
