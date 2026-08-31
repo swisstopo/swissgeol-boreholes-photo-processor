@@ -24,14 +24,14 @@ class CuttingsStitchingConfig:
     """Tunable parameters for arranging cuttings images into a fixed grid."""
 
     annotation_gap: int = 20  # gap in pixels between a cutting's image and its depth label
-    annotation_width: int = 130  # width in pixels reserved at the right of each cell for the depth label
+    annotation_width: int = 170  # width in pixels reserved at the right of each cell for the depth label
     font_size: int = 40  # font size (px) used for the depth label next to each cutting
     output_height: int = 2896  # total output canvas height (pixels), split evenly across the rows
     output_width: int = 2048  # total output canvas width (pixels), split evenly across the columns
     num_cuttings_columns: int = 3  # cuttings placed side by side per output sheet
     num_cuttings_rows: int = 15  # cuttings stacked per column per output sheet
     padding_cuttings: int = 20  # gap in pixels between neighboring cells, carved out of the output dimensions
-    padding_horizontal: int = 170  # left/right border width in pixels
+    padding_horizontal: int = 130  # left/right border width in pixels
     padding_vertical: int = 150  # top/bottom border height in pixels
 
 

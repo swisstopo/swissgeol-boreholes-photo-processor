@@ -4,6 +4,11 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 
+def _format_depth(value: float) -> str:
+    """Format a depth value with an apostrophe thousands separator, e.g. 1505.0 -> "1'505.00"."""
+    return f"{value:,.2f}".replace(",", "'")
+
+
 def _draw_cores(
     canvas: Image.Image,
     cores: list[Image.Image],
@@ -43,14 +48,14 @@ def _draw_cores(
 
         draw.text(
             (x_offset + core.width / 2, y_min - padding_vertical),
-            f"{start_label:.2f} m" + ("" if correct else "*"),
+            f"{_format_depth(start_label)} m" + ("" if correct else "*"),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",
         )
         draw.text(
             (x_offset + core.width / 2, y_min + max_core_height + padding_vertical),
-            f"{end_label:.2f} m" + ("" if correct else "*"),
+            f"{_format_depth(end_label)} m" + ("" if correct else "*"),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",
@@ -114,7 +119,7 @@ def _draw_cuttings_annotation(
     font = ImageFont.load_default(size=font_size)
     ImageDraw.Draw(annotation_img).text(
         (size[0] / 2, size[1] / 2),
-        f"{depth:.2f}",
+        _format_depth(depth),
         fill=(255, 255, 255),
         font=font,
         anchor="mm",
@@ -144,7 +149,7 @@ def _draw_cuttings_border_label(
     font = ImageFont.load_default(size=font_size)
     draw.text(
         loc,
-        f"{depth:.2f}",
+        _format_depth(depth),
         fill=(255, 255, 255),
         font=font,
         anchor="lm",
