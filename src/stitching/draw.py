@@ -5,10 +5,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 def _format_depth(value: float) -> str:
-    """Format a depth with an apostrophe thousands separator, dropping an uninformative ".00"."""
+    """Format a depth with a trailing "m", an apostrophe thousands separator, and no uninformative ".00"."""
     rounded = round(value, 2)
     text = f"{int(rounded):,}" if rounded == int(rounded) else f"{rounded:,.2f}"
-    return text.replace(",", "'")
+    return text.replace(",", "'") + "m"
 
 
 def _draw_cores(
@@ -50,14 +50,14 @@ def _draw_cores(
 
         draw.text(
             (x_offset + core.width / 2, y_min - padding_vertical),
-            f"{_format_depth(start_label)} m" + ("" if correct else "*"),
+            _format_depth(start_label) + ("" if correct else "*"),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",
         )
         draw.text(
             (x_offset + core.width / 2, y_min + max_core_height + padding_vertical),
-            f"{_format_depth(end_label)} m" + ("" if correct else "*"),
+            _format_depth(end_label) + ("" if correct else "*"),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",
