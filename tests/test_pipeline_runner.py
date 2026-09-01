@@ -12,7 +12,7 @@ from src.pipeline_runner import CuttingsPipelineRunner, PipelineRunner
 class _FakeRunner(PipelineRunner[Any, Any, Any]):
     """Minimal concrete runner for exercising the base class's run() template in isolation."""
 
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[Any]:
+    def _collect(self, input_dir: Path, with_mlflow: bool, config) -> list[Any]:
         return []
 
     def _segment(self, imgs_metadata, config, with_mlflow, debug, cache, cut_type="black_circle") -> list[Any]:

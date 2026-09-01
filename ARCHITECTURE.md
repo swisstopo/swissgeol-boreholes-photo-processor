@@ -153,7 +153,8 @@ aggregation and the per-image fallback pass run in parallel worker pools sized b
 1. **Collect** (`src/preprocessing/cuttings.py`, `collect_cuttings`) — scan the folder for
    image files (`.jpg`/`.jpeg`/`.bmp`/`.tif`/`.tiff`), parse a single point depth per
    filename into `ImageMetadataCuttings`, exclude sample-vial photos, and drop
-   duplicate-depth images (keeping the first by filename).
+   duplicate-depth images (keeping the first or last by filename, per the `dedup_keep`
+   config setting).
 2. **Segment** (`src/segment/segment_cuttings.py`) — crop the cuttings region using one of
    two interchangeable methods, selected via `--cut-type`, producing
    `ImageMetadataProcessedCuttings`.

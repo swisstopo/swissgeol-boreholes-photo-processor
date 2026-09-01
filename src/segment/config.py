@@ -1,6 +1,7 @@
 """Configuration and result models for segmentation pipeline."""
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass
@@ -130,6 +131,7 @@ class SegmentationCuttingsConfig:
     """Tunable parameters for the cuttings segmentation step."""
 
     downscale_factor: float = 0.25  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    dedup_keep: Literal["first", "last"] = "first"  # which image to keep when multiple share the same depth
     pebble: SegmentationCuttingsPebbleConfig = field(default_factory=SegmentationCuttingsPebbleConfig)
     pebble_group: SegmentationCuttingsPebbleGroupConfig = field(default_factory=SegmentationCuttingsPebbleGroupConfig)
     black_circle: SegmentationCuttingsBlackCircleConfig = field(default_factory=SegmentationCuttingsBlackCircleConfig)

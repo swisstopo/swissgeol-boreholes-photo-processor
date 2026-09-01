@@ -42,6 +42,7 @@ segmentation:
 
   cuttings:
     downscale_factor: 0.25 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
+    dedup_keep: first # which image to keep when multiple share the same depth: "first" or "last" (by filename)
 
     pebble:
       min_extent: 0.45 # minimum bounding-box fill fraction for a paper candidate

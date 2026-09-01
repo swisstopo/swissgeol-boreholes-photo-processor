@@ -75,12 +75,14 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
     """
 
     @abstractmethod
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[M]:
+    def _collect(self, input_dir: Path, with_mlflow: bool, config: SegmentationConfig) -> list[M]:
         """Collect and parse image metadata from input_dir.
 
         Args:
             input_dir (Path): Path to the directory containing raw photos.
             with_mlflow (bool): Whether to log collection stats to MLflow.
+            config (SegmentationConfig): Tunable segmentation parameters. Only the cuttings
+                pipeline currently reads from this (dedup_keep); ignored by the cores pipeline.
 
         Returns:
             list[M]: Parsed metadata for every successfully-collected image.
@@ -226,7 +228,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
             cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
-            imgs_metadata = self._collect(input_dir, with_mlflow=with_mlflow)
+            imgs_metadata = self._collect(input_dir, with_mlflow=with_mlflow, config=config.segmentation)
 
             # segmentation
             logging.info("--- Segmentation ---")
@@ -323,7 +325,12 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
 class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcessedCores, StitchingBatchCores]):
     """Runs the core-photos pipeline: segment core/tray/ruler, evaluate, and stitch into strips."""
 
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[ImageMetadataCores]:
+    def _collect(
+        self,
+        input_dir: Path,
+        with_mlflow: bool,
+        config: SegmentationConfig,  # unused: no dedup concept for cores
+    ) -> list[ImageMetadataCores]:
         """Collect all TIF images from the input directory and parse filename metadata."""
         imgs_metadata: list[ImageMetadataCores] = []
         for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
@@ -391,9 +398,9 @@ class CuttingsPipelineRunner(
     No evaluation step exists yet for cuttings, so `_evaluate` is left at the base class's no-op.
     """
 
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[ImageMetadataCuttings]:
+    def _collect(self, input_dir: Path, with_mlflow: bool, config: SegmentationConfig) -> list[ImageMetadataCuttings]:
         """Collect cuttings images from the input directory."""
-        return collect_cuttings(input_dir, with_mlflow=with_mlflow)
+        return collect_cuttings(input_dir, with_mlflow=with_mlflow, dedup_keep=config.cuttings.dedup_keep)
 
     def _segment(
         self,
