@@ -10,7 +10,11 @@ from src.segment.config import (
     SegmentationConfig,
     SegmentationCoreConfig,
     SegmentationCoreTrimConfig,
+    SegmentationCuttingsBlackCircleConfig,
     SegmentationCuttingsConfig,
+    SegmentationCuttingsPebbleConfig,
+    SegmentationCuttingsPebbleGroupConfig,
+    SegmentationCuttingsTrayConfig,
     SegmentationRulerConfig,
     SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
@@ -46,6 +50,7 @@ class PipelineConfig:
         raw = yaml.safe_load(path.read_text()) or {}
         raw_segmentation = dict(raw.pop("segmentation", None) or {})
         raw_segmentation_core = dict(raw_segmentation.pop("core", None) or {})
+        raw_segmentation_cuttings = dict(raw_segmentation.pop("cuttings", None) or {})
         raw_stitching = dict(raw.pop("stitching", None) or {})
         raw_evaluation = dict(raw.pop("evaluation", None) or {})
         return cls(
@@ -58,7 +63,17 @@ class PipelineConfig:
                     tray_single=SegmentationTraySingleConfig(**(raw_segmentation_core.pop("tray_single", None) or {})),
                     **raw_segmentation_core,
                 ),
-                cuttings=SegmentationCuttingsConfig(**(raw_segmentation.pop("cuttings", None) or {})),
+                cuttings=SegmentationCuttingsConfig(
+                    pebble=SegmentationCuttingsPebbleConfig(**(raw_segmentation_cuttings.pop("pebble", None) or {})),
+                    pebble_group=SegmentationCuttingsPebbleGroupConfig(
+                        **(raw_segmentation_cuttings.pop("pebble_group", None) or {})
+                    ),
+                    black_circle=SegmentationCuttingsBlackCircleConfig(
+                        **(raw_segmentation_cuttings.pop("black_circle", None) or {})
+                    ),
+                    tray=SegmentationCuttingsTrayConfig(**(raw_segmentation_cuttings.pop("tray", None) or {})),
+                    **raw_segmentation_cuttings,
+                ),
                 **raw_segmentation,
             ),
             stitching=StitchingConfig(
