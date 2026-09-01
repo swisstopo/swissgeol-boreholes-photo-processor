@@ -153,9 +153,10 @@ aggregation and the per-image fallback pass run in parallel worker pools sized b
 1. **Collect** (`src/preprocessing/cuttings.py`, `collect_cuttings`) — scan the folder for
    image files (`.jpg`/`.jpeg`/`.bmp`/`.tif`/`.tiff`), parse a single point depth per
    filename into `ImageMetadataCuttings`, exclude sample-vial photos, and drop
-   duplicate-depth images (keeping the first by filename).
+   duplicate-depth images (keeping the first or last by filename, per the `dedup_keep`
+   config setting).
 2. **Segment** (`src/segment/segment_cuttings.py`) — crop the cuttings region using one of
-   three interchangeable per-image methods, selected via `--cut-type`, producing
+   two interchangeable methods, selected via `--cut-type`, producing
    `ImageMetadataProcessedCuttings`.
 3. *(No evaluation step yet — `_evaluate` is a no-op for this pipeline.)*
 4. **Stitch** (`src/stitching/stitching_cuttings.py`) — arrange into fixed-size grid pages.
@@ -170,21 +171,50 @@ reliably-parseable id prefix.
 
 ### Segmentation
 
-Unlike core segmentation, cuttings are segmented **independently per image** — there's no
-shared-group/fallback split, because there's no batch-wide consistency to exploit (no
-common tray shape or fixed camera rig across a borehole's cuttings photos) and no ruler to
-coordinate with. `segment_cuttings` dispatches each image to a segmenter
-(`src/segment/segment_cuttings.py`), chosen once per run via `--cut-type` to match the
-physical layout used at that borehole:
+`segment_cuttings` dispatches each image to a segmenter (`src/segment/segment_cuttings.py`),
+chosen once per run via `--cut-type` to match the physical layout used at that borehole:
 
 - **`black_circle`** (default) — cuttings sit inside a black circular tray. Threshold on
   grayscale brightness, take the largest connected component, and crop a square around its
-  centroid sized from its area.
+  centroid sized from its area. Purely per-image; there's no batch-wide consistency to
+  exploit here (no common tray shape or fixed camera rig across a borehole's cuttings
+  photos) and no ruler to coordinate with.
+- **`pebble`** (`segment_pebble` in `src/segment/segment_cuttings.py`) — cuttings sit next to
+  a printed reference paper sheet. Per-image, this thresholds HSV brightness/saturation
+  (the paper is the one visually consistent thing to detect, since raw pebble texture varies
+  too much) plus shape/edge filtering (extent, solidity, area, edge-anchoring), then crops
+  everything left of the paper's left edge. Falls back to the full, uncropped image (tracked
+  via `PaperDetectionStatus`) whenever no candidate passes those filters or the candidate is
+  geometrically implausible (e.g. would crop away more than half the image), rather than
+  risk a wrong crop.
+
+  Per-image brightness thresholding is noisy in practice (misses real paper under exposure
+  variance, or mistakes a bright pebble for the card). Where a borehole's photos share a
+  camera setup closely enough to produce a large group of identically-shaped images
+  (`ProcessPebblePaperGroupByShape`/`SegmentationCuttingsPebbleGroupConfig` in
+  `src/segment/utils/cuttings.py`, mirroring cores' `tray_group`), the paper's position is
+  instead estimated once per shape group and reused for every image in it, falling back to
+  per-image detection only for images whose shape group is too small
+  (`n_min_group`, default 10) to trust a shared estimate. The estimate is built from
+  cross-image pixel statistics rather than brightness alone: averaging many same-shape
+  images washes differing cuttings material into a formless blur, but the paper — sitting at
+  the same pixel position in every shot — survives sharp, so the region with *low
+  cross-image standard deviation* isolates it far more reliably than a per-frame brightness
+  cutoff. Brightness/colorlessness on the mean image is layered on top only to reject other
+  things that are also consistent across every shot but aren't paper (e.g. a fixed
+  lens-vignette corner). The status/bbox decision logic (`resolve_paper_crop`) is shared
+  between the per-image and group paths.
+- **`tray`** (`segment_tray` in `src/segment/segment_cuttings.py`) — cuttings sit in an open
+  tray on a table, so texture, not brightness, separates pile from background. Compute local
+  edge-density (Scharr gradient, box-averaged) and Otsu-threshold it, keep the largest
+  connected component (excluding a separate textured label tag), erode it slightly to trim
+  the smoothed-edge halo, then take a quantile-trimmed bbox over the remaining mask.
 
 Each segmenter returns one bbox per image; failures (`ValueError`/`OSError`/
-`SegmentationError`) are logged and that image is dropped, same as cores. There's no
-parallel worker pool here (`segment_cuttings` runs a plain loop) since per-image
-segmentation is already cheap relative to core's optical-flow/GMM group step.
+`SegmentationError`) are logged and that image is dropped, same as cores. The per-image loop
+itself isn't parallelized (`segment_cuttings` runs a plain loop) since per-image segmentation
+is already cheap relative to the group-estimation step (which does use `n_workers`, like
+cores' `tray_group`/`ruler` group steps).
 
 ### Stitching / Output
 
@@ -208,15 +238,17 @@ scale to preserve, so layout is purely grid-based:
   depth parseable under one of six borehole-specific conventions (see Cuttings pipeline
   above); the borehole ID instead comes from the folder name. Files that don't match are
   skipped with a warning, not fatal to the whole batch.
-- **Shape grouping (cores only) assumes a static camera per batch of same-shaped images.**
-  If two genuinely different camera setups happen to produce images of the same pixel
-  dimensions, they'd incorrectly share a foreground/ruler estimate. This is a deliberate
-  trade-off — using filename/shape as a cheap proxy for "same rig" rather than requiring
-  explicit camera metadata. Cuttings has no equivalent assumption since it segments
+- **Shape grouping assumes a static camera (cores), or at least a static paper position
+  (cuttings' `pebble`), per batch of same-shaped images.** If two genuinely different
+  camera setups happen to produce images of the same pixel dimensions, they'd incorrectly
+  share a foreground/ruler/paper estimate. This is a deliberate trade-off — using
+  filename/shape as a cheap proxy for "same rig" rather than requiring explicit camera
+  metadata. Cuttings' `black_circle` has no equivalent assumption since it always segments
   per-image.
 - **Cuttings' `--cut-type` must match the physical layout at that borehole** and is picked
-  manually — there's no auto-detection, so the wrong choice produces a garbage crop rather
-  than an error.
+  manually — there's no auto-detection. A wrong choice still produces a garbage crop for
+  `black_circle`; `pebble` degrades to an uncropped fallback instead, but neither fails loudly
+  enough to make the mismatch obvious (tracked in #75).
 - **Only 3-channel (or RGBA-with-alpha-dropped) images are supported**; grayscale input
   raises `SegmentationError`. Cores load via `tifffile` rather than PIL specifically
   because raw scans may be 16-bit, which PIL handles less reliably (`src/utils.py`).

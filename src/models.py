@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from enum import IntEnum, auto
+from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 from typing import ClassVar
 
@@ -405,12 +405,54 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
         }
 
 
+class PaperDetectionStatus(StrEnum):
+    """Outcome of the pebble method's reference-paper-sheet detection (segment_pebble).
+
+    Unset (None) for cuttings methods that don't rely on paper detection (e.g. black_circle).
+    """
+
+    FOUND = "found"
+    NO_CANDIDATE = "no_candidate"  # no region passed the shape/area/edge-anchoring filters, at either threshold
+    DEGENERATE_LEFT_EDGE = "degenerate_left_edge"  # detected paper's left edge is at column 0 -- nothing to crop
+    CROPPED_TOO_MUCH = "cropped_too_much"  # detected paper would crop away more than max_cropped_frac of the image
+
+
 @dataclass
 class CuttingsSegmentResult(ImageSegmentResult):
     """Result of detecting the cuttings bbox (bbox is used downstream for cropping/evaluation/stitching)."""
 
     # Per-segment bboxes before merging into `bbox`; kept only for MLflow debug visualization.
     bbox_segments: list[tuple[float, float, float, float]] | None = None
+    paper_status: PaperDetectionStatus | None = None  # outcome of paper detection; see PaperDetectionStatus
+
+    # (width, height) in pixels the cropped cuttings image should be resized to after cropping,
+    # e.g. so every tray -- a fixed physical size -- renders at a shared scale regardless of how
+    # close the photo was taken. None means keep the crop at its native bbox size.
+    resize_to: tuple[int, int] | None = None
+
+    def to_dict(self) -> dict:
+        """Return this result as a plain dict, including the paper detection status."""
+        return {
+            **super().to_dict(),
+            "paper_status": self.paper_status.value if self.paper_status is not None else None,
+            "resize_to": self.resize_to,
+        }
+
+    @staticmethod
+    def paper_status_counts(results: list["CuttingsSegmentResult | None"]) -> dict[str, int]:
+        """Count how many results ended in each PaperDetectionStatus outcome.
+
+        Only counts results that actually set a paper_status (i.e. went through segment_pebble);
+        results from other cuttings methods, or failed detections (None), are ignored.
+
+        Args:
+            results (list[CuttingsSegmentResult | None]): Per-image cuttings detection results for one batch.
+
+        Returns:
+            dict[str, int]: Number of results per PaperDetectionStatus value.
+        """
+        statuses = [result.paper_status for result in results if result and result.paper_status is not None]
+        return {status.value: statuses.count(status) for status in PaperDetectionStatus}
 
 
 @dataclass
@@ -452,12 +494,16 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         """Cut the cuttings segment from the source image.
 
         Reuses load_image for the source pixels, which already rotates portrait images to
-        landscape to match the coordinate space self.cuttings.bbox was detected in. The crop
-        is cached after first access so repeated calls (e.g. during parallel stitching) don't
-        re-read the source file.
+        landscape to match the coordinate space self.cuttings.bbox was detected in. If
+        self.cuttings.resize_to is set, the crop is resized to that size afterwards (e.g. so
+        every tray -- a fixed physical size -- renders at the same scale regardless of how
+        close the photo was taken), rather than cropping into the region itself. The result is
+        cached after first access so repeated calls (e.g. during parallel stitching) don't
+        re-read or re-resize the source file.
 
         Returns:
-            Image.Image: The cropped cuttings segment image, in landscape orientation.
+            Image.Image: The cropped (and possibly resized) cuttings segment image, in
+            landscape orientation.
 
         Raises:
             ValueError: If no cuttings region was detected for this image.
@@ -468,7 +514,10 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         if self._cuttings_cache is None:
             src = self.load_image()
             left, upper, right, lower = (round(v) for v in self.cuttings.bbox)
-            self._cuttings_cache = Image.fromarray((255 * src[upper:lower, left:right]).astype(np.uint8))
+            crop = Image.fromarray((255 * src[upper:lower, left:right]).astype(np.uint8))
+            if self.cuttings.resize_to is not None:
+                crop = crop.resize(self.cuttings.resize_to, Image.Resampling.LANCZOS)
+            self._cuttings_cache = crop
 
         return self._cuttings_cache
 
