@@ -55,6 +55,16 @@ def test_collect_cuttings_skips_vial_photos(tmp_path):
     assert [m.depth for m in result] == [10.0]
 
 
+def test_collect_cuttings_skips_vue_generale_photos(tmp_path):
+    """Vue-generale overview photos (no real depth) are excluded outright, case-insensitively."""
+    _write_image(tmp_path / "10m_Vue-Generale.jpg")
+    _write_image(tmp_path / "20m_00.jpg")
+
+    result = collect_cuttings(tmp_path)
+
+    assert [m.depth for m in result] == [20.0]
+
+
 def test_collect_cuttings_skips_unreadable_file_without_crashing(tmp_path):
     """A file with a cuttings extension but no real image content is skipped, not fatal."""
     (tmp_path / "10m_00.jpg").write_text("not an image")
