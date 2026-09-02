@@ -12,9 +12,11 @@ from src.config import SegmentationConfig
 from src.models import ApproachType, CuttingsSegmentResult, ImageMetadataCuttings, PaperDetectionStatus
 from src.segment.config import SegmentationCuttingsConfig, SegmentationCuttingsPebbleGroupConfig
 from src.segment.segment_cuttings import (
+    DEFAULT_CUT_TYPE,
     _normalize_tray_scale,
     segment_black_circle,
     segment_cuttings,
+    segment_full,
     segment_pebble,
     segment_tray,
 )
@@ -47,6 +49,20 @@ def make_metadata(tmp_path):
         return ImageMetadataCuttings(image_path=image_path, borehole_id="B", depth=depth)
 
     return _factory
+
+
+def test_segment_full_returns_whole_image_bbox(make_metadata):
+    """No cropping: the bbox should cover the entire image."""
+    metadata = make_metadata(1.0, size=(400, 300))
+
+    result = segment_full(metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    assert result.bbox == (0, 0, 400, 300)
+
+
+def test_default_cut_type_is_full():
+    """The default cuttings segmentation should take the entire image, with no cropping."""
+    assert DEFAULT_CUT_TYPE == "full"
 
 
 def test_segment_black_circle_detects_bbox_inside_circle(make_metadata):

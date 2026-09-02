@@ -28,6 +28,24 @@ from src.utils import scale_bbox
 logger = logging.getLogger(__name__)
 
 
+def segment_full(
+    img_metadata: ImageMetadataCuttings,
+    config: SegmentationCuttingsConfig,
+) -> CuttingsSegmentResult:
+    """Segment cuttings by taking the entire image, with no cropping.
+
+    Args:
+        img_metadata (ImageMetadataCuttings): Metadata for the cuttings image to segment.
+        config (SegmentationCuttingsConfig): Tunable segmentation parameters. Unused.
+
+    Returns:
+        CuttingsSegmentResult: A bbox covering the full image, and the time taken to build it.
+    """
+    t_start = timer()
+    h, w = img_metadata.shape[:2]
+    return CuttingsSegmentResult(bbox=(0, 0, w, h), time=timer() - t_start)
+
+
 def segment_tray(
     img_metadata: ImageMetadataCuttings,
     config: SegmentationCuttingsConfig,
@@ -180,12 +198,13 @@ def segment_black_circle(
 
 
 _SEGMENTERS = {
+    "full": segment_full,
     "black_circle": segment_black_circle,
     "pebble": segment_pebble,
     "tray": segment_tray,
 }
 
-DEFAULT_CUT_TYPE = "black_circle"
+DEFAULT_CUT_TYPE = "full"
 
 
 def _normalize_tray_scale(cuttings: list[CuttingsSegmentResult]) -> None:
@@ -234,8 +253,8 @@ def segment_cuttings(
         debug (bool): Whether to additionally log each image's cuttings bbox overlay to MLflow.
             Only applies when with_mlflow is True.
         cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
-        cut_type (str): The type of cuttings to segment: "black_circle", "pebble", or "tray".
-            Defaults to "black_circle".
+        cut_type (str): The type of cuttings to segment: "full", "black_circle", "pebble", or "tray".
+            Defaults to "full".
 
     Returns:
         list[ImageMetadataProcessedCuttings]: A list of processed image metadata objects. May be shorter than

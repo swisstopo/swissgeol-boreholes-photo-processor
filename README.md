@@ -259,8 +259,10 @@ uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-d
 ```
 
 - same flags as for the cores
-- `--cut-type`: Cuttings segmentation method to use — `black_circle` (default, cuttings inside
-  a black circular tray), `pebble` (cuttings next to a printed reference paper sheet) or `tray` (cuttings inside a metal tray) . Must match the physical layout used at that borehole; there's no auto-detection.
+- `--cut-type`: Cuttings segmentation method to use — `full` (default, no cropping, the entire
+  image is used), `black_circle` (cuttings inside a black circular tray), `pebble` (cuttings next
+  to a printed reference paper sheet) or `tray` (cuttings inside a metal tray). Must match the
+  physical layout used at that borehole; there's no auto-detection.
 
 **With MLflow tracking**
 
