@@ -10,9 +10,17 @@ from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
 from src.models import ApproachType, CuttingsSegmentResult, ImageMetadataCuttings, PaperDetectionStatus
-from src.segment.config import SegmentationCuttingsConfig, SegmentationCuttingsPebbleGroupConfig
+from src.segment.config import (
+    SegmentationCuttingsConfig,
+    SegmentationCuttingsPebbleGroupConfig,
+    SegmentationCuttingsTrayConfig,
+)
 from src.segment.segment_cuttings import (
     DEFAULT_CUT_TYPE,
+    _guard_degenerate_bbox,
+    _is_full_frame_bbox,
+    _log_crop_size_consistency,
+    _log_fallback_rate,
     _normalize_tray_scale,
     segment_black_circle,
     segment_cuttings,
@@ -192,9 +200,23 @@ def test_segment_cuttings_raises_for_unknown_cut_type(make_metadata):
         segment_cuttings([metadata], cut_type="bogus")
 
 
-def test_segment_cuttings_skips_unsegmentable_image_without_crashing_batch(make_metadata):
-    """A blank image with no detectable region is skipped, and the rest of the batch still runs."""
-    blank = make_metadata(1.0)  # no draw_fn — flat black image, nothing to detect
+def test_segment_cuttings_logs_the_chosen_cut_type(make_metadata, caplog):
+    """The chosen cut_type is always visible in run output, not just in --help's shown default."""
+    metadata = make_metadata(1.0)
+
+    with caplog.at_level("INFO"):
+        segment_cuttings(
+            [metadata],
+            config=SegmentationConfig(cuttings=SegmentationCuttingsConfig(downscale_factor=1.0)),
+            cut_type="black_circle",
+        )
+
+    assert "cut_type=black_circle" in caplog.text
+
+
+def test_segment_cuttings_falls_back_to_full_image_when_nothing_detected(make_metadata):
+    """A blank image with no detectable region falls back to the full image instead of being dropped."""
+    blank = make_metadata(1.0, size=(400, 300))  # no draw_fn — flat black image, nothing to detect
     good = make_metadata(2.0, lambda draw: draw.ellipse((50, 50, 150, 150), fill=(200, 200, 200)))
 
     detections = segment_cuttings(
@@ -203,7 +225,10 @@ def test_segment_cuttings_skips_unsegmentable_image_without_crashing_batch(make_
         cut_type="black_circle",
     )
 
-    assert [d.depth for d in detections] == [2.0]
+    assert [d.depth for d in detections] == [1.0, 2.0]
+    blank_detection = next(d for d in detections if d.depth == 1.0)
+    assert blank_detection.cuttings is not None
+    assert blank_detection.cuttings.bbox == (0, 0, 400, 300)
 
 
 @pytest.mark.parametrize(
@@ -409,3 +434,152 @@ def test_segment_cuttings_leaves_black_circle_crops_unnormalized(make_metadata):
     assert detections[0].cuttings.resize_to is None
     assert detections[1].cuttings.resize_to is None
     assert size(detections[0].cuttings.bbox) != size(detections[1].cuttings.bbox)
+
+
+def test_segment_black_circle_falls_back_to_full_image_for_tiny_region(make_metadata):
+    """A speck far below min_area_frac is treated as noise, not a real (if small) circle."""
+    metadata = make_metadata(1.0, lambda draw: draw.ellipse((185, 185, 215, 215), fill=(200, 200, 200)))  # r=15
+
+    result = segment_black_circle(metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
+
+    assert result.bbox == (0, 0, 400, 300)
+
+
+def test_segment_tray_falls_back_to_full_image_for_tiny_region(tmp_path):
+    """A textured region below min_area_frac is treated as noise, not a real pile."""
+    tiny_patch = (50, 50, 90, 90)
+    metadata = _make_textured_metadata(tmp_path, 1.0, size=(500, 400), patches=[tiny_patch])
+    config = SegmentationCuttingsConfig(
+        downscale_factor=1.0,
+        tray=SegmentationCuttingsTrayConfig(min_area_frac=0.05),  # raised so the tiny patch counts as noise
+    )
+
+    result = segment_tray(metadata, config)
+
+    assert result.bbox == (0, 0, 500, 400)
+
+
+def test_is_full_frame_bbox():
+    """The full-frame check tolerates float rounding but not a real crop."""
+    shape = (300, 400, 3)  # (h, w, c)
+    assert _is_full_frame_bbox((0, 0, 400, 300), shape)
+    assert _is_full_frame_bbox((0.4, 0.0, 399.6, 300.0), shape)  # scale_bbox rounding slack
+    assert not _is_full_frame_bbox((50, 50, 350, 250), shape)
+
+
+def test_guard_degenerate_bbox_falls_back_to_full_image(make_metadata):
+    """A sliver bbox (below min_crop_px) is replaced with the full image, preserving other fields."""
+    metadata = make_metadata(1.0, size=(400, 300))
+    sliver = CuttingsSegmentResult(bbox=(10, 10, 15, 200), time=1.0, paper_status=PaperDetectionStatus.FOUND)
+
+    result = _guard_degenerate_bbox(metadata, sliver, min_crop_px=20)
+
+    assert result.bbox == (0, 0, 400, 300)
+    assert result.paper_status == PaperDetectionStatus.FOUND  # other fields are preserved
+
+
+def test_guard_degenerate_bbox_leaves_real_crops_alone(make_metadata):
+    """A crop at or above min_crop_px in both dimensions passes through unchanged."""
+    metadata = make_metadata(1.0, size=(400, 300))
+    real = CuttingsSegmentResult(bbox=(10, 10, 50, 50))
+
+    result = _guard_degenerate_bbox(metadata, real, min_crop_px=20)
+
+    assert result is real
+
+
+def test_log_fallback_rate_reports_percentage(make_metadata, caplog):
+    """The fallback-rate summary is logged unconditionally (not gated behind --mlflow)."""
+    fell_back = make_metadata(1.0, size=(400, 300))
+    real = make_metadata(2.0, size=(400, 300))
+    segmented = [
+        (fell_back, CuttingsSegmentResult(bbox=(0, 0, 400, 300))),
+        (real, CuttingsSegmentResult(bbox=(10, 10, 100, 100))),
+    ]
+
+    with caplog.at_level("INFO"):
+        _log_fallback_rate("black_circle", segmented)
+
+    assert "1/2 images (50%) fell back" in caplog.text
+
+
+def test_log_fallback_rate_skips_full_cut_type(make_metadata, caplog):
+    """cut_type=full always has a 'full-frame' bbox by design, so the fallback rate is meaningless there."""
+    metadata = make_metadata(1.0, size=(400, 300))
+    segmented = [(metadata, CuttingsSegmentResult(bbox=(0, 0, 400, 300)))]
+
+    with caplog.at_level("INFO"):
+        _log_fallback_rate("full", segmented)
+
+    assert caplog.text == ""
+
+
+def test_log_fallback_rate_reports_pebble_status_counts(make_metadata, caplog):
+    """For pebble specifically, the granular PaperDetectionStatus breakdown is also logged."""
+    metadata = make_metadata(1.0, size=(400, 300))
+    segmented = [
+        (metadata, CuttingsSegmentResult(bbox=(0, 0, 400, 300), paper_status=PaperDetectionStatus.NO_CANDIDATE)),
+    ]
+
+    with caplog.at_level("INFO"):
+        _log_fallback_rate("pebble", segmented)
+
+    assert "no_candidate" in caplog.text
+
+
+def test_log_crop_size_consistency_warns_on_high_variance(make_metadata, caplog):
+    """Wildly different crop sizes across the batch trigger a warning, not just an info log."""
+    segmented = [
+        (make_metadata(float(i), size=(400, 300)), CuttingsSegmentResult(bbox=(0, 0, size, size)))
+        for i, size in enumerate([20, 20, 20, 20, 200])  # one big outlier among small, consistent crops
+    ]
+
+    with caplog.at_level("INFO"):
+        _log_crop_size_consistency("tray", segmented, cv_warn_threshold=0.3)
+
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_log_crop_size_consistency_quiet_when_consistent(make_metadata, caplog):
+    """Similarly-sized crops across the batch produce no warning."""
+    segmented = [
+        (make_metadata(float(i), size=(400, 300)), CuttingsSegmentResult(bbox=(0, 0, size, size)))
+        for i, size in enumerate([100, 102, 98, 101, 99])
+    ]
+
+    with caplog.at_level("INFO"):
+        _log_crop_size_consistency("tray", segmented, cv_warn_threshold=0.3)
+
+    assert not any(r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_log_crop_size_consistency_skips_black_circle_and_tray_unrelated_types(make_metadata, caplog):
+    """The consistency check only applies to black_circle/tray, which assume one fixed physical rig."""
+    metadata = make_metadata(1.0, size=(400, 300))
+    segmented = [(metadata, CuttingsSegmentResult(bbox=(0, 0, 10, 10)))]
+
+    with caplog.at_level("INFO"):
+        _log_crop_size_consistency("pebble", segmented, cv_warn_threshold=0.3)
+
+    assert caplog.text == ""
+
+
+def test_segment_cuttings_excludes_fallback_from_tray_normalization(tmp_path):
+    """An uncropped fallback result doesn't skew (or get distorted by) the tray batch's shared resize_to."""
+    real_a = _make_textured_metadata(tmp_path, 1.0, size=(400, 400), patches=[(150, 150, 250, 250)])  # 100x100
+    real_b = _make_textured_metadata(tmp_path, 2.0, size=(400, 400), patches=[(140, 140, 260, 260)])  # 120x120
+    blank = _make_textured_metadata(tmp_path, 3.0, size=(400, 400), patches=[])  # nothing to detect
+
+    detections = segment_cuttings(
+        [real_a, real_b, blank],
+        config=SegmentationConfig(cuttings=SegmentationCuttingsConfig(downscale_factor=1.0)),
+        cut_type="tray",
+    )
+
+    by_depth = {d.depth: d.cuttings for d in detections}
+    cuttings_a, cuttings_b, cuttings_blank = by_depth[1.0], by_depth[2.0], by_depth[3.0]
+    assert cuttings_a is not None
+    assert cuttings_b is not None
+    assert cuttings_blank is not None
+    assert cuttings_blank.resize_to is None  # fallback result is left alone, not stretched to the tray's scale
+    assert cuttings_a.resize_to == cuttings_b.resize_to  # real detections still share a common scale

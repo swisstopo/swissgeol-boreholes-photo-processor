@@ -113,6 +113,7 @@ class SegmentationCuttingsBlackCircleConfig:
     val_threshold: float = 0.16  # grayscale value above this = inside the circle (not black background)
     opening_disk: int = 7  # radius for binary opening (removes noise)
     radius_shrink: float = 0.98  # shrink the detected circle's radius by this factor before inscribing the square crop
+    min_area_frac: float = 0.01  # a detected region below this fraction of the image area is noise, not a real circle
 
 
 @dataclass
@@ -124,6 +125,7 @@ class SegmentationCuttingsTrayConfig:
     work: int = 800  # working resolution the image is resized to before computing texture energy
     open_radius: int = 3  # radius for opening (drops thin bridges/specks before picking the main component)
     erosion_radius: int = 2  # radius for eroding the main component before the bbox, to trim the residual tray border
+    min_area_frac: float = 0.01  # a detected component below this fraction of the work area is noise, not a real pile
 
 
 @dataclass
@@ -132,6 +134,8 @@ class SegmentationCuttingsConfig:
 
     downscale_factor: float = 0.25  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     dedup_keep: Literal["first", "last"] = "first"  # which image to keep when multiple share the same depth
+    min_crop_px: int = 20  # a real cuttings region should never be this thin; backstop against any segmenter's bugs
+    crop_size_cv_warn_threshold: float = 0.3  # coefficient of variation above this is unusually inconsistent
     pebble: SegmentationCuttingsPebbleConfig = field(default_factory=SegmentationCuttingsPebbleConfig)
     pebble_group: SegmentationCuttingsPebbleGroupConfig = field(default_factory=SegmentationCuttingsPebbleGroupConfig)
     black_circle: SegmentationCuttingsBlackCircleConfig = field(default_factory=SegmentationCuttingsBlackCircleConfig)
