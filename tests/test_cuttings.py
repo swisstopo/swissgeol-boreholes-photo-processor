@@ -34,6 +34,17 @@ def test_collect_cuttings_drops_duplicate_depth(tmp_path):
     assert result[0].image_path.name == "10m_00.jpg"
 
 
+def test_collect_cuttings_dedup_keep_last(tmp_path):
+    """With dedup_keep="last", the last image (by filename) at a given depth is kept."""
+    _write_image(tmp_path / "10m_00.jpg")
+    _write_image(tmp_path / "10m_01.jpg")
+
+    result = collect_cuttings(tmp_path, dedup_keep="last")
+
+    assert len(result) == 1
+    assert result[0].image_path.name == "10m_01.jpg"
+
+
 def test_collect_cuttings_skips_vial_photos(tmp_path):
     """Sample-vial photos (no real depth) are excluded outright, not parsed as depth 0."""
     _write_image(tmp_path / "00-Vials-IMG_20240525_084316.jpg")
@@ -42,6 +53,16 @@ def test_collect_cuttings_skips_vial_photos(tmp_path):
     result = collect_cuttings(tmp_path)
 
     assert [m.depth for m in result] == [10.0]
+
+
+def test_collect_cuttings_skips_vue_generale_photos(tmp_path):
+    """Vue-generale overview photos (no real depth) are excluded outright, case-insensitively."""
+    _write_image(tmp_path / "10m_Vue-Generale.jpg")
+    _write_image(tmp_path / "20m_00.jpg")
+
+    result = collect_cuttings(tmp_path)
+
+    assert [m.depth for m in result] == [20.0]
 
 
 def test_collect_cuttings_skips_unreadable_file_without_crashing(tmp_path):

@@ -152,10 +152,12 @@ aggregation and the per-image fallback pass run in parallel worker pools sized b
 
 1. **Collect** (`src/preprocessing/cuttings.py`, `collect_cuttings`) — scan the folder for
    image files (`.jpg`/`.jpeg`/`.bmp`/`.tif`/`.tiff`), parse a single point depth per
-   filename into `ImageMetadataCuttings`, exclude sample-vial photos, and drop
-   duplicate-depth images (keeping the first by filename).
+   filename into `ImageMetadataCuttings`, exclude sample-vial and "vue-generale" overview
+   photos, and drop
+   duplicate-depth images (keeping the first or last by filename, per the `dedup_keep`
+   config setting).
 2. **Segment** (`src/segment/segment_cuttings.py`) — crop the cuttings region using one of
-   three interchangeable per-image methods, selected via `--cut-type`, producing
+   two interchangeable methods, selected via `--cut-type`, producing
    `ImageMetadataProcessedCuttings`.
 3. *(No evaluation step yet — `_evaluate` is a no-op for this pipeline.)*
 4. **Stitch** (`src/stitching/stitching_cuttings.py`) — arrange into fixed-size grid pages.
@@ -170,21 +172,57 @@ reliably-parseable id prefix.
 
 ### Segmentation
 
-Unlike core segmentation, cuttings are segmented **independently per image** — there's no
-shared-group/fallback split, because there's no batch-wide consistency to exploit (no
-common tray shape or fixed camera rig across a borehole's cuttings photos) and no ruler to
-coordinate with. `segment_cuttings` dispatches each image to a segmenter
-(`src/segment/segment_cuttings.py`), chosen once per run via `--cut-type` to match the
-physical layout used at that borehole:
+`segment_cuttings` dispatches each image to a segmenter (`src/segment/segment_cuttings.py`),
+chosen once per run via `--cut-type` to match the physical layout used at that borehole:
 
-- **`black_circle`** (default) — cuttings sit inside a black circular tray. Threshold on
+- **`full`** (default, `segment_full`) — no cropping; the bbox is the entire image.
+- **`black_circle`** — cuttings sit inside a black circular tray. Threshold on
   grayscale brightness, take the largest connected component, and crop a square around its
-  centroid sized from its area.
+  centroid sized from its area. Purely per-image; there's no batch-wide consistency to
+  exploit here (no common tray shape or fixed camera rig across a borehole's cuttings
+  photos) and no ruler to coordinate with.
+- **`pebble`** (`segment_pebble` in `src/segment/segment_cuttings.py`) — cuttings sit next to
+  a printed reference paper sheet; the crop is everything left of the paper. Detected either
+  per-image or, when possible, once per shape group and reused (group estimates are more
+  robust — see below):
+  - **Fallback (per-image)**: threshold HSV brightness/saturation to find paper-like
+    candidates, filter by shape/edge criteria (extent, solidity, area, edge-anchoring), then
+    crop left of the surviving candidate's left edge. Falls back to the full, uncropped image
+    when no candidate passes or the crop would be implausible (e.g. > half the image).
+  - **Group** (`ProcessPebblePaperGroupByShape`, shape groups with ≥ `n_min_group` images,
+    default 10): average the group's images — the paper sits at the same pixel position in
+    every shot so it survives sharp while differing cuttings material blurs out — and take
+    the region of *lowest cross-image std* as the paper, reusing that one estimate for every
+    image in the group instead of thresholding each individually.
+- **`tray`** (`segment_tray` in `src/segment/segment_cuttings.py`) — cuttings sit in an open
+  tray on a table, so texture, not brightness, separates pile from background. Compute local
+  edge-density (Scharr gradient, box-averaged) and Otsu-threshold it, keep the largest
+  connected component (excluding a separate textured label tag), erode it slightly to trim
+  the smoothed-edge halo, then take a quantile-trimmed bbox over the remaining mask. Since
+  every tray is the same physical size, `_normalize_tray_scale` then resizes every *detected*
+  crop in the batch to a shared scale (the batch's median detected width/height) instead of
+  leaving them at their native detected size; uncropped fallback results are excluded so they
+  aren't distorted to that scale.
 
 Each segmenter returns one bbox per image; failures (`ValueError`/`OSError`/
-`SegmentationError`) are logged and that image is dropped, same as cores. There's no
-parallel worker pool here (`segment_cuttings` runs a plain loop) since per-image
-segmentation is already cheap relative to core's optical-flow/GMM group step.
+`SegmentationError`) are logged and that image is dropped, same as cores. The per-image loop
+itself isn't parallelized (`segment_cuttings` runs a plain loop) since per-image segmentation
+is already cheap relative to the group-estimation step (which does use `n_workers`, like
+cores' `tray_group`/`ruler` group steps).
+
+### Sanity checks
+
+There's no automatic detection of a mismatched `--cut-type` — only checks that catch hard
+invariants or surface info, never guesses at the physical layout:
+
+- `black_circle`/`tray` fall back to the full image when nothing (or only a noise-sized
+  region, per `min_area_frac`) is detected.
+- `_guard_degenerate_bbox`: any segmenter's bbox thinner than `min_crop_px` falls back to the
+  full image.
+- The chosen `cut_type` and the batch's uncropped-fallback rate are always logged (not just
+  under `--mlflow`).
+- `_log_crop_size_consistency` warns on unusually inconsistent crop sizes within a
+  `black_circle`/`tray` batch.
 
 ### Stitching / Output
 
@@ -194,10 +232,13 @@ bottom within a column, then the next column) — unlike cores, there's no share
 scale to preserve, so layout is purely grid-based:
 
 - Portrait crops are rotated 90° to landscape, then each is scaled down (never up) to fit
-  its grid cell while preserving aspect ratio, and left-aligned so every row's left margin
-  is consistent.
+  its grid cell while preserving aspect ratio, and right-aligned within the cell — scaling
+  is height-constrained for near-square photos, so a narrower-than-cell image would leave an
+  inconsistent gap before its depth label if left-aligned or centered; right-aligning keeps
+  that gap exactly `annotation_gap` regardless of the scaled image's width.
 - Each cell gets a depth annotation to its right; the top/bottom of each column additionally
-  shows the depth of that column's first/last cutting as a border label.
+  shows the depth of that column's first/last cutting as a border label, anchored to the
+  column's (now-consistent) right edge for the same reason.
 - The borehole ID is drawn once per page, shared across all pages like the core pipeline's
   ID label.
 
@@ -208,15 +249,16 @@ scale to preserve, so layout is purely grid-based:
   depth parseable under one of six borehole-specific conventions (see Cuttings pipeline
   above); the borehole ID instead comes from the folder name. Files that don't match are
   skipped with a warning, not fatal to the whole batch.
-- **Shape grouping (cores only) assumes a static camera per batch of same-shaped images.**
-  If two genuinely different camera setups happen to produce images of the same pixel
-  dimensions, they'd incorrectly share a foreground/ruler estimate. This is a deliberate
-  trade-off — using filename/shape as a cheap proxy for "same rig" rather than requiring
-  explicit camera metadata. Cuttings has no equivalent assumption since it segments
+- **Shape grouping assumes a static camera (cores), or at least a static paper position
+  (cuttings' `pebble`), per batch of same-shaped images.** If two genuinely different
+  camera setups happen to produce images of the same pixel dimensions, they'd incorrectly
+  share a foreground/ruler/paper estimate. This is a deliberate trade-off — using
+  filename/shape as a cheap proxy for "same rig" rather than requiring explicit camera
+  metadata. Cuttings' `black_circle` has no equivalent assumption since it always segments
   per-image.
 - **Cuttings' `--cut-type` must match the physical layout at that borehole** and is picked
-  manually — there's no auto-detection, so the wrong choice produces a garbage crop rather
-  than an error.
+  manually — there's no auto-detection. The `full` default and the sanity checks above make a
+  mismatch less damaging but don't catch every case.
 - **Only 3-channel (or RGBA-with-alpha-dropped) images are supported**; grayscale input
   raises `SegmentationError`. Cores load via `tifffile` rather than PIL specifically
   because raw scans may be 16-bit, which PIL handles less reliably (`src/utils.py`).
@@ -227,8 +269,8 @@ scale to preserve, so layout is purely grid-based:
   cropping/stitching.
 
 <!-- arch-sync:metadata
-generated-at: 2026-08-14
-git-ref: a3f492d
+generated-at: 2026-09-02
+git-ref: f0de4c8
 covered-paths:
   - src/run.py
   - src/pipeline_runner.py
