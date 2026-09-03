@@ -175,8 +175,9 @@ def stitching_cores(
     # Set default resolution if missing
     fallback_scale = np.median(original_scales).item()
 
-    # Estimate ruler span over all cores
-    canvas_ruler_steps = np.ceil(max(original_heights / original_scales)).astype(int).item()
+    # Estimate ruler span over all cores, rounded to the nearest 50cm for a clean, consistent ruler length
+    longest_core_length = max(original_heights / original_scales)
+    canvas_ruler_steps = max(50, int(round(longest_core_length / 50) * 50))
 
     return [
         StitchingBatchCores(
