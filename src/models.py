@@ -395,6 +395,10 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
 
         return self._core_cache
 
+    def release_core_cache(self) -> None:
+        """Drop the cached crop once its batch has been stitched, since it's never reused after that."""
+        self._core_cache = None
+
     def to_dict(self) -> dict:
         """Return this processed image's metadata and detections as a plain dict, keyed by region."""
         return {
@@ -520,6 +524,10 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
             self._cuttings_cache = crop
 
         return self._cuttings_cache
+
+    def release_cuttings_cache(self) -> None:
+        """Drop the cached crop once its page has been stitched, since it's never reused after that."""
+        self._cuttings_cache = None
 
     def to_dict(self) -> dict:
         """Return this processed image's metadata and detections as a plain dict, keyed by region."""

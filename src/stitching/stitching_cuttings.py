@@ -92,6 +92,9 @@ def stitching_batch_cuttings(
         scale = min(image_width / src.width, cell_height / src.height, 1.0)
         img = src.resize((round(src.width * scale), round(src.height * scale)), Image.Resampling.LANCZOS)
         cutting_imgs.append(img)
+        # each cutting belongs to exactly one page, so its full-resolution cache can be freed once
+        # resized here -- otherwise every cutting's crop stays cached in memory for the whole run
+        cutting.release_cuttings_cache()
 
     canvas = Image.new("RGB", (cuttings_config.output_width, cuttings_config.output_height), color=(0, 0, 0))
 

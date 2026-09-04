@@ -85,6 +85,10 @@ def stitching_batch_cores(
         max_core_height=core_config.max_core_height,
         max_core_width=core_config.max_core_width,
     )
+    # each core belongs to exactly one batch, so its full-resolution cache can be freed once
+    # resized here -- otherwise every core's crop stays cached in memory for the whole run
+    for core in cores:
+        core.release_core_cache()
 
     canvas_width = (
         2 * core_config.ruler_width  # Ruler
