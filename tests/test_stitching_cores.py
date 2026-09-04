@@ -26,6 +26,7 @@ def make_processed(tmp_path):
         depth_end: float,
         size: tuple[int, int] = (TEST_MAX_OUTPUT_PX // 2, 20),
         color: tuple[int, int, int] = (128, 128, 128),
+        px_per_unit: float = 100,
     ) -> ImageMetadataProcessedCores:
         """Creates a simple ImageMetadataProcessedCores with a single solid-color crop of the specified size."""
         filename = f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
@@ -38,7 +39,9 @@ def make_processed(tmp_path):
             image_path=image_path,
         )
         core = CoreSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])))
-        ruler = RulerSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])), px_per_unit=100, bbox_units=[])
+        ruler = RulerSegmentResult(
+            bbox=(0.0, 0.0, float(size[0]), float(size[1])), px_per_unit=px_per_unit, bbox_units=[]
+        )
         return ImageMetadataProcessedCores.from_metadata(metadata=metadata, core=core, tray=core, ruler=ruler)
 
     return _factory
@@ -62,11 +65,30 @@ def test_padding_pixels_are_black(make_processed):
     assert img.getpixel((0, img.height // 2)) == (0, 0, 0)  # left margin, before the ruler
 
 
+@pytest.mark.parametrize(
+    ("core_length_cm", "expected_ruler_steps"),
+    [
+        (106, 100),  # rounds down to the nearest 50cm
+        (101, 100),  # rounds down to the nearest 50cm
+        (130, 150),  # rounds up to the nearest 50cm
+        (10, 50),  # never rounds down to 0
+    ],
+)
+def test_ruler_length_rounds_to_nearest_50cm(make_processed, core_length_cm, expected_ruler_steps):
+    """The shared ruler length is the longest core's length, rounded to the nearest 50cm."""
+    core = make_processed(0.0, 1.0, size=(core_length_cm, 20), px_per_unit=1)
+    config = StitchingConfig(core=CoreStitchingConfig())
+    batches = stitching_cores([core], config)
+    assert batches[0].shared_ruler_steps == expected_ruler_steps
+
+
 def test_cores_appear_in_order_left_to_right(make_processed):
     """Cores appear in the output in the same order as the input list, from left to right."""
-    red = make_processed(0.0, 1.0, color=RED)
-    green = make_processed(1.0, 2.0, color=GREEN)
-    blue = make_processed(2.0, 3.0, color=BLUE)
+    # px_per_unit=1 keeps the core length (and thus the rounded-to-50cm ruler length) an exact
+    # multiple of 50, so rounding doesn't perturb the expected scale below.
+    red = make_processed(0.0, 1.0, color=RED, px_per_unit=1)
+    green = make_processed(1.0, 2.0, color=GREEN, px_per_unit=1)
+    blue = make_processed(2.0, 3.0, color=BLUE, px_per_unit=1)
     config = StitchingConfig(core=CoreStitchingConfig(max_core_height=1000))
     batches = stitching_cores([red, green, blue], config)
     img = np.array(
@@ -114,9 +136,11 @@ def test_cores_appear_in_order_left_to_right(make_processed):
 
 def test_outlier_core_width_matches_the_reference_core(make_processed):
     """An outlier core is scaled to exactly fill max_core_height; shorter cores share its scale, so end up smaller."""
-    normal_a = make_processed(0.0, 1.0, size=(100, 20), color=RED)
-    normal_b = make_processed(1.0, 2.0, size=(100, 20), color=GREEN)
-    outlier = make_processed(2.0, 102.0, size=(1000, 20), color=BLUE)
+    # px_per_unit=1 keeps the core lengths (and thus the rounded-to-50cm ruler length) exact
+    # multiples of 50, so rounding doesn't perturb the expected scale below.
+    normal_a = make_processed(0.0, 1.0, size=(100, 20), color=RED, px_per_unit=1)
+    normal_b = make_processed(1.0, 2.0, size=(100, 20), color=GREEN, px_per_unit=1)
+    outlier = make_processed(2.0, 102.0, size=(1000, 20), color=BLUE, px_per_unit=1)
 
     config = StitchingConfig(core=CoreStitchingConfig(max_core_height=1000))
     batches = stitching_cores([normal_a, normal_b, outlier], config)

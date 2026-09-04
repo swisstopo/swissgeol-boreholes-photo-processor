@@ -12,7 +12,7 @@ from src.pipeline_runner import CuttingsPipelineRunner, PipelineRunner
 class _FakeRunner(PipelineRunner[Any, Any, Any]):
     """Minimal concrete runner for exercising the base class's run() template in isolation."""
 
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[Any]:
+    def _collect(self, input_dir: Path, with_mlflow: bool, config) -> list[Any]:
         return []
 
     def _segment(self, imgs_metadata, config, with_mlflow, debug, cache, cut_type="black_circle") -> list[Any]:
@@ -20,6 +20,9 @@ class _FakeRunner(PipelineRunner[Any, Any, Any]):
 
     def _collate_stitch(self, imgs, config) -> list[Any]:
         return []
+
+    def _web_downscale_factor(self, config) -> float:
+        return 1.0
 
     def _batch_stitch(self, batch: Any, config) -> Image.Image:
         return Image.new("RGB", (1, 1))
