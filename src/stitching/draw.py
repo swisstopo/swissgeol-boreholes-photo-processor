@@ -4,6 +4,13 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 
+def _format_depth(value: float) -> str:
+    """Format a depth with a trailing "m", an apostrophe thousands separator, and no uninformative ".00"."""
+    rounded = round(value, 2)
+    text = f"{int(rounded):,}" if rounded == int(rounded) else f"{rounded:,.2f}"
+    return text.replace(",", "'") + "m"
+
+
 def _draw_cores(
     canvas: Image.Image,
     cores: list[Image.Image],
@@ -43,14 +50,14 @@ def _draw_cores(
 
         draw.text(
             (x_offset + core.width / 2, y_min - padding_vertical),
-            f"{start_label:.2f} m" + ("" if correct else "*"),
+            _format_depth(start_label) + ("" if correct else "*"),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",
         )
         draw.text(
             (x_offset + core.width / 2, y_min + max_core_height + padding_vertical),
-            f"{end_label:.2f} m" + ("" if correct else "*"),
+            _format_depth(end_label) + ("" if correct else "*"),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",
@@ -114,7 +121,7 @@ def _draw_cuttings_annotation(
     font = ImageFont.load_default(size=font_size)
     ImageDraw.Draw(annotation_img).text(
         (size[0] / 2, size[1] / 2),
-        f"{depth:.2f}",
+        _format_depth(depth),
         fill=(255, 255, 255),
         font=font,
         anchor="mm",
@@ -128,14 +135,16 @@ def _draw_cuttings_border_label(
     depth: float,
     loc: tuple[int, int],
     font_size: int,
+    anchor: str = "lm",
 ) -> Image.Image:
-    """Draw a column's top/bottom depth label (FROM/TO), left-anchored at loc.
+    """Draw a column's top/bottom depth label (FROM/TO) at loc.
 
     Args:
         canvas (Image.Image): The canvas to draw onto.
         depth (float): Depth value to display.
-        loc (tuple[int, int]): Position of the label (left-middle anchor).
+        loc (tuple[int, int]): Position of the label.
         font_size (int): Font size used for the label.
+        anchor (str): PIL text anchor, e.g. "lm" (left-middle) or "rm" (right-middle).
 
     Returns:
         Image.Image: The canvas with the label drawn on it.
@@ -144,10 +153,10 @@ def _draw_cuttings_border_label(
     font = ImageFont.load_default(size=font_size)
     draw.text(
         loc,
-        f"{depth:.2f}",
+        _format_depth(depth),
         fill=(255, 255, 255),
         font=font,
-        anchor="lm",
+        anchor=anchor,
     )
     return canvas
 

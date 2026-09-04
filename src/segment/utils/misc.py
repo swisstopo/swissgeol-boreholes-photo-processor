@@ -2,6 +2,7 @@
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from timeit import default_timer as timer
@@ -9,33 +10,32 @@ from typing import Generic, TypeVar
 
 import numpy as np
 
-from src.models import ApproachType, ImageMetadataCores, ImageSegmentResult
+from src.models import ApproachType, ImageMetadata, ImageSegmentResult
 
+M = TypeVar("M", bound=ImageMetadata)
 K = TypeVar("K", bound=ImageSegmentResult)
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
 
-def group_images_by_shape(
-    imgs_metadata: list[ImageMetadataCores],
-) -> dict[tuple[int, int, int], list[ImageMetadataCores]]:
+def group_images_by_shape(imgs_metadata: Sequence[M]) -> dict[tuple[int, int, int], list[M]]:
     """Group images by their shape (height, width, channels).
 
     Args:
-        imgs_metadata (list[ImageMetadataCores]): List of image metadata.
+        imgs_metadata (Sequence[M]): Sequence of image metadata.
 
     Returns:
-        dict[tuple[int, int, int], list[ImageMetadataCores]]: Dictionary where keys are image shapes
-            and values are lists of ImageMetadataCores with that shape.
+        dict[tuple[int, int, int], list[M]]: Dictionary where keys are image shapes
+            and values are lists of image metadata with that shape.
     """
-    grouped: dict[tuple[int, int, int], list[ImageMetadataCores]] = {}
+    grouped: dict[tuple[int, int, int], list[M]] = {}
     for img_metadata in imgs_metadata:
         grouped.setdefault(img_metadata.shape, []).append(img_metadata)
     return grouped
 
 
-class ProcessGroupByShape(ABC, Generic[K, T]):
+class ProcessGroupByShape(ABC, Generic[M, K, T]):
     """Abstract base class for processing groups of images into a single aggregated result.
 
     Images are grouped by shape (see `group_images_by_shape`), a fixed-size random sample is
@@ -43,6 +43,7 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
     being combined by `_aggregate` into a per-shape result.
 
     Type Parameters:
+        M: Type of the image metadata consumed by `_preprocess`.
         K: Type of the aggregated result returned per shape group.
         T: Type of the per-image value returned by `_preprocess`.
     """
@@ -71,12 +72,12 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         self.seed = seed
 
     @abstractmethod
-    def _preprocess(self, img_metadata: ImageMetadataCores, img_metadata_ref: ImageMetadataCores) -> T | None:
+    def _preprocess(self, img_metadata: M, img_metadata_ref: M) -> T | None:
         """Preprocess a single image ahead of aggregation.
 
         Args:
-            img_metadata (ImageMetadataCores): Metadata of the image to preprocess.
-            img_metadata_ref (ImageMetadataCores): Reference image for image processing.
+            img_metadata (M): Metadata of the image to preprocess.
+            img_metadata_ref (M): Reference image for image processing.
 
         Returns:
             T | None: The preprocessed value to feed into `_aggregate`, or None.
@@ -96,12 +97,12 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
         """
         ...
 
-    def _run_group(self, executor: ProcessPoolExecutor, imgs_metadata: list[ImageMetadataCores]) -> K | None:
+    def _run_group(self, executor: ProcessPoolExecutor, imgs_metadata: list[M]) -> K | None:
         """Preprocess every image in a shape group (in parallel) and aggregate the results.
 
         Args:
             executor (ProcessPoolExecutor): Pool shared across all shape groups in `run`.
-            imgs_metadata (list[ImageMetadataCores]): Images to preprocess and aggregate.
+            imgs_metadata (list[M]): Images to preprocess and aggregate.
 
         Returns:
             K | None: The aggregated result for the group, or None.
@@ -115,11 +116,11 @@ class ProcessGroupByShape(ABC, Generic[K, T]):
 
         return self._aggregate(processed_items)
 
-    def run(self, imgs_metadata: list[ImageMetadataCores]) -> dict[tuple[int, int, int], K]:
+    def run(self, imgs_metadata: Sequence[M]) -> dict[tuple[int, int, int], K]:
         """Group images by shape, sample, and aggregate a result per shape.
 
         Args:
-            imgs_metadata (list[ImageMetadataCores]): Images to group and process.
+            imgs_metadata (Sequence[M]): Images to group and process.
 
         Returns:
             dict[tuple[int, int, int], K]: Aggregated result per image shape.

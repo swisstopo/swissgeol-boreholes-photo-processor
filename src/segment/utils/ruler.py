@@ -135,7 +135,7 @@ def segment_ruler(img_metadata: ImageMetadataCores, config: SegmentationRulerCon
     )
 
 
-class ProcessRulerGroupByShape(ProcessGroupByShape[RulerSegmentResult, RulerSegmentResult]):
+class ProcessRulerGroupByShape(ProcessGroupByShape[ImageMetadataCores, RulerSegmentResult, RulerSegmentResult]):
     """Detect a shared depth-ruler scale for a group of same-shaped images."""
 
     def __init__(

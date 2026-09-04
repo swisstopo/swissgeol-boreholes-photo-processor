@@ -29,7 +29,8 @@ def stitching_batch_cuttings(
 
     Cuttings are arranged into a fixed grid, filled column by column. Portrait images are
     rotated 90 degrees to landscape, then scaled down (never up) to fit within the grid cell
-    while preserving aspect ratio, and centered in the cell.
+    while preserving aspect ratio, and right-aligned so the gap to the depth annotation stays
+    constant regardless of the scaled-down image's width.
 
     The values are padding_horizontal (PH), padding_vertical (PV),
     and padding cuttings (PC). FROM/TO show the depth_start of the topmost/bottommost
@@ -91,6 +92,9 @@ def stitching_batch_cuttings(
         scale = min(image_width / src.width, cell_height / src.height, 1.0)
         img = src.resize((round(src.width * scale), round(src.height * scale)), Image.Resampling.LANCZOS)
         cutting_imgs.append(img)
+        # each cutting belongs to exactly one page, so its full-resolution cache can be freed once
+        # resized here -- otherwise every cutting's crop stays cached in memory for the whole run
+        cutting.release_cuttings_cache()
 
     canvas = Image.new("RGB", (cuttings_config.output_width, cuttings_config.output_height), color=(0, 0, 0))
 
@@ -107,10 +111,10 @@ def stitching_batch_cuttings(
         column, row = divmod(i, rows)
         image_x = cuttings_config.padding_horizontal + column * column_step
         cell_y = cuttings_config.padding_vertical + row * (cell_height + cuttings_config.padding_cuttings)
-        # left-aligned (not centered) so every row's left margin is exactly PH, matching the
-        # fixed PH gap after the last column's annotation on the right
         y = cell_y + (cell_height - cutting_img.height) // 2
-        canvas.paste(cutting_img, (image_x, y))
+        # right-aligned (not centered/left-aligned) so the gap to the annotation is always exactly
+        # annotation_gap, regardless of how narrow the aspect-scaled image ends up
+        canvas.paste(cutting_img, (image_x + image_width - cutting_img.width, y))
 
         annotation_x = image_x + image_width + cuttings_config.annotation_gap
         canvas = _draw_cuttings_annotation(
@@ -128,22 +132,24 @@ def stitching_batch_cuttings(
         if start_idx >= len(cuttings):
             break
         end_idx = min(start_idx + rows, len(cuttings)) - 1
-        image_x = cuttings_config.padding_horizontal + column * column_step
+        image_right = cuttings_config.padding_horizontal + column * column_step + image_width
 
-        # left-anchored at image_x (not centered on image_width) since cuttings are
-        # left-aligned in their column and vary in width, so the left edge is the only
+        # right-anchored at image_right (not centered on image_width) since cuttings are
+        # right-aligned in their column and vary in width, so the right edge is the only
         # x position shared by every cutting in the column
         canvas = _draw_cuttings_border_label(
             canvas,
             depth=cuttings[start_idx].depth,
-            loc=(image_x, round(cuttings_config.padding_vertical * 3 / 4)),
+            loc=(image_right, round(cuttings_config.padding_vertical * 3 / 4)),
             font_size=cuttings_config.font_size,
+            anchor="rm",
         )
         canvas = _draw_cuttings_border_label(
             canvas,
             depth=cuttings[end_idx].depth,
-            loc=(image_x, round(cuttings_config.output_height - cuttings_config.padding_vertical / 2)),
+            loc=(image_right, round(cuttings_config.output_height - cuttings_config.padding_vertical / 2)),
             font_size=cuttings_config.font_size,
+            anchor="rm",
         )
 
     return canvas

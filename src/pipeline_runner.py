@@ -75,12 +75,14 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
     """
 
     @abstractmethod
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[M]:
+    def _collect(self, input_dir: Path, with_mlflow: bool, config: SegmentationConfig) -> list[M]:
         """Collect and parse image metadata from input_dir.
 
         Args:
             input_dir (Path): Path to the directory containing raw photos.
             with_mlflow (bool): Whether to log collection stats to MLflow.
+            config (SegmentationConfig): Tunable segmentation parameters. Only the cuttings
+                pipeline currently reads from this (dedup_keep); ignored by the cores pipeline.
 
         Returns:
             list[M]: Parsed metadata for every successfully-collected image.
@@ -137,6 +139,18 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
         ...
 
     @abstractmethod
+    def _web_downscale_factor(self, config: StitchingConfig) -> float:
+        """Downscale factor applied to the stitched canvas when writing the web JPG.
+
+        Args:
+            config (StitchingConfig): Tunable layout parameters.
+
+        Returns:
+            float: The core/cuttings-specific downscale factor.
+        """
+        ...
+
+    @abstractmethod
     def _batch_stitch(self, batch: Q, config: StitchingConfig) -> Image.Image:
         """Render a single batch into one output figure.
 
@@ -177,10 +191,11 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                 run_id=run_id,
             )
 
+        web_downscale_factor = self._web_downscale_factor(config)
         img.resize(
             (
-                int(img.size[0] * config.web_downscale_factor),
-                int(img.size[1] * config.web_downscale_factor),
+                int(img.size[0] * web_downscale_factor),
+                int(img.size[1] * web_downscale_factor),
             )
         ).save(output_dir / f"{prefix}.jpg", quality=config.web_output_quality)
         img.save(output_dir / f"{prefix}.tif")
@@ -213,7 +228,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
             cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
-            imgs_metadata = self._collect(input_dir, with_mlflow=with_mlflow)
+            imgs_metadata = self._collect(input_dir, with_mlflow=with_mlflow, config=config.segmentation)
 
             # segmentation
             logging.info("--- Segmentation ---")
@@ -310,7 +325,12 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
 class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcessedCores, StitchingBatchCores]):
     """Runs the core-photos pipeline: segment core/tray/ruler, evaluate, and stitch into strips."""
 
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[ImageMetadataCores]:
+    def _collect(
+        self,
+        input_dir: Path,
+        with_mlflow: bool,
+        config: SegmentationConfig,  # unused: no dedup concept for cores
+    ) -> list[ImageMetadataCores]:
         """Collect all TIF images from the input directory and parse filename metadata."""
         imgs_metadata: list[ImageMetadataCores] = []
         for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
@@ -355,6 +375,10 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
         """Chunk cores into batches."""
         return stitching_cores(imgs, config=config)
 
+    def _web_downscale_factor(self, config: StitchingConfig) -> float:
+        """Downscale factor for the core canvas, which is built well above web size."""
+        return config.core.web_downscale_factor
+
     def _batch_stitch(self, batch: StitchingBatchCores, config: StitchingConfig) -> Image.Image:
         """Stitch one batch of cores into a canvas."""
         return stitching_batch_cores(
@@ -374,9 +398,9 @@ class CuttingsPipelineRunner(
     No evaluation step exists yet for cuttings, so `_evaluate` is left at the base class's no-op.
     """
 
-    def _collect(self, input_dir: Path, with_mlflow: bool) -> list[ImageMetadataCuttings]:
+    def _collect(self, input_dir: Path, with_mlflow: bool, config: SegmentationConfig) -> list[ImageMetadataCuttings]:
         """Collect cuttings images from the input directory."""
-        return collect_cuttings(input_dir, with_mlflow=with_mlflow)
+        return collect_cuttings(input_dir, with_mlflow=with_mlflow, dedup_keep=config.cuttings.dedup_keep)
 
     def _segment(
         self,
@@ -397,6 +421,10 @@ class CuttingsPipelineRunner(
     ) -> list[StitchingBatchCuttings]:
         """Chunk cuttings into pages."""
         return stitching_cuttings(imgs, config)
+
+    def _web_downscale_factor(self, config: StitchingConfig) -> float:
+        """The cuttings canvas (output_width/output_height) is already sized for the final output."""
+        return 1.0
 
     def _batch_stitch(self, batch: StitchingBatchCuttings, config: StitchingConfig) -> Image.Image:
         """Stitch one page of cuttings into a canvas."""
