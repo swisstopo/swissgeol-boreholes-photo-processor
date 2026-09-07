@@ -221,9 +221,9 @@ def log_cuttings_segmentation_results_with_mlflow(
 def log_collect_cuttings_results_with_mlflow(duplicate_counts: dict[float, int]) -> None:
     """Log cuttings depth-deduplication stats to MLflow.
 
-    Only the first image found at each depth is kept by the caller; this logs how many
-    extra images were dropped as duplicates, both as a total metric and, when any exist,
-    a per-depth breakdown artifact.
+    Only one image at each depth is kept by the caller (preferring the narrower-span image
+    for Montagny-convention range collisions, otherwise the first by filename); this logs
+    how many extra images were dropped as duplicates.
 
     Args:
         duplicate_counts (dict[float, int]): Number of extra images dropped per depth, for

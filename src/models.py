@@ -494,6 +494,7 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
         obj = cls(
             borehole_id=metadata.borehole_id,
             depth=metadata.depth,
+            depth_start=metadata.depth_start,
             image_path=metadata.image_path,
             cuttings=cuttings,
         )
