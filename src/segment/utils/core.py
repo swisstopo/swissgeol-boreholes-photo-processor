@@ -1,6 +1,5 @@
 """Core bbox detection: trimming the wooden tray and black background around the core."""
 
-import logging
 from itertools import groupby
 from timeit import default_timer as timer
 
@@ -14,7 +13,19 @@ from src.config import SegmentationCoreTrimConfig
 from src.models import CoreSegmentResult, ImageMetadataCores, ImageSegmentResult
 from src.utils import scale_bbox
 
-logger = logging.getLogger(__name__)
+
+def _in_range(values: np.ndarray, threshold_low: float = 0.0, threshold_high: float = 1.0) -> np.ndarray:
+    """Boolean mask of values strictly within (threshold_low, threshold_high).
+
+    Args:
+        values (np.ndarray): Per-pixel value map to threshold (e.g. an HSV saturation or value channel).
+        threshold_low (float): Lower bound of the range values must fall strictly above.
+        threshold_high (float): Upper bound of the range values must fall strictly below.
+
+    Returns:
+        np.ndarray: Boolean mask, same shape as `values`.
+    """
+    return (threshold_low < values) & (values < threshold_high)
 
 
 def _is_in_range_ratio(
@@ -31,8 +42,7 @@ def _is_in_range_ratio(
     Returns:
         bool: True if the fraction of pixels within (threshold_low, threshold_high) is greater than ratio.
     """
-    im_thresh = (threshold_low < values) & (values < threshold_high)
-    return im_thresh.mean() > ratio
+    return _in_range(values, threshold_low, threshold_high).mean() > ratio
 
 
 def _find_valid_intervals(detections: np.ndarray) -> list[tuple[int, int]]:
@@ -57,9 +67,9 @@ def _find_valid_intervals(detections: np.ndarray) -> list[tuple[int, int]]:
 def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimConfig) -> list[int]:
     """Detect y-coordinates of prominent horizontal lines (e.g. tray dividers) in the image.
 
-    Runs a Hough transform on the horizontal-edge map (Prewitt) restricted to near-horizontal
-    lines, keeping only the strongest peaks. Used to split the tray into bands for top/bottom
-    trimming.
+    Runs a Hough transform on the horizontal-edge map (Prewitt), restricted to exactly
+    horizontal lines (a single fixed angle), keeping only the strongest peaks. Used to split
+    the tray into bands for top/bottom trimming.
 
     Args:
         img_gray (np.ndarray): Grayscale image of the cropped tray region.
@@ -73,10 +83,7 @@ def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimCon
 
     h, theta, d = hough_line(np.abs(prewitt_h(img_gray)) > config.min_line_edge_value, theta=np.array([np.pi / 2]))
     y_lines = sorted(
-        [
-            int(dist * np.sin(angle))
-            for _, angle, dist in zip(*hough_line_peaks(h, theta, d, min_distance=min_distance), strict=True)
-        ]
+        [int(dist) for _, _, dist in zip(*hough_line_peaks(h, theta, d, min_distance=min_distance), strict=True)]
     )
     # Remove line too close from border
     y_lines = [y_line for y_line in y_lines if y_line - min_distance > 0 and y_line + min_distance < img_gray.shape[0]]
@@ -102,14 +109,13 @@ def _find_left_right_intervals(
             falls back to the first set if empty.
     """
     # Get all segments that are valid and drop short ones
-    feature_col_foreground = (img_hsv[:, :, 2] < config.background_val_threshold).mean(axis=0)
+    feature_col_foreground = _in_range(img_hsv[:, :, 2], threshold_high=config.background_val_threshold).mean(axis=0)
     indicator_col_foreground = np.nonzero(feature_col_foreground < config.background_val_vratio)[0]
+    min_segment_len = config.downscale_factor * config.min_segment_height_px
 
     feature_col_no_wood = (
-        (config.wood_hue_threshold_low < img_hsv[:, :, 0])
-        & (img_hsv[:, :, 0] < config.wood_hue_threshold_high)
-        & (config.wood_sat_threshold_low < img_hsv[:, :, 1])
-        & (img_hsv[:, :, 1] < config.wood_sat_threshold_high)
+        _in_range(img_hsv[:, :, 0], config.wood_hue_threshold_low, config.wood_hue_threshold_high)
+        & _in_range(img_hsv[:, :, 1], config.wood_sat_threshold_low, config.wood_sat_threshold_high)
     ).mean(axis=0)
     indicator_col_no_wood = np.nonzero(
         (feature_col_no_wood < config.wood_vratio) & (feature_col_foreground < config.background_val_vratio)
@@ -124,7 +130,7 @@ def _find_left_right_intervals(
     lr_trims_no_wood = [
         lr_trim
         for lr_trim in _find_valid_intervals(detections=indicator_col_no_wood)
-        if config.downscale_factor * config.min_segment_height_px <= lr_trim[1] - lr_trim[0]
+        if min_segment_len <= lr_trim[1] - lr_trim[0]
     ]
 
     if len(lr_trims_foreground) == 0:
