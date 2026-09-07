@@ -188,7 +188,10 @@ _SEGMENTERS = {
 DEFAULT_CUT_TYPE = "black_circle"
 
 
-def _normalize_tray_scale(cuttings: list[CuttingsSegmentResult]) -> None:
+def _normalize_tray_scale(
+    cuttings: list[CuttingsSegmentResult],
+    max_aspect_ratio_deviation: float = 0.2,
+) -> None:
     """Set a common resize target on every tray bbox, so all trays render at the same pixel size.
 
     Unlike pebble/black_circle crops -- where the area outside the detected object is just
@@ -201,9 +204,18 @@ def _normalize_tray_scale(cuttings: list[CuttingsSegmentResult]) -> None:
     tuples are read here, not pixel data; the actual resize happens lazily per image when its
     crop is loaded.
 
+    A crop whose own aspect ratio deviates from the target's by more than
+    max_aspect_ratio_deviation is left unnormalized (resize_to stays None, so it keeps its
+    native crop) instead of being stretched/squashed to match -- this guards against a
+    wrongly-detected or fundamentally different (e.g. non-tray) image getting visibly
+    distorted, at the cost of that one image not sharing the batch's scale.
+
     Args:
         cuttings (list[CuttingsSegmentResult]): Per-image tray detection results to set
             resize_to on, in place.
+        max_aspect_ratio_deviation (float): Maximum relative deviation between a crop's own
+            width/height ratio and the batch target's before it's left unnormalized instead
+            of stretched to match.
     """
     if not cuttings:
         return
@@ -212,8 +224,21 @@ def _normalize_tray_scale(cuttings: list[CuttingsSegmentResult]) -> None:
     heights = sorted(c.bbox[3] - c.bbox[1] for c in cuttings)
     target_w = round(widths[len(widths) // 2])
     target_h = round(heights[len(heights) // 2])
+    target_ratio = target_w / target_h
 
     for c in cuttings:
+        width = c.bbox[2] - c.bbox[0]
+        height = c.bbox[3] - c.bbox[1]
+        ratio = width / height
+        if abs(ratio - target_ratio) / target_ratio > max_aspect_ratio_deviation:
+            logger.warning(
+                "Tray crop aspect ratio %.2f deviates from batch target %.2f by more than %.0f%%; "
+                "leaving it at its native size instead of stretching it to match",
+                ratio,
+                target_ratio,
+                max_aspect_ratio_deviation * 100,
+            )
+            continue
         c.resize_to = (target_w, target_h)
 
 
@@ -276,7 +301,10 @@ def segment_cuttings(
     # building/preloading the cropped images; pebble/black_circle have no such reference
     # object, so their crops are left at their native detected size
     if cut_type == "tray":
-        _normalize_tray_scale([cuttings for _, cuttings in segmented])
+        _normalize_tray_scale(
+            [cuttings for _, cuttings in segmented],
+            max_aspect_ratio_deviation=config.cuttings.tray.max_aspect_ratio_deviation,
+        )
 
     detections: list[ImageMetadataProcessedCuttings] = []
     for img_metadata, cuttings in segmented:
