@@ -234,7 +234,7 @@ def segment_tray(
     )
 
 
-class ProcessTrayGroupByShape(ProcessGroupByShape[TraySegmentResult, np.ndarray]):
+class ProcessTrayGroupByShape(ProcessGroupByShape[ImageMetadataCores, TraySegmentResult, np.ndarray]):
     """Estimate a shared tray/core bounding box for a group of same-shaped images."""
 
     def __init__(

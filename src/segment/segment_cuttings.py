@@ -4,7 +4,7 @@ import logging
 from timeit import default_timer as timer
 
 import numpy as np
-from skimage.color import rgb2gray
+from skimage.color import rgb2gray, rgb2hsv
 from skimage.measure import label, regionprops
 from skimage.morphology import disk, opening
 from tqdm import tqdm
@@ -19,21 +19,69 @@ from src.models import (
     ImageMetadataCuttings,
     ImageMetadataProcessedCuttings,
 )
+from src.segment.utils.cuttings import ProcessPebblePaperGroupByShape, detect_paper, resolve_paper_crop
 from src.utils import scale_bbox
 
 logger = logging.getLogger(__name__)
+
+
+def segment_pebble(
+    img_metadata: ImageMetadataCuttings,
+    config: SegmentationCuttingsConfig,
+) -> CuttingsSegmentResult:
+    """Segment pebble cuttings laid out above a reference paper sheet.
+
+    Args:
+        img_metadata (ImageMetadataCuttings): Metadata for the cuttings image to segment.
+        config (SegmentationCuttingsConfig): Tunable segmentation parameters.
+
+    Returns:
+        CuttingsSegmentResult: The bounding box of the cuttings region, the time taken to
+        segment it, and the PaperDetectionStatus outcome of the paper-sheet detection.
+    """
+    t_start = timer()
+    img = img_metadata.load_image(factor=config.downscale_factor)
+    h, w = img.shape[:2]
+    hsv = rgb2hsv(img)
+    pebble_config = config.pebble
+
+    # fixed threshold first; some images are shot at a much darker exposure and
+    # never produce a usable candidate there, so retry with a much looser
+    # brightness cutoff -- still "bright relative to the surrounding rock", just
+    # not absolute-white
+    paper = detect_paper(
+        hsv, h, w, pebble_config.val_threshold_strict, config.downscale_factor, pebble_config
+    ) or detect_paper(hsv, h, w, pebble_config.val_threshold_loose, config.downscale_factor, pebble_config)
+
+    status, bbox = resolve_paper_crop(paper, h, w, pebble_config.max_cropped_frac)
+
+    return CuttingsSegmentResult(
+        bbox=scale_bbox(bbox, factor=1 / config.downscale_factor),
+        time=timer() - t_start,
+        paper_status=status,
+    )
 
 
 def segment_black_circle(
     img_metadata: ImageMetadataCuttings,
     config: SegmentationCuttingsConfig,
 ) -> CuttingsSegmentResult:
-    """Segment cuttings that are inside a black circle."""
+    """Segment cuttings that are inside a black circle.
+
+    Args:
+        img_metadata (ImageMetadataCuttings): Metadata for the cuttings image to segment.
+        config (SegmentationCuttingsConfig): Tunable segmentation parameters.
+
+    Returns:
+        CuttingsSegmentResult: The bounding box of the cuttings region and the time taken to
+        segment it.
+    """
     t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
+    black_circle_config = config.black_circle
     gray = rgb2gray(img)
-    mask = gray > config.black_circle_val_threshold
-    mask = opening(mask, disk(max(1, round(config.opening_disk * config.downscale_factor))))
+    mask = gray > black_circle_config.val_threshold
+    mask = opening(mask, disk(max(1, round(black_circle_config.opening_disk * config.downscale_factor))))
 
     # largest connected component
     lbl = label(mask)
@@ -42,7 +90,7 @@ def segment_black_circle(
 
     cy, cx = biggest.centroid
     r = np.sqrt(biggest.area / np.pi)
-    half = int(config.bbox_shrink_factor * r / np.sqrt(2))
+    half = int(black_circle_config.radius_shrink * r / np.sqrt(2))
 
     return CuttingsSegmentResult(
         bbox=scale_bbox(
@@ -60,6 +108,7 @@ def segment_black_circle(
 
 _SEGMENTERS = {
     "black_circle": segment_black_circle,
+    "pebble": segment_pebble,
 }
 
 DEFAULT_CUT_TYPE = "black_circle"
@@ -82,7 +131,7 @@ def segment_cuttings(
         debug (bool): Whether to additionally log each image's cuttings bbox overlay to MLflow.
             Only applies when with_mlflow is True.
         cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
-        cut_type (str): The type of cuttings to segment: "black_circle".
+        cut_type (str): The type of cuttings to segment: "black_circle" or "pebble".
             Defaults to "black_circle".
 
     Returns:
@@ -99,11 +148,23 @@ def segment_cuttings(
     config = config or SegmentationConfig()
     t_start = timer()
 
+    # Pebble cuttings share a physical layout (a reference paper sheet) with the rest of a
+    # same-shape batch far more often than per-image thresholding alone can reliably tell --
+    # estimate it once per shape group and reuse it, falling back to per-image detection for
+    # images whose shape group is too small (or inconsistent) to trust a shared estimate.
+    paper_by_shape: dict[tuple[int, int, int], CuttingsSegmentResult] = {}
+    if cut_type == "pebble":
+        logger.info("Processing pebble paper regions by group ...")
+        paper_by_shape = ProcessPebblePaperGroupByShape(config.cuttings.pebble_group, config.n_workers).run(
+            imgs_metadata
+        )
+
     detections: list[ImageMetadataProcessedCuttings] = []
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting cuttings images", mininterval=1.0):
         try:
-            # segmentation
-            cuttings = segmenter(img_metadata, config.cuttings)
+            # segmentation: reuse the shared group detection for this image's shape, if any
+            shared_paper = paper_by_shape.get(img_metadata.shape)
+            cuttings = shared_paper if shared_paper is not None else segmenter(img_metadata, config.cuttings)
             detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings, preload=cache)
             detections.append(detection)
 

@@ -255,10 +255,13 @@ Then open http://localhost:5000 in your browser.
 **Without MLflow tracking**
 
 ```bash
-uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-dir>
+uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-dir> --cut-type pebble
 ```
 
 - same flags as for the cores
+- `--cut-type`: Cuttings segmentation method to use — `black_circle` (default, cuttings inside
+  a black circular tray) or `pebble` (cuttings next to a printed reference paper sheet). Must
+  match the physical layout used at that borehole; there's no auto-detection.
 
 **With MLflow tracking**
 
