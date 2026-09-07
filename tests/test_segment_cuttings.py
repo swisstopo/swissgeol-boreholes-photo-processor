@@ -355,6 +355,20 @@ def test_normalize_tray_scale_handles_empty_list():
     _normalize_tray_scale([])
 
 
+def test_normalize_tray_scale_leaves_aspect_ratio_outlier_unnormalized():
+    """A crop whose aspect ratio is far off the batch target is left at its native size, not stretched."""
+    normal_a = CuttingsSegmentResult(bbox=(0, 0, 200, 100))  # 2:1, matches the batch target ratio
+    normal_b = CuttingsSegmentResult(bbox=(0, 0, 220, 110))  # 2:1, matches the batch target ratio
+    outlier = CuttingsSegmentResult(bbox=(0, 0, 100, 300))  # 1:3, e.g. a mis-detected/non-tray image
+
+    _normalize_tray_scale([normal_a, normal_b, outlier], max_aspect_ratio_deviation=0.2)
+
+    assert normal_a.resize_to is not None
+    assert normal_b.resize_to is not None
+    assert normal_a.resize_to == normal_b.resize_to
+    assert outlier.resize_to is None
+
+
 def test_segment_cuttings_normalizes_tray_scale_across_batch(tmp_path):
     """Two differently-sized detected tray piles end up with the same resize_to (the batch median)."""
     small_pile = (150, 150, 250, 250)  # 100x100
