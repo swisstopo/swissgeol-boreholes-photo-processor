@@ -118,6 +118,11 @@ class ImageMetadataCuttings(ImageMetadata):
 
     depth: float
 
+    # Set only for the Montagny range convention, where the filename carries both ends of the
+    # depth interval; used by collect_cuttings to prefer the narrower-span image when two
+    # images collide on the same depth (see _DEPTH_REGEX_RANGE below).
+    depth_start: float | None = None
+
     # Forsthaus, e.g. "GES-F-1 190 m (Large).JPG": id prefix, then a single point depth.
     # The depth must start at whitespace/string-start so it can't match a digit embedded
     # in the id itself (e.g. the "1" in "GES-F-1"); a trailing annotation is either
@@ -226,7 +231,8 @@ class ImageMetadataCuttings(ImageMetadata):
         range_match = cls._DEPTH_REGEX_RANGE.search(stem)
         if range_match:
             depth = float(range_match.group("depth_end"))
-            return cls(borehole_id="", depth=depth, image_path=image_path)
+            depth_start = float(range_match.group("depth_start"))
+            return cls(borehole_id="", depth=depth, depth_start=depth_start, image_path=image_path)
 
         match = cls._DEPTH_REGEX_FORSTHAUS.search(stem)
         if not match:
@@ -236,7 +242,7 @@ class ImageMetadataCuttings(ImageMetadata):
 
     def to_dict(self) -> dict:
         """Return this metadata as a plain dict, e.g. for JSON serialization."""
-        return {**super().to_dict(), "depth": self.depth}
+        return {**super().to_dict(), "depth": self.depth, "depth_start": self.depth_start}
 
 
 class ApproachType(IntEnum):
