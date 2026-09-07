@@ -14,6 +14,7 @@ from src.segment.config import (
     SegmentationCuttingsConfig,
     SegmentationCuttingsPebbleConfig,
     SegmentationCuttingsPebbleGroupConfig,
+    SegmentationCuttingsTrayConfig,
     SegmentationRulerConfig,
     SegmentationTrayGroupConfig,
     SegmentationTraySingleConfig,
@@ -70,6 +71,7 @@ class PipelineConfig:
                     black_circle=SegmentationCuttingsBlackCircleConfig(
                         **(raw_segmentation_cuttings.pop("black_circle", None) or {})
                     ),
+                    tray=SegmentationCuttingsTrayConfig(**(raw_segmentation_cuttings.pop("tray", None) or {})),
                     **raw_segmentation_cuttings,
                 ),
                 **raw_segmentation,

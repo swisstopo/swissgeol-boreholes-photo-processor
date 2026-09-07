@@ -123,6 +123,16 @@ class SegmentationCuttingsBlackCircleConfig:
 
 
 @dataclass
+class SegmentationCuttingsTrayConfig:
+    """Tunable parameters for segmenting cuttings laid out in an open tray, via edge-density quantile bbox."""
+
+    coverage: float = 0.95  # fraction of mask pixels the box should contain (jointly, both axes)
+    work: int = 800  # working resolution the image is resized to before computing texture energy
+    open_radius: int = 3  # radius for opening (drops thin bridges/specks before picking the main component)
+    erosion_radius: int = 2  # radius for eroding the main component before the bbox, to trim the residual tray border
+
+
+@dataclass
 class SegmentationCuttingsConfig:
     """Tunable parameters for the cuttings segmentation step."""
 
@@ -130,6 +140,7 @@ class SegmentationCuttingsConfig:
     pebble: SegmentationCuttingsPebbleConfig = field(default_factory=SegmentationCuttingsPebbleConfig)
     pebble_group: SegmentationCuttingsPebbleGroupConfig = field(default_factory=SegmentationCuttingsPebbleGroupConfig)
     black_circle: SegmentationCuttingsBlackCircleConfig = field(default_factory=SegmentationCuttingsBlackCircleConfig)
+    tray: SegmentationCuttingsTrayConfig = field(default_factory=SegmentationCuttingsTrayConfig)
 
 
 @dataclass
