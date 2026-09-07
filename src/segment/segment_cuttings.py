@@ -48,8 +48,8 @@ def segment_tray(
     tray_config = config.tray
 
     # texture energy
-    g = rgb2gray(resize(img, (tray_config.work, tray_config.work), anti_aliasing=True))  # float in [0,1]
-    grad = scharr(g)  # gradient magnitude
+    resized_gray = rgb2gray(resize(img, (tray_config.work, tray_config.work), anti_aliasing=True))  # float in [0,1]
+    grad = scharr(resized_gray)  # gradient magnitude
     energy = uniform_filter(grad, size=33)  # 33x33 local mean
 
     # otsu mask
@@ -79,12 +79,6 @@ def segment_tray(
         q = (1 - tray_config.coverage**0.5) / 2
         x0, x1 = np.quantile(xs, [q, 1 - q])
         y0, y1 = np.quantile(ys, [q, 1 - q])
-        if tray_config.square:
-            s = max(x1 - x0, y1 - y0) / 2
-            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-            x0, x1, y0, y1 = cx - s, cx + s, cy - s, cy + s
-            x0, y0 = max(x0, 0), max(y0, 0)
-            x1, y1 = min(x1, tray_config.work), min(y1, tray_config.work)
         bbox = (
             x0 * w / tray_config.work,
             y0 * h / tray_config.work,
