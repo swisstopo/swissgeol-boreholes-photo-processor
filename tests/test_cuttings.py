@@ -24,25 +24,15 @@ def test_collect_cuttings_sorts_by_depth(tmp_path):
 
 
 def test_collect_cuttings_drops_duplicate_depth(tmp_path):
-    """Only the first image (by filename) at a given depth is kept."""
+    """dedup_keep controls whether the first or last image (by filename) at a given depth is kept."""
     _write_image(tmp_path / "10m_00.jpg")
     _write_image(tmp_path / "10m_01.jpg")
 
-    result = collect_cuttings(tmp_path)
+    result_first = collect_cuttings(tmp_path, dedup_keep="first")
+    result_last = collect_cuttings(tmp_path, dedup_keep="last")
 
-    assert len(result) == 1
-    assert result[0].image_path.name == "10m_00.jpg"
-
-
-def test_collect_cuttings_dedup_keep_last(tmp_path):
-    """With dedup_keep="last", the last image (by filename) at a given depth is kept."""
-    _write_image(tmp_path / "10m_00.jpg")
-    _write_image(tmp_path / "10m_01.jpg")
-
-    result = collect_cuttings(tmp_path, dedup_keep="last")
-
-    assert len(result) == 1
-    assert result[0].image_path.name == "10m_01.jpg"
+    assert result_first[0].image_path.name == "10m_00.jpg"
+    assert result_last[0].image_path.name == "10m_01.jpg"
 
 
 def test_collect_cuttings_skips_vial_photos(tmp_path):
