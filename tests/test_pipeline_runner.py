@@ -21,6 +21,9 @@ class _FakeRunner(PipelineRunner[Any, Any, Any]):
     def _collate_stitch(self, imgs, config) -> list[Any]:
         return []
 
+    def _web_downscale_factor(self, config) -> float:
+        return 1.0
+
     def _batch_stitch(self, batch: Any, config) -> Image.Image:
         return Image.new("RGB", (1, 1))
 

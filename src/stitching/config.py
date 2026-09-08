@@ -14,6 +14,9 @@ class CoreStitchingConfig:
     padding_horizontal: int = 150  # left/right border width in pixels
     padding_vertical: int = 200  # top/bottom border height in pixels
     ruler_width: int = 300  # width in pixels of each of the two depth rulers (left/right of the cores)
+    # the canvas is built far above web size (max_core_height=10000), so it's downscaled for the web JPG;
+    # the full-resolution canvas is still written out separately as a TIFF
+    web_downscale_factor: float = 0.25
 
 
 @dataclass
@@ -38,6 +41,5 @@ class StitchingConfig:
 
     n_workers: int = 4  # number of worker threads used to stitch output figures in parallel
     web_output_quality: int = 95  # output JPG quality/compression tradeoff, in the range 0–100
-    web_downscale_factor: float = 0.25  # downscale factor applied to web image output
     core: CoreStitchingConfig = field(default_factory=CoreStitchingConfig)
     cuttings: CuttingsStitchingConfig = field(default_factory=CuttingsStitchingConfig)
