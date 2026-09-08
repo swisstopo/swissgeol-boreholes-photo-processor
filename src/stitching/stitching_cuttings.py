@@ -29,8 +29,7 @@ def stitching_batch_cuttings(
 
     Cuttings are arranged into a fixed grid, filled column by column. Portrait images are
     rotated 90 degrees to landscape, then scaled down (never up) to fit within the grid cell
-    while preserving aspect ratio, and right-aligned so the gap to the depth annotation stays
-    constant regardless of the scaled-down image's width.
+    while preserving aspect ratio, and left-aligned in their cell.
 
     The values are padding_horizontal (PH), padding_vertical (PV),
     and padding cuttings (PC). FROM/TO show the depth_start of the topmost/bottommost
@@ -109,9 +108,7 @@ def stitching_batch_cuttings(
         image_x = cuttings_config.padding_horizontal + column * column_step
         cell_y = cuttings_config.padding_vertical + row * (cell_height + cuttings_config.padding_cuttings)
         y = cell_y + (cell_height - cutting_img.height) // 2
-        # right-aligned (not centered/left-aligned) so the gap to the annotation is always exactly
-        # annotation_gap, regardless of how narrow the aspect-scaled image ends up
-        canvas.paste(cutting_img, (image_x + image_width - cutting_img.width, y))
+        canvas.paste(cutting_img, (image_x, y))
 
         annotation_x = image_x + image_width + cuttings_config.annotation_gap
         canvas = _draw_cuttings_annotation(
@@ -129,24 +126,23 @@ def stitching_batch_cuttings(
         if start_idx >= len(cuttings):
             break
         end_idx = min(start_idx + rows, len(cuttings)) - 1
-        image_right = cuttings_config.padding_horizontal + column * column_step + image_width
+        image_x = cuttings_config.padding_horizontal + column * column_step
 
-        # right-anchored at image_right (not centered on image_width) since cuttings are
-        # right-aligned in their column and vary in width, so the right edge is the only
-        # x position shared by every cutting in the column
+        # left-anchored at image_x since cuttings are left-aligned in their column, so the
+        # left edge is the one x position shared by every cutting in the column
         canvas = _draw_cuttings_border_label(
             canvas,
             depth=cuttings[start_idx].depth,
-            loc=(image_right, round(cuttings_config.padding_vertical * 3 / 4)),
+            loc=(image_x, round(cuttings_config.padding_vertical * 3 / 4)),
             font_size=cuttings_config.font_size,
-            anchor="rm",
+            anchor="lm",
         )
         canvas = _draw_cuttings_border_label(
             canvas,
             depth=cuttings[end_idx].depth,
-            loc=(image_right, round(cuttings_config.output_height - cuttings_config.padding_vertical / 2)),
+            loc=(image_x, round(cuttings_config.output_height - cuttings_config.padding_vertical / 2)),
             font_size=cuttings_config.font_size,
-            anchor="rm",
+            anchor="lm",
         )
 
     return canvas
