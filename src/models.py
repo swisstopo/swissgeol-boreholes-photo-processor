@@ -403,6 +403,23 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
 
         return self._core_cache
 
+    @property
+    def core_dimensions(self) -> tuple[int, int]:
+        """Predict the (width, height) load_core() will produce, from the bbox alone, without loading pixels.
+
+        Mirrors load_core()'s rotate-to-portrait rule so callers (e.g. page layout) can estimate a
+        core's rendered size cheaply, ahead of the actual crop/resize.
+
+        Raises:
+            ValueError: If no core region was detected for this image.
+        """
+        if self.core is None:
+            raise ValueError(f"No core region detected for image: {self.image_path}")
+
+        left, upper, right, lower = (round(v) for v in self.core.bbox)
+        width, height = right - left, lower - upper
+        return (height, width) if width > height else (width, height)
+
     def release_core_cache(self) -> None:
         """Drop the cached crop once its batch has been stitched, since it's never reused after that."""
         self._core_cache = None

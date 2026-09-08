@@ -50,7 +50,7 @@ def make_processed(tmp_path):
 def test_padding_pixels_are_black(make_processed):
     """Padding pixels around the image are black, not white or some other color."""
     core = make_processed(0.0, 1.0, color=RED)
-    config = StitchingConfig(core=CoreStitchingConfig(num_cores_per_image=6))
+    config = StitchingConfig(core=CoreStitchingConfig())
     batches = stitching_cores([core], config)
     img = stitching_batch_cores(
         batches[0].cores,
@@ -189,6 +189,54 @@ def test_outlier_core_width_matches_the_reference_core(make_processed):
     assert ys_outlier.max() - ys_outlier.min() + 1 == TEST_MAX_OUTPUT_PX
 
 
+def test_min_core_gap_limits_cores_per_page(make_processed):
+    """core_area_width and min_core_gap decide how many cores fit per page, not a fixed count."""
+    # With the default scale settings, each of these identical cores renders at a predicted
+    # width of 40px: a bbox height of 5000px at px_per_unit=100 gives a true ruler span of 50
+    # units, and default max_core_height=10000 gives a scale of 2, applied to the (post-rotation)
+    # 20x5000 core's 20px width, i.e. width 20 * 2 = 40.
+    cores = [make_processed(float(i), float(i + 1), size=(5000, 20)) for i in range(7)]
+    # 6 cores * 40px + 5 gaps * 40px == 440, so a 7th core has to overflow onto a second page.
+    config = StitchingConfig(core=CoreStitchingConfig(core_area_width=440, min_core_gap=40))
+    batches = stitching_cores(cores, config)
+
+    assert len(batches) == 2
+    assert len(batches[0].cores) == 6
+    assert len(batches[1].cores) == 1
+
+
+def test_actual_gap_fills_leftover_core_area_width(make_processed):
+    """The real gap between cores spreads core_area_width's leftover evenly, at least min_core_gap."""
+    # px_per_unit=1 keeps the core length (and thus the rounded-to-50cm ruler length) an exact
+    # multiple of 50, so rounding doesn't perturb the expected scale below.
+    red = make_processed(0.0, 1.0, color=RED, px_per_unit=1)
+    green = make_processed(1.0, 2.0, color=GREEN, px_per_unit=1)
+    config = StitchingConfig(core=CoreStitchingConfig(max_core_height=1000, core_area_width=1000, min_core_gap=10))
+    batches = stitching_cores([red, green], config)
+    img = np.array(
+        stitching_batch_cores(
+            batches[0].cores,
+            batches[0].shared_ruler_steps,
+            batches[0].shared_borehole_id,
+            batches[0].fallback_scale,
+            config,
+        )
+    )
+
+    assert len(batches) == 1
+    ys_red, xs_red = np.nonzero((img == RED).all(axis=-1))
+    ys_green, xs_green = np.nonzero((img == GREEN).all(axis=-1))
+
+    # Both cores render at 40px wide (same scale computation as test_min_core_gap_limits_cores_per_page).
+    core_width = 40
+    assert xs_red.max() - xs_red.min() + 1 == core_width
+    assert xs_green.max() - xs_green.min() + 1 == core_width
+
+    gap = xs_green.min() - xs_red.max() - 1
+    assert gap == config.core.core_area_width - 2 * core_width
+    assert gap >= config.core.min_core_gap
+
+
 OUTPUT_DIR = Path(__file__).parent / "output" / "stitching"
 
 _CORE_COLORS = [
@@ -207,7 +255,8 @@ def test_save_two_output_images(make_processed):
     """Creates two output images with 6 cores in the first and 1 core in the second, for visual inspection."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     cores = [make_processed(float(i), float(i + 1), color=_CORE_COLORS[i]) for i in range(7)]
-    config = StitchingConfig(core=CoreStitchingConfig(num_cores_per_image=len(cores) - 1))
+    # See test_min_core_gap_limits_cores_per_page for why this fits exactly 6 cores per page.
+    config = StitchingConfig(core=CoreStitchingConfig(core_area_width=440, min_core_gap=40))
     batches = stitching_cores(cores, config)
 
     for idx, img in enumerate(
