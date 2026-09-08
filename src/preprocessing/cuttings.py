@@ -22,8 +22,9 @@ def collect_cuttings(
 
     Only one image (by filename, per dedup_keep) at each depth is kept; the rest are dropped
     as duplicates and their count is logged to MLflow when with_mlflow is set. "00-Vials-"
-    files (e.g. GVL-1's sample-vial photos) are excluded outright: their depth-less names
-    would otherwise parse as depth 0 and pollute the output.
+    files (e.g. GVL-1's sample-vial photos) are excluded outright, as their depth-less names
+    would otherwise parse as depth 0 and pollute the output. "...vue-generale" files (general
+    overview shots, not per-depth cutting samples) are excluded outright too.
 
     Args:
         input_dir (Path): Path to the directory containing raw cuttings photos.
@@ -37,7 +38,7 @@ def collect_cuttings(
     # Collect all cutting images from the input directory and parse filename metadata
     imgs_metadata: list[ImageMetadataCuttings] = []
     for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
-        if f.name.lower().startswith("00-vials-"):
+        if f.name.lower().startswith("00-vials-") or f.stem.lower().endswith("vue-generale"):
             continue
         if f.suffix.lower() in _CUTTINGS_EXTENSIONS:
             try:
