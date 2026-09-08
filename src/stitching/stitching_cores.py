@@ -14,6 +14,23 @@ from src.stitching.utils import _resize_images
 logger = logging.getLogger(__name__)
 
 
+def _rounded_ruler_display_steps(shared_ruler_steps: int) -> int:
+    """Round a ruler span to the nearest 50cm, for a clean, consistent look when drawn.
+
+    This only affects how the ruler is drawn (its tick count/labels); it does not change
+    shared_ruler_steps itself, which remains the actual span used to scale cores.
+
+    Args:
+        shared_ruler_steps (int): The number of major ruler ticks (depth units) spanned by the canvas height,
+        shared across all batches so rulers line up between output images.
+
+    Returns:
+        int: The number of major ruler ticks (depth units) to draw on the canvas, rounded to the nearest 50cm,
+        with a minimum of 50cm.
+    """
+    return max(50, round(shared_ruler_steps / 50) * 50)
+
+
 @dataclass
 class StitchingBatchCores:
     """One chunk of cores plus the canvas-wide values needed to stitch it, for parallel dispatch."""
@@ -120,11 +137,13 @@ def stitching_batch_cores(
         font_size=core_config.font_size,
     )
 
+    drawn_ruler_steps = _rounded_ruler_display_steps(shared_ruler_steps)
+
     canvas = _draw_ruler(
         canvas,
         loc=(core_config.padding_horizontal, 3 * core_config.padding_vertical),
         size=(core_config.ruler_width, core_config.max_core_height),
-        n_major=shared_ruler_steps,
+        n_major=drawn_ruler_steps,
         font_size=round(core_config.font_size / 2),
     )
 
@@ -135,7 +154,7 @@ def stitching_batch_cores(
             3 * core_config.padding_vertical,
         ),
         size=(core_config.ruler_width, core_config.max_core_height),
-        n_major=shared_ruler_steps,
+        n_major=drawn_ruler_steps,
         font_size=round(core_config.font_size / 2),
         horizontal_flip=True,
     )
@@ -175,9 +194,8 @@ def stitching_cores(
     # Set default resolution if missing
     fallback_scale = np.median(original_scales).item()
 
-    # Estimate ruler span over all cores, rounded to the nearest 50cm for a clean, consistent ruler length
-    longest_core_length = max(original_heights / original_scales)
-    canvas_ruler_steps = max(50, int(round(longest_core_length / 50) * 50))
+    # Estimate ruler span over all cores
+    canvas_ruler_steps = np.ceil(max(original_heights / original_scales)).astype(int).item()
 
     return [
         StitchingBatchCores(
