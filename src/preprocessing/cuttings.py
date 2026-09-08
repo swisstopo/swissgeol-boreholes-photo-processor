@@ -57,8 +57,8 @@ def collect_cuttings(
             duplicate_counts[metadata.depth] += 1
             if dedup_keep == "last":
                 deduped_by_depth[metadata.depth] = metadata
-            continue
-        deduped_by_depth[metadata.depth] = metadata
+        else:
+            deduped_by_depth[metadata.depth] = metadata
     deduped_metadata = sorted(deduped_by_depth.values(), key=lambda m: m.depth)
 
     if duplicate_counts:

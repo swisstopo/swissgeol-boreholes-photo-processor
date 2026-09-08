@@ -383,23 +383,57 @@ def test_normalize_tray_scale_sets_median_size_without_touching_bbox():
     mid = CuttingsSegmentResult(bbox=(0, 0, 200, 200))
     big = CuttingsSegmentResult(bbox=(0, 0, 300, 300))
 
-    _normalize_tray_scale([small, mid, big])
+    normalized = _normalize_tray_scale([small, mid, big])
 
-    assert small.bbox == (0, 0, 100, 100)
-    assert mid.bbox == (0, 0, 200, 200)
-    assert big.bbox == (0, 0, 300, 300)
-    assert small.resize_to == mid.resize_to == big.resize_to == (200, 200)
+    assert [c.bbox for c in normalized] == [(0, 0, 100, 100), (0, 0, 200, 200), (0, 0, 300, 300)]
+    assert all(c.resize_to == (200, 200) for c in normalized)
+    assert small.resize_to is None
+    assert mid.resize_to is None
+    assert big.resize_to is None
 
 
 def test_normalize_tray_scale_handles_empty_list():
     """An empty batch is a no-op, not a crash."""
-    _normalize_tray_scale([])
+    assert _normalize_tray_scale([]) == []
+
+
+def test_normalize_tray_scale_leaves_aspect_ratio_outlier_unnormalized():
+    """A crop whose aspect ratio is far off the batch target is left at its native size, not stretched."""
+    normal_a = CuttingsSegmentResult(bbox=(0, 0, 200, 100))  # 2:1, matches the batch target ratio
+    normal_b = CuttingsSegmentResult(bbox=(0, 0, 220, 110))  # 2:1, matches the batch target ratio
+    outlier = CuttingsSegmentResult(bbox=(0, 0, 100, 300))  # 1:3, e.g. a mis-detected/non-tray image
+
+    normalized_a, normalized_b, normalized_outlier = _normalize_tray_scale(
+        [normal_a, normal_b, outlier], max_aspect_ratio_deviation=0.2
+    )
+
+    assert normalized_a.resize_to is not None
+    assert normalized_b.resize_to is not None
+    assert normalized_a.resize_to == normalized_b.resize_to
+    assert normalized_outlier.resize_to is None
+    assert normalized_outlier is outlier
+
+
+def test_normalize_tray_scale_leaves_extreme_scale_outlier_unnormalized():
+    """A crop whose native size is far from the batch target is left unresampled, not up/down-sampled."""
+    normal_a = CuttingsSegmentResult(bbox=(0, 0, 200, 100))
+    normal_b = CuttingsSegmentResult(bbox=(0, 0, 220, 110))
+    tiny = CuttingsSegmentResult(bbox=(0, 0, 20, 10))  # same 2:1 ratio, but 10x smaller than the target
+
+    normalized_a, normalized_b, normalized_tiny = _normalize_tray_scale(
+        [normal_a, normal_b, tiny], max_scale_factor=2.0
+    )
+
+    assert normalized_a.resize_to is not None
+    assert normalized_b.resize_to is not None
+    assert normalized_tiny.resize_to is None
+    assert normalized_tiny is tiny
 
 
 def test_segment_cuttings_normalizes_tray_scale_across_batch(tmp_path):
     """Two differently-sized detected tray piles end up with the same resize_to (the batch median)."""
     small_pile = (150, 150, 250, 250)  # 100x100
-    big_pile = (50, 50, 350, 350)  # 300x300
+    big_pile = (110, 110, 290, 290)  # 180x180, within the default max_scale_factor of the small pile
     small = _make_textured_metadata(tmp_path, 1.0, size=(400, 400), patches=[small_pile])
     big = _make_textured_metadata(tmp_path, 2.0, size=(400, 400), patches=[big_pile])
 

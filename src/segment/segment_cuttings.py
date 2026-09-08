@@ -67,8 +67,8 @@ def segment_tray(
     tray_config = config.tray
 
     # texture energy
-    g = rgb2gray(resize(img, (tray_config.work, tray_config.work), anti_aliasing=True))  # float in [0,1]
-    grad = scharr(g)  # gradient magnitude
+    resized_gray = rgb2gray(resize(img, (tray_config.work, tray_config.work), anti_aliasing=True))  # float in [0,1]
+    grad = scharr(resized_gray)  # gradient magnitude
     energy = uniform_filter(grad, size=33)  # 33x33 local mean
 
     # otsu mask
@@ -104,12 +104,6 @@ def segment_tray(
         q = (1 - tray_config.coverage**0.5) / 2
         x0, x1 = np.quantile(xs, [q, 1 - q])
         y0, y1 = np.quantile(ys, [q, 1 - q])
-        if tray_config.square:
-            s = max(x1 - x0, y1 - y0) / 2
-            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-            x0, x1, y0, y1 = cx - s, cx + s, cy - s, cy + s
-            x0, y0 = max(x0, 0), max(y0, 0)
-            x1, y1 = min(x1, tray_config.work), min(y1, tray_config.work)
         bbox = (
             x0 * w / tray_config.work,
             y0 * h / tray_config.work,
@@ -304,8 +298,12 @@ def _log_crop_size_consistency(
         )
 
 
-def _normalize_tray_scale(cuttings: list[CuttingsSegmentResult]) -> None:
-    """Set a common resize target on every tray bbox, so all trays render at the same pixel size.
+def _normalize_tray_scale(
+    cuttings: list[CuttingsSegmentResult],
+    max_aspect_ratio_deviation: float = 0.2,
+    max_scale_factor: float = 2.0,
+) -> list[CuttingsSegmentResult]:
+    """Return copies of the tray results with a common resize target, so all trays render at the same pixel size.
 
     Unlike pebble/black_circle crops -- where the area outside the detected object is just
     background -- the tray bbox *is* the tray, and every tray is the same physical size, so
@@ -317,20 +315,66 @@ def _normalize_tray_scale(cuttings: list[CuttingsSegmentResult]) -> None:
     tuples are read here, not pixel data; the actual resize happens lazily per image when its
     crop is loaded.
 
+    A crop whose own aspect ratio deviates from the target's by more than
+    max_aspect_ratio_deviation, or whose native size is more than max_scale_factor away from
+    the target size, is left unnormalized (resize_to stays None, so it keeps its native crop)
+    instead of being stretched/squashed or resampled to match -- this guards against a
+    wrongly-detected or fundamentally different (e.g. non-tray) image getting visibly distorted,
+    and against a crop so far from the batch's scale that up/down-sampling it would meaningfully
+    degrade detail, at the cost of that one image not sharing the batch's scale.
+
     Args:
-        cuttings (list[CuttingsSegmentResult]): Per-image tray detection results to set
-            resize_to on, in place.
+        cuttings (list[CuttingsSegmentResult]): Per-image tray detection results to derive
+            resize_to from. Left untouched; the returned list holds the updated copies.
+        max_aspect_ratio_deviation (float): Maximum relative deviation between a crop's own
+            width/height ratio and the batch target's before it's left unnormalized instead
+            of stretched to match.
+        max_scale_factor (float): Maximum factor (in either direction) by which a crop's own
+            size may differ from the batch target before it's left unnormalized instead of
+            being up/down-sampled to match, e.g. 2.0 allows up to 2x upsampling or 2x
+            downsampling.
+
+    Returns:
+        list[CuttingsSegmentResult]: A new list of copies, each with resize_to set to the
+        shared target size, or left as-is when its aspect ratio or scale deviates too much.
     """
     if not cuttings:
-        return
+        return []
 
     widths = sorted(c.bbox[2] - c.bbox[0] for c in cuttings)
     heights = sorted(c.bbox[3] - c.bbox[1] for c in cuttings)
     target_w = round(widths[len(widths) // 2])
     target_h = round(heights[len(heights) // 2])
+    target_ratio = target_w / target_h
 
+    normalized = []
     for c in cuttings:
-        c.resize_to = (target_w, target_h)
+        width = c.bbox[2] - c.bbox[0]
+        height = c.bbox[3] - c.bbox[1]
+        ratio = width / height
+        if abs(ratio - target_ratio) / target_ratio > max_aspect_ratio_deviation:
+            logger.warning(
+                "Tray crop aspect ratio %.2f deviates from batch target %.2f by more than %.0f%%; "
+                "leaving it at its native size instead of stretching it to match",
+                ratio,
+                target_ratio,
+                max_aspect_ratio_deviation * 100,
+            )
+            normalized.append(c)
+            continue
+
+        scale_factor = target_w / width  # ~= target_h / height, since the aspect ratio matches above
+        if max(scale_factor, 1 / scale_factor) > max_scale_factor:
+            logger.warning(
+                "Tray crop size would need to be scaled by %.2fx to match the batch target; "
+                "leaving it at its native size instead of resampling it that far",
+                scale_factor,
+            )
+            normalized.append(c)
+            continue
+
+        normalized.append(replace(c, resize_to=(target_w, target_h)))
+    return normalized
 
 
 def segment_cuttings(
@@ -396,12 +440,14 @@ def segment_cuttings(
     # are excluded: they're not a real tray detection, so forcing them to the tray's typical size
     # would distort the whole photo rather than leave it alone.
     if cut_type == "tray":
-        real_tray_results = [
-            cuttings
-            for img_metadata, cuttings in segmented
+        real_tray_indices = [
+            i
+            for i, (img_metadata, cuttings) in enumerate(segmented)
             if not _is_full_frame_bbox(cuttings.bbox, img_metadata.shape)
         ]
-        _normalize_tray_scale(real_tray_results)
+        normalized_cuttings = _normalize_tray_scale([segmented[i][1] for i in real_tray_indices])
+        for i, cuttings in zip(real_tray_indices, normalized_cuttings, strict=True):
+            segmented[i] = (segmented[i][0], cuttings)
 
     _log_fallback_rate(cut_type, segmented)
     _log_crop_size_consistency(cut_type, segmented, config.cuttings.crop_size_cv_warn_threshold)

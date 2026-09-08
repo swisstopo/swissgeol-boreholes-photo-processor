@@ -120,11 +120,11 @@ def _draw_cuttings_annotation(
     annotation_img = Image.new("RGB", size, color=(0, 0, 0))
     font = ImageFont.load_default(size=font_size)
     ImageDraw.Draw(annotation_img).text(
-        (size[0] / 2, size[1] / 2),
+        (0, size[1] / 2),
         _format_depth(depth),
         fill=(255, 255, 255),
         font=font,
-        anchor="mm",
+        anchor="lm",
     )
     canvas.paste(annotation_img, loc)
     return canvas
