@@ -17,16 +17,10 @@ logger = logging.getLogger(__name__)
 def _rounded_ruler_display_steps(shared_ruler_steps: int) -> int:
     """Round a ruler span to the nearest 50cm, for a clean, consistent look when drawn.
 
-    This only affects how the ruler is drawn (its tick count/labels); it does not change
-    shared_ruler_steps itself, which remains the actual span used to scale cores.
-
-    Args:
-        shared_ruler_steps (int): The number of major ruler ticks (depth units) spanned by the canvas height,
-        shared across all batches so rulers line up between output images.
-
-    Returns:
-        int: The number of major ruler ticks (depth units) to draw on the canvas, rounded to the nearest 50cm,
-        with a minimum of 50cm.
+    This only affects how the ruler is drawn (its tick count/labels and the pixel height it's
+    drawn over); it does not change shared_ruler_steps itself, which remains the actual span
+    used to scale cores. A core longer than the rounded value will render past the ruler's
+    last labeled tick, rather than being rescaled to fit under it.
     """
     return max(50, round(shared_ruler_steps / 50) * 50)
 
@@ -137,12 +131,17 @@ def stitching_batch_cores(
         font_size=core_config.font_size,
     )
 
+    # Round the ruler's displayed span to the nearest 50cm; scale its drawn pixel height to match,
+    # at the same px-per-unit density used for the cores above, so its ticks stay correctly
+    # positioned relative to them (a core longer than this rounded span simply extends past the
+    # ruler's last labeled tick, rather than the ruler being stretched to always cover it).
     drawn_ruler_steps = _rounded_ruler_display_steps(shared_ruler_steps)
+    drawn_ruler_height = round(core_config.max_core_height * drawn_ruler_steps / shared_ruler_steps)
 
     canvas = _draw_ruler(
         canvas,
         loc=(core_config.padding_horizontal, 3 * core_config.padding_vertical),
-        size=(core_config.ruler_width, core_config.max_core_height),
+        size=(core_config.ruler_width, drawn_ruler_height),
         n_major=drawn_ruler_steps,
         font_size=round(core_config.font_size / 2),
     )
@@ -153,7 +152,7 @@ def stitching_batch_cores(
             3 * core_config.padding_horizontal + core_config.ruler_width + n_core_width,
             3 * core_config.padding_vertical,
         ),
-        size=(core_config.ruler_width, core_config.max_core_height),
+        size=(core_config.ruler_width, drawn_ruler_height),
         n_major=drawn_ruler_steps,
         font_size=round(core_config.font_size / 2),
         horizontal_flip=True,

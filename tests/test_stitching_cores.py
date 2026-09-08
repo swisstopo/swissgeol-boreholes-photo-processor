@@ -26,6 +26,7 @@ def make_processed(tmp_path):
         depth_end: float,
         size: tuple[int, int] = (TEST_MAX_OUTPUT_PX // 2, 20),
         color: tuple[int, int, int] = (128, 128, 128),
+        px_per_unit: float = 100,
     ) -> ImageMetadataProcessedCores:
         """Creates a simple ImageMetadataProcessedCores with a single solid-color crop of the specified size."""
         filename = f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
@@ -38,7 +39,9 @@ def make_processed(tmp_path):
             image_path=image_path,
         )
         core = CoreSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])))
-        ruler = RulerSegmentResult(bbox=(0.0, 0.0, float(size[0]), float(size[1])), px_per_unit=100, bbox_units=[])
+        ruler = RulerSegmentResult(
+            bbox=(0.0, 0.0, float(size[0]), float(size[1])), px_per_unit=px_per_unit, bbox_units=[]
+        )
         return ImageMetadataProcessedCores.from_metadata(metadata=metadata, core=core, tray=core, ruler=ruler)
 
     return _factory
@@ -63,17 +66,48 @@ def test_padding_pixels_are_black(make_processed):
 
 
 @pytest.mark.parametrize(
-    ("shared_ruler_steps", "expected_drawn_steps"),
+    ("shared_ruler_steps", "expected_display_steps"),
     [
+        (100, 100),  # exact match, no rounding needed
         (106, 100),  # rounds down to the nearest 50cm
         (101, 100),  # rounds down to the nearest 50cm
         (130, 150),  # rounds up to the nearest 50cm
         (10, 50),  # never rounds down to 0
     ],
 )
-def test_rounded_ruler_display_steps(shared_ruler_steps, expected_drawn_steps):
-    """The ruler is drawn with its tick count rounded to the nearest 50cm, regardless of the actual span."""
-    assert _rounded_ruler_display_steps(shared_ruler_steps) == expected_drawn_steps
+def test_rounded_ruler_display_steps(shared_ruler_steps, expected_display_steps):
+    """The ruler's displayed span rounds to the nearest 50cm, independent of the actual scale."""
+    assert _rounded_ruler_display_steps(shared_ruler_steps) == expected_display_steps
+
+
+def test_ruler_stops_before_a_core_longer_than_its_rounded_display_length(make_processed):
+    """A core longer than the ruler's rounded-to-50cm display length still renders at full true scale.
+
+    The ruler itself stops short of the core's bottom edge rather than being stretched to always
+    cover it, since stretching it would misalign its ticks against the core's true depths.
+    """
+    core = make_processed(0.0, 1.0, size=(106, 20), color=RED, px_per_unit=1)
+    config = StitchingConfig(core=CoreStitchingConfig(max_core_height=1000))
+    batches = stitching_cores([core], config)
+    assert batches[0].shared_ruler_steps == 106  # true length, unrounded
+
+    img = np.array(
+        stitching_batch_cores(
+            batches[0].cores,
+            batches[0].shared_ruler_steps,
+            batches[0].shared_borehole_id,
+            batches[0].fallback_scale,
+            config,
+        )
+    )
+    ys_red, xs_red = np.nonzero((img == RED).all(axis=-1))
+    # the core itself renders at its full, undistorted true length
+    assert ys_red.max() - ys_red.min() + 1 == 1000
+
+    # but the ruler (rounded down to 100/106 of that height) stops short of the core's bottom
+    near_bottom_row = ys_red.max() - 5
+    ruler_region = img[near_bottom_row, : xs_red.min()]
+    assert not (ruler_region == WHITE).all(axis=-1).any()
 
 
 def test_cores_appear_in_order_left_to_right(make_processed):
