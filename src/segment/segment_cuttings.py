@@ -1,5 +1,6 @@
 """Entry point for segmenting a batch of borehole cuttings images."""
 
+import dataclasses
 import logging
 from timeit import default_timer as timer
 
@@ -182,6 +183,85 @@ _SEGMENTERS = {
 DEFAULT_CUT_TYPE = "black_circle"
 
 
+def _normalize_tray_scale(
+    cuttings: list[CuttingsSegmentResult],
+    max_aspect_ratio_deviation: float = 0.2,
+    max_scale_factor: float = 2.0,
+) -> list[CuttingsSegmentResult]:
+    """Return copies of the tray results with a common resize target, so all trays render at the same pixel size.
+
+    Unlike pebble/black_circle crops -- where the area outside the detected object is just
+    background -- the tray bbox *is* the tray, and every tray is the same physical size, so
+    differences in its detected pixel size only reflect how close the photo was taken.
+    Rescaling to a shared size (rather than cropping into it) turns that pixel-size difference
+    into a genuine common scale without discarding any of the tray. The target is the median
+    detected size across the batch: a single far-off outlier doesn't drag every other image's
+    resolution down, and only images far from the median need much up/down-sampling. Only bbox
+    tuples are read here, not pixel data; the actual resize happens lazily per image when its
+    crop is loaded.
+
+    A crop whose own aspect ratio deviates from the target's by more than
+    max_aspect_ratio_deviation, or whose native size is more than max_scale_factor away from
+    the target size, is left unnormalized (resize_to stays None, so it keeps its native crop)
+    instead of being stretched/squashed or resampled to match -- this guards against a
+    wrongly-detected or fundamentally different (e.g. non-tray) image getting visibly distorted,
+    and against a crop so far from the batch's scale that up/down-sampling it would meaningfully
+    degrade detail, at the cost of that one image not sharing the batch's scale.
+
+    Args:
+        cuttings (list[CuttingsSegmentResult]): Per-image tray detection results to derive
+            resize_to from. Left untouched; the returned list holds the updated copies.
+        max_aspect_ratio_deviation (float): Maximum relative deviation between a crop's own
+            width/height ratio and the batch target's before it's left unnormalized instead
+            of stretched to match.
+        max_scale_factor (float): Maximum factor (in either direction) by which a crop's own
+            size may differ from the batch target before it's left unnormalized instead of
+            being up/down-sampled to match, e.g. 2.0 allows up to 2x upsampling or 2x
+            downsampling.
+
+    Returns:
+        list[CuttingsSegmentResult]: A new list of copies, each with resize_to set to the
+        shared target size, or left as-is when its aspect ratio or scale deviates too much.
+    """
+    if not cuttings:
+        return []
+
+    widths = sorted(c.bbox[2] - c.bbox[0] for c in cuttings)
+    heights = sorted(c.bbox[3] - c.bbox[1] for c in cuttings)
+    target_w = round(widths[len(widths) // 2])
+    target_h = round(heights[len(heights) // 2])
+    target_ratio = target_w / target_h
+
+    normalized = []
+    for c in cuttings:
+        width = c.bbox[2] - c.bbox[0]
+        height = c.bbox[3] - c.bbox[1]
+        ratio = width / height
+        if abs(ratio - target_ratio) / target_ratio > max_aspect_ratio_deviation:
+            logger.warning(
+                "Tray crop aspect ratio %.2f deviates from batch target %.2f by more than %.0f%%; "
+                "leaving it at its native size instead of stretching it to match",
+                ratio,
+                target_ratio,
+                max_aspect_ratio_deviation * 100,
+            )
+            normalized.append(c)
+            continue
+
+        scale_factor = target_w / width  # ~= target_h / height, since the aspect ratio matches above
+        if max(scale_factor, 1 / scale_factor) > max_scale_factor:
+            logger.warning(
+                "Tray crop size would need to be scaled by %.2fx to match the batch target; "
+                "leaving it at its native size instead of resampling it that far",
+                scale_factor,
+            )
+            normalized.append(c)
+            continue
+
+        normalized.append(dataclasses.replace(c, resize_to=(target_w, target_h)))
+    return normalized
+
+
 def segment_cuttings(
     imgs_metadata: list[ImageMetadataCuttings],
     config: SegmentationConfig | None = None,
@@ -227,25 +307,41 @@ def segment_cuttings(
             imgs_metadata
         )
 
-    detections: list[ImageMetadataProcessedCuttings] = []
+    segmented: list[tuple[ImageMetadataCuttings, CuttingsSegmentResult]] = []
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting cuttings images", mininterval=1.0):
         try:
-            # segmentation: reuse the shared group detection for this image's shape, if any
+            # reuse the shared group detection for this image's shape, if any
             shared_paper = paper_by_shape.get(img_metadata.shape)
             cuttings = shared_paper if shared_paper is not None else segmenter(img_metadata, config.cuttings)
-            detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings, preload=cache)
-            detections.append(detection)
-
-            # tracking
-            if with_mlflow and debug:
-                log_image_metadata_processed_cuttings_mlflow(
-                    result=detection,
-                    filename=f"{img_metadata.image_path.stem}",
-                    subfolder="debug",
-                )
-
+            segmented.append((img_metadata, cuttings))
         except (ValueError, OSError, SegmentationError) as e:
             logger.warning("Skipping %s: %s", img_metadata.image_path.name, e)
+
+    # tray is a fixed physical size, so normalize its pixel scale across the batch before
+    # building/preloading the cropped images; pebble/black_circle have no such reference
+    # object, so their crops are left at their native detected size
+    if cut_type == "tray":
+        normalized_cuttings = _normalize_tray_scale(
+            [cuttings for _, cuttings in segmented],
+            max_aspect_ratio_deviation=config.cuttings.tray.max_aspect_ratio_deviation,
+            max_scale_factor=config.cuttings.tray.max_scale_factor,
+        )
+        segmented = [
+            (img_metadata, cuttings)
+            for (img_metadata, _), cuttings in zip(segmented, normalized_cuttings, strict=True)
+        ]
+
+    detections: list[ImageMetadataProcessedCuttings] = []
+    for img_metadata, cuttings in segmented:
+        detection = ImageMetadataProcessedCuttings.from_metadata(img_metadata, cuttings=cuttings, preload=cache)
+        detections.append(detection)
+
+        if with_mlflow and debug:
+            log_image_metadata_processed_cuttings_mlflow(
+                result=detection,
+                filename=f"{img_metadata.image_path.stem}",
+                subfolder="debug",
+            )
 
     if with_mlflow:
         log_cuttings_segmentation_results_with_mlflow(detections, time=timer() - t_start)

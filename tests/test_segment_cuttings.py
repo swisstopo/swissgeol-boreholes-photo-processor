@@ -9,9 +9,15 @@ import pytest
 from PIL import Image, ImageDraw
 
 from src.config import SegmentationConfig
-from src.models import ApproachType, ImageMetadataCuttings, PaperDetectionStatus
+from src.models import ApproachType, CuttingsSegmentResult, ImageMetadataCuttings, PaperDetectionStatus
 from src.segment.config import SegmentationCuttingsConfig, SegmentationCuttingsPebbleGroupConfig
-from src.segment.segment_cuttings import segment_black_circle, segment_cuttings, segment_pebble, segment_tray
+from src.segment.segment_cuttings import (
+    _normalize_tray_scale,
+    segment_black_circle,
+    segment_cuttings,
+    segment_pebble,
+    segment_tray,
+)
 from src.segment.utils.cuttings import ProcessPebblePaperGroupByShape, resolve_paper_crop
 
 
@@ -328,3 +334,96 @@ def test_segment_cuttings_pebble_falls_back_to_per_image_below_n_min_group(make_
     for detection in detections:
         assert detection.cuttings is not None
         assert detection.cuttings.approach == ApproachType.SINGLE
+
+
+def test_normalize_tray_scale_sets_median_size_without_touching_bbox():
+    """Every result gets resize_to set to the batch's median width/height; bbox itself is untouched."""
+    small = CuttingsSegmentResult(bbox=(0, 0, 100, 100))
+    mid = CuttingsSegmentResult(bbox=(0, 0, 200, 200))
+    big = CuttingsSegmentResult(bbox=(0, 0, 300, 300))
+
+    normalized = _normalize_tray_scale([small, mid, big])
+
+    assert [c.bbox for c in normalized] == [(0, 0, 100, 100), (0, 0, 200, 200), (0, 0, 300, 300)]
+    assert all(c.resize_to == (200, 200) for c in normalized)
+    assert small.resize_to is None
+    assert mid.resize_to is None
+    assert big.resize_to is None
+
+
+def test_normalize_tray_scale_handles_empty_list():
+    """An empty batch is a no-op, not a crash."""
+    assert _normalize_tray_scale([]) == []
+
+
+def test_normalize_tray_scale_leaves_aspect_ratio_outlier_unnormalized():
+    """A crop whose aspect ratio is far off the batch target is left at its native size, not stretched."""
+    normal_a = CuttingsSegmentResult(bbox=(0, 0, 200, 100))  # 2:1, matches the batch target ratio
+    normal_b = CuttingsSegmentResult(bbox=(0, 0, 220, 110))  # 2:1, matches the batch target ratio
+    outlier = CuttingsSegmentResult(bbox=(0, 0, 100, 300))  # 1:3, e.g. a mis-detected/non-tray image
+
+    normalized_a, normalized_b, normalized_outlier = _normalize_tray_scale(
+        [normal_a, normal_b, outlier], max_aspect_ratio_deviation=0.2
+    )
+
+    assert normalized_a.resize_to is not None
+    assert normalized_b.resize_to is not None
+    assert normalized_a.resize_to == normalized_b.resize_to
+    assert normalized_outlier.resize_to is None
+    assert normalized_outlier is outlier
+
+
+def test_normalize_tray_scale_leaves_extreme_scale_outlier_unnormalized():
+    """A crop whose native size is far from the batch target is left unresampled, not up/down-sampled."""
+    normal_a = CuttingsSegmentResult(bbox=(0, 0, 200, 100))
+    normal_b = CuttingsSegmentResult(bbox=(0, 0, 220, 110))
+    tiny = CuttingsSegmentResult(bbox=(0, 0, 20, 10))  # same 2:1 ratio, but 10x smaller than the target
+
+    normalized_a, normalized_b, normalized_tiny = _normalize_tray_scale(
+        [normal_a, normal_b, tiny], max_scale_factor=2.0
+    )
+
+    assert normalized_a.resize_to is not None
+    assert normalized_b.resize_to is not None
+    assert normalized_tiny.resize_to is None
+    assert normalized_tiny is tiny
+
+
+def test_segment_cuttings_normalizes_tray_scale_across_batch(tmp_path):
+    """Two differently-sized detected tray piles end up with the same resize_to (the batch median)."""
+    small_pile = (150, 150, 250, 250)  # 100x100
+    big_pile = (110, 110, 290, 290)  # 180x180, within the default max_scale_factor of the small pile
+    small = _make_textured_metadata(tmp_path, 1.0, size=(400, 400), patches=[small_pile])
+    big = _make_textured_metadata(tmp_path, 2.0, size=(400, 400), patches=[big_pile])
+
+    detections = segment_cuttings(
+        [small, big],
+        config=SegmentationConfig(cuttings=SegmentationCuttingsConfig(downscale_factor=1.0)),
+        cut_type="tray",
+    )
+
+    assert detections[0].cuttings is not None
+    assert detections[1].cuttings is not None
+    assert detections[0].cuttings.resize_to is not None
+    assert detections[0].cuttings.resize_to == detections[1].cuttings.resize_to
+
+
+def test_segment_cuttings_leaves_black_circle_crops_unnormalized(make_metadata):
+    """black_circle has no fixed-size reference object, so crops keep their native detected size."""
+    small = make_metadata(1.0, lambda draw: draw.ellipse((50, 50, 150, 150), fill=(200, 200, 200)))  # r=50
+    big = make_metadata(2.0, lambda draw: draw.ellipse((20, 20, 280, 280), fill=(200, 200, 200)))  # r=130
+
+    detections = segment_cuttings(
+        [small, big],
+        config=SegmentationConfig(cuttings=SegmentationCuttingsConfig(downscale_factor=1.0)),
+        cut_type="black_circle",
+    )
+
+    def size(bbox: tuple[float, float, float, float]) -> tuple[int, int]:
+        return round(bbox[2] - bbox[0]), round(bbox[3] - bbox[1])
+
+    assert detections[0].cuttings is not None
+    assert detections[1].cuttings is not None
+    assert detections[0].cuttings.resize_to is None
+    assert detections[1].cuttings.resize_to is None
+    assert size(detections[0].cuttings.bbox) != size(detections[1].cuttings.bbox)
