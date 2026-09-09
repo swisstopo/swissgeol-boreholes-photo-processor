@@ -445,7 +445,11 @@ def segment_cuttings(
             for i, (img_metadata, cuttings) in enumerate(segmented)
             if not _is_full_frame_bbox(cuttings.bbox, img_metadata.shape)
         ]
-        normalized_cuttings = _normalize_tray_scale([segmented[i][1] for i in real_tray_indices])
+        normalized_cuttings = _normalize_tray_scale(
+            [segmented[i][1] for i in real_tray_indices],
+            max_aspect_ratio_deviation=config.cuttings.tray.max_aspect_ratio_deviation,
+            max_scale_factor=config.cuttings.tray.max_scale_factor,
+        )
         for i, cuttings in zip(real_tray_indices, normalized_cuttings, strict=True):
             segmented[i] = (segmented[i][0], cuttings)
 
