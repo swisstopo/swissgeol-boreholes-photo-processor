@@ -271,3 +271,23 @@ uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-d
 ```
 
 - same flags as for the cores
+
+### Batch scripts
+
+To (re)generate output for every borehole at once — e.g. at the end of the project —
+use the scripts in [scripts/](scripts):
+
+```bash
+scripts/run_all_cores.sh <input-root> <output-root> [--config path/to/config.yaml] [extra flags...]
+scripts/run_all_cuttings.sh <input-root> <output-root> [--config path/to/config.yaml] [extra flags...]
+```
+
+- `<input-root>`: a folder containing one subfolder per borehole (raw `.tif` photos for
+  cores, raw cuttings photos for cuttings)
+- `<output-root>`: output is written to `<output-root>/<borehole>/`
+- `--config`: optional, defaults to `config.yaml`
+- any other flags (`--mlflow`, `--debug`, `--cache`) are forwarded as-is to every per-borehole run
+
+`run_all_cuttings.sh` hardcodes each borehole's `--cut-type` in a `cut_type_for()` lookup
+at the top of the script — add new boreholes there as they come in. A borehole not listed
+is skipped with a warning rather than silently defaulting to `full`.
