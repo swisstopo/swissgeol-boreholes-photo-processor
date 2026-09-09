@@ -274,20 +274,28 @@ uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-d
 
 ### Batch scripts
 
-To (re)generate output for every borehole at once — e.g. at the end of the project —
-use the scripts in [scripts/](scripts):
+To (re)generate output for every borehole at once — e.g. at the end of the project:
+
+**Cores** — every borehole uses the same command, so a loop is enough, no script needed:
 
 ```bash
-scripts/run_all_cores.sh <input-root> <output-root> [--config path/to/config.yaml] [extra flags...]
-scripts/run_all_cuttings.sh <input-root> <output-root> [--config path/to/config.yaml] [extra flags...]
+for borehole_dir in <input-root>/*/; do
+  borehole=$(basename "$borehole_dir")
+  uv run boreholes-photo-processor --input "$borehole_dir" --output "<output-root>/$borehole"
+done
 ```
 
-- `<input-root>`: a folder containing one subfolder per borehole (raw `.tif` photos for
-  cores, raw cuttings photos for cuttings)
-- `<output-root>`: output is written to `<output-root>/<borehole>/`
-- `--config`: optional, defaults to `config.yaml`
-- any other flags (`--mlflow`, `--debug`, `--cache`) are forwarded as-is to every per-borehole run
+**Cuttings** — each borehole needs its own `--cut-type`, so use
+[scripts/run_all_cuttings.sh](scripts/run_all_cuttings.sh):
 
-`run_all_cuttings.sh` hardcodes each borehole's `--cut-type` in a `cut_type_for()` lookup
-at the top of the script — add new boreholes there as they come in. A borehole not listed
-is skipped with a warning rather than silently defaulting to `full`.
+```bash
+scripts/run_all_cuttings.sh <input-root> <output-root> [extra flags...]
+```
+
+- `<input-root>/<borehole>` must contain that borehole's raw cuttings photos
+- output is written to `<output-root>/<borehole>/`
+- any other flags (`--mlflow`, `--debug`, `--cache`) are forwarded as-is to every run
+
+The script is a plain list of commands, one per borehole, not a generic tool — each
+borehole's `--cut-type` is hardcoded to match its physical setup. Add a line for each new
+borehole as it comes in.
