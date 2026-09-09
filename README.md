@@ -259,8 +259,13 @@ uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-d
 ```
 
 - same flags as for the cores
-- `--cut-type`: Cuttings segmentation method to use — `black_circle` (default, cuttings inside
-  a black circular tray), `pebble` (cuttings next to a printed reference paper sheet) or `tray` (cuttings inside a metal tray) . Must match the physical layout used at that borehole; there's no auto-detection.
+- `--cut-type`: Cuttings segmentation method to use — `full` (default, no cropping, the entire
+  image is used), `black_circle` (cuttings inside a black circular tray), `pebble` (cuttings next
+  to a printed reference paper sheet) or `tray` (cuttings inside a metal tray). Must match the
+  physical layout used at that borehole; there's no auto-detection.
+- `--dedup-keep`: `first` or `last` — which image to keep (by filename) when multiple cuttings
+  images share the same depth. Overrides `segmentation.cuttings.dedup_keep` from `--config` for
+  this run; defaults to that config value when omitted.
 
 **With MLflow tracking**
 
@@ -269,3 +274,31 @@ uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-d
 ```
 
 - same flags as for the cores
+
+### Batch scripts
+
+To (re)generate output for every borehole at once — e.g. at the end of the project:
+
+**Cores** — every borehole uses the same command, so a loop is enough, no script needed:
+
+```bash
+for borehole_dir in <input-root>/*/; do
+  borehole=$(basename "$borehole_dir")
+  uv run boreholes-photo-processor --input "$borehole_dir" --output "<output-root>/$borehole"
+done
+```
+
+**Cuttings** — each borehole needs its own `--cut-type`, so use
+[scripts/run_all_cuttings.sh](scripts/run_all_cuttings.sh):
+
+```bash
+scripts/run_all_cuttings.sh <input-root> <output-root> [extra flags...]
+```
+
+- `<input-root>/<borehole>` must contain that borehole's raw cuttings photos
+- output is written to `<output-root>/<borehole>/`
+- any other flags (`--mlflow`, `--debug`, `--cache`) are forwarded as-is to every run
+
+The script is a plain list of commands, one per borehole, not a generic tool — each
+borehole's `--cut-type` (and, where needed, `--dedup-keep`) is hardcoded to match its
+physical setup / data. Add a line for each new borehole as it comes in.
