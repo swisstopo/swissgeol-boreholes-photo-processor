@@ -160,8 +160,8 @@ aggregation and the per-image fallback pass run in parallel worker pools sized b
    image files (`.jpg`/`.jpeg`/`.bmp`/`.tif`/`.tiff`), parse a single point depth per
    filename into `ImageMetadataCuttings`, exclude sample-vial and "vue-generale" overview
    photos, and drop
-   duplicate-depth images (keeping the first or last by filename, per the `dedup_keep`
-   config setting).
+   duplicate-depth images (keeping the first or last by filename, selected via
+   `--dedup-keep`).
 2. **Segment** (`src/segment/segment_cuttings.py`) — crop the cuttings region using one of
    two interchangeable methods, selected via `--cut-type`, producing
    `ImageMetadataProcessedCuttings`.
