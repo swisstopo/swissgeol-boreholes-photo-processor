@@ -3,6 +3,7 @@
 import datetime
 import logging
 from pathlib import Path
+from typing import Literal
 
 import click
 
@@ -20,6 +21,7 @@ def _run(
     config: Path,
     cache: bool,
     cut_type: str = DEFAULT_CUT_TYPE,
+    dedup_keep: Literal["first", "last"] | None = None,
 ) -> None:
     """Run the given pipeline runner over an already-validated set of CLI options.
 
@@ -32,6 +34,8 @@ def _run(
         config (Path): Path to the YAML config file for segmentation and stitching parameters.
         cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
         cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
+        dedup_keep (str | None): If set, overrides config's segmentation.cuttings.dedup_keep for
+            this run. Ignored by the cores pipeline.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -47,6 +51,8 @@ def _run(
     logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
 
     pipeline_config = PipelineConfig.from_yaml(config)
+    if dedup_keep is not None:
+        pipeline_config.segmentation.cuttings.dedup_keep = dedup_keep
 
     has_subdirs = any(p.is_dir() for p in input_dir.iterdir())
     run_fn = runner.batch_run if has_subdirs else runner.run
@@ -115,6 +121,13 @@ def cores_command(input_dir: Path, output_dir: Path, mlflow: bool, debug: bool, 
     show_default=True,
     help="Cuttings segmentation method to use.",
 )
+@click.option(
+    "--dedup-keep",
+    "dedup_keep",
+    type=click.Choice(["first", "last"]),
+    default=None,
+    help="Which image to keep when multiple share the same depth. Defaults to config's value.",
+)
 def cuttings_command(
     input_dir: Path,
     output_dir: Path,
@@ -123,9 +136,20 @@ def cuttings_command(
     config: Path,
     cache: bool,
     cut_type: str,
+    dedup_keep: Literal["first", "last"] | None,
 ) -> None:
     """Run the cuttings pipeline."""
-    _run(CuttingsPipelineRunner(), input_dir, output_dir, mlflow, debug, config, cache, cut_type=cut_type)
+    _run(
+        CuttingsPipelineRunner(),
+        input_dir,
+        output_dir,
+        mlflow,
+        debug,
+        config,
+        cache,
+        cut_type=cut_type,
+        dedup_keep=dedup_keep,
+    )
 
 
 def main_cores() -> None:

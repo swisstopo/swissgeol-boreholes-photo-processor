@@ -263,6 +263,9 @@ uv run boreholes-photo-processor-cuttings --input <input-dir> --output <output-d
   image is used), `black_circle` (cuttings inside a black circular tray), `pebble` (cuttings next
   to a printed reference paper sheet) or `tray` (cuttings inside a metal tray). Must match the
   physical layout used at that borehole; there's no auto-detection.
+- `--dedup-keep`: `first` or `last` — which image to keep (by filename) when multiple cuttings
+  images share the same depth. Overrides `segmentation.cuttings.dedup_keep` from `--config` for
+  this run; defaults to that config value when omitted.
 
 **With MLflow tracking**
 
@@ -297,5 +300,5 @@ scripts/run_all_cuttings.sh <input-root> <output-root> [extra flags...]
 - any other flags (`--mlflow`, `--debug`, `--cache`) are forwarded as-is to every run
 
 The script is a plain list of commands, one per borehole, not a generic tool — each
-borehole's `--cut-type` is hardcoded to match its physical setup. Add a line for each new
-borehole as it comes in.
+borehole's `--cut-type` (and, where needed, `--dedup-keep`) is hardcoded to match its
+physical setup / data. Add a line for each new borehole as it comes in.

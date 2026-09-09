@@ -50,7 +50,6 @@ segmentation:
 
   cuttings:
     downscale_factor: 0.25 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
-    dedup_keep: first # which image to keep when multiple share the same depth: "first" or "last" (by filename)
     min_crop_px: 20 # a real cuttings region should never be this thin; backstop against any segmenter's bugs
     crop_size_cv_warn_threshold: 0.3 # coefficient of variation above this is unusually inconsistent
 
