@@ -18,9 +18,9 @@ from src.segment.config import (
 from src.segment.segment_cuttings import (
     _guard_degenerate_bbox,
     _is_full_frame_bbox,
-    _log_crop_size_consistency,
-    _log_fallback_rate,
     _normalize_tray_scale,
+    log_crop_size_consistency,
+    log_fallback_rate,
     segment_black_circle,
     segment_cuttings,
     segment_full,
@@ -512,7 +512,7 @@ def test_log_fallback_rate_reports_percentage(make_metadata, caplog):
     ]
 
     with caplog.at_level("INFO"):
-        _log_fallback_rate("black_circle", segmented)
+        log_fallback_rate("black_circle", segmented)
 
     assert "1/2 images (50%) fell back" in caplog.text
 
@@ -523,7 +523,7 @@ def test_log_fallback_rate_skips_full_cut_type(make_metadata, caplog):
     segmented = [(metadata, CuttingsSegmentResult(bbox=(0, 0, 400, 300)))]
 
     with caplog.at_level("INFO"):
-        _log_fallback_rate("full", segmented)
+        log_fallback_rate("full", segmented)
 
     assert caplog.text == ""
 
@@ -536,7 +536,7 @@ def test_log_fallback_rate_reports_pebble_status_counts(make_metadata, caplog):
     ]
 
     with caplog.at_level("INFO"):
-        _log_fallback_rate("pebble", segmented)
+        log_fallback_rate("pebble", segmented)
 
     assert "no_candidate" in caplog.text
 
@@ -549,7 +549,7 @@ def test_log_crop_size_consistency_warns_on_high_variance(make_metadata, caplog)
     ]
 
     with caplog.at_level("INFO"):
-        _log_crop_size_consistency("tray", segmented, cv_warn_threshold=0.3)
+        log_crop_size_consistency("tray", segmented, cv_warn_threshold=0.3)
 
     assert any(r.levelname == "WARNING" for r in caplog.records)
 
@@ -562,7 +562,7 @@ def test_log_crop_size_consistency_quiet_when_consistent(make_metadata, caplog):
     ]
 
     with caplog.at_level("INFO"):
-        _log_crop_size_consistency("tray", segmented, cv_warn_threshold=0.3)
+        log_crop_size_consistency("tray", segmented, cv_warn_threshold=0.3)
 
     assert not any(r.levelname == "WARNING" for r in caplog.records)
 
@@ -573,7 +573,7 @@ def test_log_crop_size_consistency_skips_black_circle_and_tray_unrelated_types(m
     segmented = [(metadata, CuttingsSegmentResult(bbox=(0, 0, 10, 10)))]
 
     with caplog.at_level("INFO"):
-        _log_crop_size_consistency("pebble", segmented, cv_warn_threshold=0.3)
+        log_crop_size_consistency("pebble", segmented, cv_warn_threshold=0.3)
 
     assert caplog.text == ""
 

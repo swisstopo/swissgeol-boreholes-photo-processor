@@ -241,7 +241,7 @@ def _guard_degenerate_bbox(
     return replace(cuttings, bbox=(0, 0, w, h))
 
 
-def _log_fallback_rate(cut_type: str, segmented: list[tuple[ImageMetadataCuttings, CuttingsSegmentResult]]) -> None:
+def log_fallback_rate(cut_type: str, segmented: list[tuple[ImageMetadataCuttings, CuttingsSegmentResult]]) -> None:
     """Log how often this batch fell back to an uncropped result -- visible every run, not just under MLflow.
 
     Not a pass/fail check: there's no reliable way to tell a wrong --cut-type from a merely
@@ -263,7 +263,7 @@ def _log_fallback_rate(cut_type: str, segmented: list[tuple[ImageMetadataCutting
         logger.info("cut_type=pebble paper detection status counts: %s", counts)
 
 
-def _log_crop_size_consistency(
+def log_crop_size_consistency(
     cut_type: str,
     segmented: list[tuple[ImageMetadataCuttings, CuttingsSegmentResult]],
     cv_warn_threshold: float,
@@ -453,8 +453,8 @@ def segment_cuttings(
         for i, cuttings in zip(real_tray_indices, normalized_cuttings, strict=True):
             segmented[i] = (segmented[i][0], cuttings)
 
-    _log_fallback_rate(cut_type, segmented)
-    _log_crop_size_consistency(cut_type, segmented, config.cuttings.crop_size_cv_warn_threshold)
+    log_fallback_rate(cut_type, segmented)
+    log_crop_size_consistency(cut_type, segmented, config.cuttings.crop_size_cv_warn_threshold)
 
     detections: list[ImageMetadataProcessedCuttings] = []
     for img_metadata, cuttings in segmented:
