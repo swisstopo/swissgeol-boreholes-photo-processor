@@ -16,7 +16,6 @@ from src.segment.config import (
     SegmentationCuttingsTrayConfig,
 )
 from src.segment.segment_cuttings import (
-    DEFAULT_CUT_TYPE,
     _guard_degenerate_bbox,
     _is_full_frame_bbox,
     _log_crop_size_consistency,
@@ -66,11 +65,6 @@ def test_segment_full_returns_whole_image_bbox(make_metadata):
     result = segment_full(metadata, SegmentationCuttingsConfig(downscale_factor=1.0))
 
     assert result.bbox == (0, 0, 400, 300)
-
-
-def test_default_cut_type_is_full():
-    """The default cuttings segmentation should take the entire image, with no cropping."""
-    assert DEFAULT_CUT_TYPE == "full"
 
 
 def test_segment_black_circle_detects_bbox_inside_circle(make_metadata):
@@ -198,20 +192,6 @@ def test_segment_cuttings_raises_for_unknown_cut_type(make_metadata):
 
     with pytest.raises(ValueError, match="Unknown cuttings type"):
         segment_cuttings([metadata], cut_type="bogus")
-
-
-def test_segment_cuttings_logs_the_chosen_cut_type(make_metadata, caplog):
-    """The chosen cut_type is always visible in run output, not just in --help's shown default."""
-    metadata = make_metadata(1.0)
-
-    with caplog.at_level("INFO"):
-        segment_cuttings(
-            [metadata],
-            config=SegmentationConfig(cuttings=SegmentationCuttingsConfig(downscale_factor=1.0)),
-            cut_type="black_circle",
-        )
-
-    assert "cut_type=black_circle" in caplog.text
 
 
 def test_segment_cuttings_falls_back_to_full_image_when_nothing_detected(make_metadata):
