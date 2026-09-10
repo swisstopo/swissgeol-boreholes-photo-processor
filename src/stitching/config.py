@@ -11,8 +11,10 @@ class CoreStitchingConfig:
     max_core_height: int = 10000  # cap on each core crop's resized height (pixels) and the canvas row height
     max_core_width: int = 1200  # cap on each individual core crop's resized width (pixels)
     core_area_width: int = 7200  # fixed width (pixels) available for cores between the two rulers, per output sheet
-    min_core_gap: int = 40  # minimum horizontal gap (pixels) enforced between adjacent cores; the actual gap
-    # is computed to fill core_area_width once the number of cores per sheet is decided
+    min_core_gap: int = 160  # minimum horizontal gap (pixels) enforced between adjacent cores, and the
+    # basis for how many cores fit per sheet; the actual gap is spread to fill core_area_width on
+    # every sheet except the last, which is instead packed at exactly this gap, left-aligned, with
+    # any leftover core_area_width left as black background
     padding_horizontal: int = 150  # left/right border width in pixels
     padding_vertical: int = 200  # top/bottom border height in pixels
     ruler_width: int = 300  # width in pixels of each of the two depth rulers (left/right of the cores)

@@ -387,6 +387,7 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
             shared_borehole_id=batch.shared_borehole_id,
             fallback_scale=batch.fallback_scale,
             config=config,
+            is_last=batch.is_last,
         )
 
 

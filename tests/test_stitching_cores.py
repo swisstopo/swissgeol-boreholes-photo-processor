@@ -1,7 +1,5 @@
 """Tests for the stitching module."""
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 from PIL import Image
@@ -58,6 +56,7 @@ def test_padding_pixels_are_black(make_processed):
         batches[0].shared_borehole_id,
         batches[0].fallback_scale,
         config,
+        is_last=batches[0].is_last,
     )
     assert len(batches) == 1
     assert img.getpixel((0, 0)) == (0, 0, 0)  # top-left corner
@@ -98,6 +97,7 @@ def test_ruler_stops_before_a_core_longer_than_its_rounded_display_length(make_p
             batches[0].shared_borehole_id,
             batches[0].fallback_scale,
             config,
+            is_last=batches[0].is_last,
         )
     )
     ys_red, xs_red = np.nonzero((img == RED).all(axis=-1))
@@ -124,6 +124,7 @@ def test_cores_appear_in_order_left_to_right(make_processed):
             batches[0].shared_borehole_id,
             batches[0].fallback_scale,
             config,
+            is_last=batches[0].is_last,
         )
     )
 
@@ -175,6 +176,7 @@ def test_outlier_core_width_matches_the_reference_core(make_processed):
             batches[0].shared_borehole_id,
             batches[0].fallback_scale,
             config,
+            is_last=batches[0].is_last,
         )
     )
 
@@ -191,10 +193,7 @@ def test_outlier_core_width_matches_the_reference_core(make_processed):
 
 def test_min_core_gap_limits_cores_per_page(make_processed):
     """core_area_width and min_core_gap decide how many cores fit per page, not a fixed count."""
-    # With the default scale settings, each of these identical cores renders at a predicted
-    # width of 40px: a bbox height of 5000px at px_per_unit=100 gives a true ruler span of 50
-    # units, and default max_core_height=10000 gives a scale of 2, applied to the (post-rotation)
-    # 20x5000 core's 20px width, i.e. width 20 * 2 = 40.
+    # Each identical core renders at a predicted width of 40px at these default settings.
     cores = [make_processed(float(i), float(i + 1), size=(5000, 20)) for i in range(7)]
     # 6 cores * 40px + 5 gaps * 40px == 440, so a 7th core has to overflow onto a second page.
     config = StitchingConfig(core=CoreStitchingConfig(core_area_width=440, min_core_gap=40))
@@ -203,16 +202,19 @@ def test_min_core_gap_limits_cores_per_page(make_processed):
     assert len(batches) == 2
     assert len(batches[0].cores) == 6
     assert len(batches[1].cores) == 1
+    assert batches[0].is_last is False
+    assert batches[1].is_last is True
 
 
-def test_actual_gap_fills_leftover_core_area_width(make_processed):
-    """The real gap between cores spreads core_area_width's leftover evenly, at least min_core_gap."""
-    # px_per_unit=1 keeps the core length (and thus the rounded-to-50cm ruler length) an exact
-    # multiple of 50, so rounding doesn't perturb the expected scale below.
+def test_last_page_packs_tight_and_left_aligned(make_processed):
+    """The last page's cores are packed at exactly min_core_gap, leaving core_area_width's leftover black."""
     red = make_processed(0.0, 1.0, color=RED, px_per_unit=1)
     green = make_processed(1.0, 2.0, color=GREEN, px_per_unit=1)
     config = StitchingConfig(core=CoreStitchingConfig(max_core_height=1000, core_area_width=1000, min_core_gap=10))
     batches = stitching_cores([red, green], config)
+    assert len(batches) == 1
+    assert batches[0].is_last is True
+
     img = np.array(
         stitching_batch_cores(
             batches[0].cores,
@@ -220,57 +222,54 @@ def test_actual_gap_fills_leftover_core_area_width(make_processed):
             batches[0].shared_borehole_id,
             batches[0].fallback_scale,
             config,
+            is_last=batches[0].is_last,
         )
     )
 
-    assert len(batches) == 1
     ys_red, xs_red = np.nonzero((img == RED).all(axis=-1))
     ys_green, xs_green = np.nonzero((img == GREEN).all(axis=-1))
 
-    # Both cores render at 40px wide (same scale computation as test_min_core_gap_limits_cores_per_page).
     core_width = 40
     assert xs_red.max() - xs_red.min() + 1 == core_width
     assert xs_green.max() - xs_green.min() + 1 == core_width
 
+    # Gap is exactly min_core_gap, not stretched to fill core_area_width.
     gap = xs_green.min() - xs_red.max() - 1
-    assert gap == config.core.core_area_width - 2 * core_width
-    assert gap >= config.core.min_core_gap
+    assert gap == config.core.min_core_gap
+
+    # Leftover core_area_width stays black instead of being spread between the cores.
+    right_of_cores = img[ys_green.min() : ys_green.max(), xs_green.max() + 1 : xs_green.max() + 1 + 100]
+    assert (right_of_cores == BLACK).all()
 
 
-OUTPUT_DIR = Path(__file__).parent / "output" / "stitching"
-
-_CORE_COLORS = [
-    (220, 50, 50),  # red
-    (220, 140, 50),  # orange
-    (200, 200, 50),  # yellow
-    (50, 180, 50),  # green
-    (50, 140, 220),  # blue
-    (140, 50, 220),  # purple
-    (180, 180, 180),  # grey  — overflow core on second image
-]
-
-
-# @pytest.mark.skip(reason="visual inspection only — run manually")
-def test_save_two_output_images(make_processed):
-    """Creates two output images with 6 cores in the first and 1 core in the second, for visual inspection."""
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    cores = [make_processed(float(i), float(i + 1), color=_CORE_COLORS[i]) for i in range(7)]
-    # See test_min_core_gap_limits_cores_per_page for why this fits exactly 6 cores per page.
-    config = StitchingConfig(core=CoreStitchingConfig(core_area_width=440, min_core_gap=40))
+def test_non_last_page_spreads_cores_to_fill_core_area_width(make_processed):
+    """A full (non-last) page still spreads its leftover width evenly between cores, flush against both rulers."""
+    # With 40px-per-core and core_area_width=300, min_core_gap=40, 4 cores fit (4*40+3*40==280)
+    # but a 5th wouldn't (+80==360>300), leaving this non-last page with leftover width to spread.
+    colors = [RED, GREEN, BLUE, (200, 200, 0)]
+    cores = [make_processed(float(i), float(i + 1), size=(5000, 20), color=colors[i]) for i in range(4)]
+    cores += [make_processed(float(i), float(i + 1), size=(5000, 20)) for i in range(4, 7)]
+    config = StitchingConfig(core=CoreStitchingConfig(core_area_width=300, min_core_gap=40))
     batches = stitching_cores(cores, config)
 
-    for idx, img in enumerate(
-        [
-            stitching_batch_cores(
-                batch.cores,
-                batch.shared_ruler_steps,
-                batch.shared_borehole_id,
-                batch.fallback_scale,
-                config,
-            )
-            for batch in batches
-        ]
-    ):
-        out_path = OUTPUT_DIR / f"stitched_{idx + 1}.png"
-        img.save(out_path)
-    print(f"\nOutput saved to: {OUTPUT_DIR.resolve()}")
+    assert len(batches) == 2
+    assert len(batches[0].cores) == 4
+    assert batches[0].is_last is False
+
+    img = np.array(
+        stitching_batch_cores(
+            batches[0].cores,
+            batches[0].shared_ruler_steps,
+            batches[0].shared_borehole_id,
+            batches[0].fallback_scale,
+            config,
+            is_last=batches[0].is_last,
+        )
+    )
+
+    xs_by_color = [np.nonzero((img == color).all(axis=-1))[1] for color in colors]
+    gaps = [xs_by_color[i + 1].min() - xs_by_color[i].max() - 1 for i in range(3)]
+
+    # Gap is spread wider than min_core_gap, and equal between every pair of cores.
+    assert all(gap > config.core.min_core_gap for gap in gaps)
+    assert len(set(gaps)) == 1

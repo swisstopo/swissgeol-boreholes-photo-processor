@@ -17,10 +17,7 @@ logger = logging.getLogger(__name__)
 def _rounded_ruler_display_steps(shared_ruler_steps: int) -> int:
     """Round a ruler span to the nearest 50cm, for a clean, consistent look when drawn.
 
-    This only affects how the ruler is drawn (its tick count/labels and the pixel height it's
-    drawn over); it does not change shared_ruler_steps itself, which remains the actual span
-    used to scale cores. A core longer than the rounded value will render past the ruler's
-    last labeled tick, rather than being rescaled to fit under it.
+    Only affects how the ruler is drawn; cores keep scaling to the true shared_ruler_steps.
     """
     return max(50, round(shared_ruler_steps / 50) * 50)
 
@@ -33,6 +30,7 @@ class StitchingBatchCores:
     shared_ruler_steps: int  # canvas-wide ruler span, shared across all batches
     shared_borehole_id: str  # borehole ID drawn in the label, shared across all batches
     fallback_scale: float  # px-per-unit fallback for cores with no detected ruler
+    is_last: bool  # whether this is the last (possibly underfull) batch of the whole run
 
 
 def stitching_batch_cores(
@@ -41,14 +39,15 @@ def stitching_batch_cores(
     shared_borehole_id: str,
     fallback_scale: float,
     config: StitchingConfig,
+    is_last: bool = False,
 ) -> Image.Image:
     """Stitch one batch (chunk) of core segments into a single output image.
 
-    Cores are resized to a shared pixel scale (derived from each core's ruler resolution,
-    or fallback_scale where no ruler was detected), pasted left to right with depth labels,
-    and flanked by a depth ruler on each side of the canvas. Cores are spaced evenly so their
-    combined width plus gaps exactly fills core_area_width; how many cores land in this batch
-    was already decided by stitching_cores() so that every gap is at least min_core_gap.
+    Cores are resized to a shared pixel scale (derived from each core's ruler resolution, or
+    fallback_scale where none was detected), pasted left to right with depth labels, and
+    flanked by a depth ruler on each side. A non-last batch is spread evenly to fill
+    core_area_width, flush against both rulers; the last batch is instead packed at a fixed
+    min_core_gap, left-aligned, since it may be genuinely underfull.
 
     The values are cores_height (H), core_area_width (A), and ruler_width (R),
     padding_horizontal (PH), and padding_vertical (PV).
@@ -71,12 +70,12 @@ def stitching_batch_cores(
     ----------------------------------------------------------------------------  v
 
     Args:
-        cores (list[ImageMetadataProcessedCores]): The list of processed image metadata objects to stitch together.
-        shared_ruler_steps (int): Number of major ruler ticks (depth units) spanned by the canvas height,
-            shared across all batches so rulers line up between output images.
-        shared_borehole_id (str): Borehole core ID drawn in the top-left label, shared across all batches.
-        fallback_scale (float): Pixels-per-unit used to resize cores whose ruler was not detected.
-        config (StitchingConfig): Tunable layout parameters (padding, font size, canvas sizing, etc.).
+        cores (list[ImageMetadataProcessedCores]): Cores to stitch together.
+        shared_ruler_steps (int): Major ruler ticks spanned by the canvas, shared across batches.
+        shared_borehole_id (str): Borehole ID drawn in the top-left label.
+        fallback_scale (float): Pixels-per-unit for cores whose ruler was not detected.
+        config (StitchingConfig): Tunable layout parameters.
+        is_last (bool): Whether this is the last batch of the whole run (see above).
 
     Returns:
         Image.Image: The stitched image for this batch of cores.
@@ -111,10 +110,14 @@ def stitching_batch_cores(
     canvas_height = 5 * core_config.padding_vertical + core_config.max_core_height
     canvas = Image.new("RGB", (canvas_width, canvas_height), color=(0, 0, 0))
 
-    # Drawing: spread the leftover width evenly between cores, which stitching_cores() already
-    # guaranteed is at least min_core_gap by limiting how many cores it assigned to this batch
-    v_core_width = sum(img.width for img in cores_img)
-    n_padding_horizontal = (core_area_width - v_core_width) / max(len(cores_img) - 1, 1)
+    if is_last:
+        # Possibly underfull: pack tightly left instead of spreading, leaving leftover black.
+        n_padding_horizontal = core_config.min_core_gap
+    else:
+        # As full as the greedy packing could make it: spread leftover width between cores.
+        v_core_width = sum(img.width for img in cores_img)
+        n_padding_horizontal = (core_area_width - v_core_width) / max(len(cores_img) - 1, 1)
+
     canvas = _draw_cores(
         canvas=canvas,
         cores=cores_img,
@@ -137,10 +140,7 @@ def stitching_batch_cores(
         font_size=core_config.font_size,
     )
 
-    # Round the ruler's displayed span to the nearest 50cm; scale its drawn pixel height to match,
-    # at the same px-per-unit density used for the cores above, so its ticks stay correctly
-    # positioned relative to them (a core longer than this rounded span simply extends past the
-    # ruler's last labeled tick, rather than the ruler being stretched to always cover it).
+    # Round the ruler's displayed span to the nearest 50cm and scale its pixel height to match.
     drawn_ruler_steps = _rounded_ruler_display_steps(shared_ruler_steps)
     drawn_ruler_height = round(core_config.max_core_height * drawn_ruler_steps / shared_ruler_steps)
 
@@ -175,14 +175,13 @@ def _predicted_core_width(
 ) -> int:
     """Estimate a core's rendered width after the resize in stitching_batch_cores(), from bbox metadata alone.
 
-    Mirrors the scale computed for _resize_images() there, so batches can be sized by actual
-    rendered width without loading any pixel data.
+    Mirrors the scale computed there, so batches can be sized without loading pixel data.
 
     Args:
         core (ImageMetadataProcessedCores): The core to estimate, with a detected bbox.
         shared_ruler_steps (int): Canvas-wide ruler span (see stitching_batch_cores()).
-        fallback_scale (float): Pixels-per-unit used for cores with no detected ruler.
-        core_config (CoreStitchingConfig): Tunable layout parameters (max dimensions, etc.).
+        fallback_scale (float): Pixels-per-unit for cores with no detected ruler.
+        core_config (CoreStitchingConfig): Tunable layout parameters.
 
     Returns:
         int: Predicted width in pixels of this core once resized for stitching.
@@ -208,7 +207,7 @@ def _chunk_cores_by_width(
         imgs (list[ImageMetadataProcessedCores]): Cores in display order.
         predicted_widths (list[int]): Predicted rendered width per core, same order as imgs.
         core_area_width (int): Fixed pixel budget for cores on one page.
-        min_core_gap (int): Minimum pixel gap to reserve between adjacent cores when packing.
+        min_core_gap (int): Minimum pixel gap between adjacent cores when packing.
 
     Returns:
         list[list[ImageMetadataProcessedCores]]: One list of cores per page.
@@ -237,10 +236,9 @@ def stitching_cores(
 ) -> list[StitchingBatchCores]:
     """Split cores into chunks and compute the canvas-wide values shared across all of them.
 
-    Cores are assigned to pages greedily by their predicted rendered width, so that each page's
-    cores plus at least min_core_gap between them fit within core_area_width. This decides how
-    many cores land on a page; the actual (larger-or-equal) gap is only computed once stitching
-    the page, from the cores' true resized widths (see stitching_batch_cores()).
+    Cores are assigned to pages greedily by predicted rendered width, so each page's cores plus
+    min_core_gap fit within core_area_width. Marks the last chunk via is_last (see
+    stitching_batch_cores() for how that changes its layout).
 
     Args:
         imgs (list[ImageMetadataProcessedCores]): The list of processed image metadata objects to stitch together.
@@ -249,14 +247,9 @@ def stitching_cores(
     Returns:
         list[StitchingBatchCores]: One batch per page of cores.
     """
-    # Get spans and resolution for all cores
+    # Both ruler and core need to be detected for scaling to work
     original = np.array(
-        [
-            (img.ruler.px_per_unit, (img.core.bbox[2] - img.core.bbox[0]))
-            for img in imgs
-            # Both ruler and core need to be detected for scaling to work
-            if img.ruler and img.core
-        ]
+        [(img.ruler.px_per_unit, (img.core.bbox[2] - img.core.bbox[0])) for img in imgs if img.ruler and img.core]
     ).T
 
     if original.size == 0:
@@ -264,11 +257,7 @@ def stitching_cores(
         return []
 
     original_scales, original_heights = original
-
-    # Set default resolution if missing
     fallback_scale = np.median(original_scales).item()
-
-    # Estimate ruler span over all cores
     canvas_ruler_steps = np.ceil(max(original_heights / original_scales)).astype(int).item()
 
     predicted_widths = [_predicted_core_width(img, canvas_ruler_steps, fallback_scale, config.core) for img in imgs]
@@ -280,6 +269,7 @@ def stitching_cores(
             shared_ruler_steps=canvas_ruler_steps,
             shared_borehole_id=imgs[0].borehole_id,
             fallback_scale=fallback_scale,
+            is_last=idx == len(chunks) - 1,
         )
-        for chunk in chunks
+        for idx, chunk in enumerate(chunks)
     ]
