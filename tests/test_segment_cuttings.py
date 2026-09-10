@@ -36,6 +36,7 @@ def make_metadata(tmp_path):
         depth: float,
         draw_fn: Callable[[ImageDraw.ImageDraw], None] = lambda draw: None,
         size: tuple[int, int] = (400, 300),
+        is_override: bool = False,
     ) -> ImageMetadataCuttings:
         """Creates an ImageMetadataCuttings pointing to a synthetic image built by draw_fn.
 
@@ -45,6 +46,7 @@ def make_metadata(tmp_path):
                 black background image (e.g. to add a circle or paper rectangle). Defaults
                 to a no-op, producing a flat black image.
             size (tuple[int, int]): Size (width, height) of the synthetic image. Defaults to (400, 300).
+            is_override (bool): Whether this represents a manually cropped override image.
 
         Returns:
             ImageMetadataCuttings: Metadata pointing at the saved synthetic image.
@@ -53,7 +55,7 @@ def make_metadata(tmp_path):
         img = Image.new("RGB", size, color=(0, 0, 0))
         draw_fn(ImageDraw.Draw(img))
         img.save(image_path)
-        return ImageMetadataCuttings(image_path=image_path, borehole_id="B", depth=depth)
+        return ImageMetadataCuttings(image_path=image_path, borehole_id="B", depth=depth, is_override=is_override)
 
     return _factory
 
@@ -209,6 +211,23 @@ def test_segment_cuttings_falls_back_to_full_image_when_nothing_detected(make_me
     blank_detection = next(d for d in detections if d.depth == 1.0)
     assert blank_detection.cuttings is not None
     assert blank_detection.cuttings.bbox == (0, 0, 400, 300)
+
+
+def test_segment_cuttings_override_image_skips_detection_and_uses_full_frame(make_metadata):
+    """An override image always gets the full-frame bbox, regardless of the chosen cut_type."""
+    override = make_metadata(1.0, size=(400, 300), is_override=True)
+    good = make_metadata(2.0, lambda draw: draw.ellipse((50, 50, 150, 150), fill=(200, 200, 200)))
+
+    detections = segment_cuttings(
+        [override, good],
+        config=SegmentationConfig(cuttings=SegmentationCuttingsConfig(downscale_factor=1.0)),
+        cut_type="black_circle",
+    )
+
+    assert [d.depth for d in detections] == [1.0, 2.0]
+    override_detection = next(d for d in detections if d.depth == 1.0)
+    assert override_detection.cuttings is not None
+    assert override_detection.cuttings.bbox == (0, 0, 400, 300)
 
 
 @pytest.mark.parametrize(

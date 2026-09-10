@@ -39,6 +39,24 @@ def test_from_path_raises_when_no_depth_in_filename():
         ImageMetadataCores.from_path(Path("/data/GBC/GBC-CB50/some_random_file.TIF"))
 
 
+def test_cores_from_path_recognizes_override_prefix():
+    """override_ is stripped before parsing and doesn't affect borehole_id."""
+    m = ImageMetadataCores.from_path(Path("/data/override_GBC-CB50_0015.00-0016.00_vd_p.TIF"))
+
+    assert m.is_override is True
+    assert m.borehole_id == "GBC-CB50"
+    assert m.depth_start == 15.0
+    assert m.depth_end == 16.0
+
+
+def test_cuttings_from_path_recognizes_override_prefix():
+    """override_ is stripped before trying the normal depth conventions."""
+    m = ImageMetadataCuttings.from_path(Path("/data/GES-F-1/override_270m.jpg"))
+
+    assert m.is_override is True
+    assert m.depth == 270.0
+
+
 def test_cuttings_segment_result_paper_status_counts_tallies_every_outcome():
     """Every PaperDetectionStatus value is reported, even at zero, and unset/failed results are skipped."""
     results = [

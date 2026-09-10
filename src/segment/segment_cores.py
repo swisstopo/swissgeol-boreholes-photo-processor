@@ -16,6 +16,7 @@ from src.mlflow_utils import (
     log_tray_segment_mlflow,
 )
 from src.models import (
+    CoreSegmentResult,
     ImageMetadataCores,
     ImageMetadataProcessedCores,
     RulerSegmentResult,
@@ -191,12 +192,16 @@ def segment_cores(
     config = config or SegmentationConfig()
     t_start = timer()
 
+    # Override images are already the final crop: skip detection for them entirely.
+    overridden = [m for m in imgs_metadata if m.is_override]
+    to_segment = [m for m in imgs_metadata if not m.is_override]
+
     # Step 1: Try to estimate image foreground (moving part) and ruler, once per shape group
     logger.info("Processing trays by group ...")
-    tray_by_shape = ProcessTrayGroupByShape(config.core.tray_group, config.n_workers).run(imgs_metadata)
+    tray_by_shape = ProcessTrayGroupByShape(config.core.tray_group, config.n_workers).run(to_segment)
 
     logger.info("Processing rulers by group ...")
-    ruler_by_shape = ProcessRulerGroupByShape(config.core.ruler, config.n_workers).run(imgs_metadata)
+    ruler_by_shape = ProcessRulerGroupByShape(config.core.ruler, config.n_workers).run(to_segment)
 
     if with_mlflow and debug:
         for (tray_h, tray_w, _), tray_result in tray_by_shape.items():
@@ -207,7 +212,7 @@ def segment_cores(
             )
 
     detections = segment_all(
-        imgs_metadata=imgs_metadata,
+        imgs_metadata=to_segment,
         ruler_by_shape=ruler_by_shape,
         tray_by_shape=tray_by_shape,
         config=config,
@@ -215,6 +220,20 @@ def segment_cores(
         debug=debug,
         cache=cache,
     )
+
+    if overridden:
+        logger.info("Using %d pre-cropped override core image(s); skipping segmentation", len(overridden))
+        for metadata in overridden:
+            height, width = metadata.shape[:2]
+            # No ruler: scaled like any other core with an undetected ruler (fallback_scale).
+            detections.append(
+                ImageMetadataProcessedCores.from_metadata(
+                    metadata=metadata,
+                    core=CoreSegmentResult(bbox=(0, 0, width, height)),
+                    preload=cache,
+                )
+            )
+        detections.sort(key=lambda d: d.depth_start)
 
     if with_mlflow:
         log_segmentation_results_with_mlflow(detections, time=timer() - t_start)

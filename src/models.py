@@ -11,6 +11,10 @@ from PIL import Image
 
 from src.utils import get_image_shape, load_image
 
+# Marks a manually cropped replacement image: `override_<rest of the normal filename>`.
+# Stripped before the usual depth-parsing regexes run.
+_OVERRIDE_PREFIX_REGEX = re.compile(r"^override_", re.IGNORECASE)
+
 
 @dataclass
 class ImageMetadata:
@@ -67,6 +71,7 @@ class ImageMetadataCores(ImageMetadata):
 
     depth_start: float
     depth_end: float
+    is_override: bool = False
 
     _DEPTH_PATTERN: ClassVar[re.Pattern] = re.compile(r"_(?P<depth_start>\d+\.\d+)-(?P<depth_end>\d+\.\d+)")
 
@@ -75,7 +80,8 @@ class ImageMetadataCores(ImageMetadata):
         """Construct an ImageMetadataCores from an image path.
 
         borehole_id is extracted as the filename prefix before the depth range.
-        depth_start and depth_end are extracted from the filename via regex.
+        depth_start and depth_end are extracted from the filename via regex. A leading
+        ``override_`` marks a manually cropped replacement image and is stripped before parsing.
 
         Args:
             image_path (Path): Full path to an image file, e.g.
@@ -88,7 +94,12 @@ class ImageMetadataCores(ImageMetadata):
         Returns:
             ImageMetadataCores: An instance containing the parsed metadata.
         """
-        match = cls._DEPTH_PATTERN.search(image_path.stem)
+        stem = image_path.stem
+        is_override = bool(_OVERRIDE_PREFIX_REGEX.match(stem))
+        if is_override:
+            stem = _OVERRIDE_PREFIX_REGEX.sub("", stem, count=1)
+
+        match = cls._DEPTH_PATTERN.search(stem)
         if not match:
             raise ValueError(f"No depth range found in filename: {image_path.name}")
         depth_start = float(match.group("depth_start"))
@@ -99,10 +110,11 @@ class ImageMetadataCores(ImageMetadata):
                 f"in filename: {image_path.name}"
             )
         return cls(
-            borehole_id=image_path.stem[: match.start()],
+            borehole_id=stem[: match.start()],
             depth_start=depth_start,
             depth_end=depth_end,
             image_path=image_path,
+            is_override=is_override,
         )
 
 
@@ -122,6 +134,8 @@ class ImageMetadataCuttings(ImageMetadata):
     # depth interval; used by collect_cuttings to prefer the narrower-span image when two
     # images collide on the same depth (see _DEPTH_REGEX_RANGE below).
     depth_start: float | None = None
+
+    is_override: bool = False  # see _OVERRIDE_PREFIX_REGEX above
 
     # Forsthaus, e.g. "GES-F-1 190 m (Large).JPG": id prefix, then a single point depth.
     # The depth must start at whitespace/string-start so it can't match a digit embedded
@@ -186,7 +200,9 @@ class ImageMetadataCuttings(ImageMetadata):
         depth is extracted from the filename; the GEo-02, IMG-trailing-depth, plain
         (GEo-01/GVL-1), Vinzel-1-Malm, Montagny-range and Forsthaus naming conventions
         are tried in turn (see the regexes above for each format's shape). borehole_id
-        is left blank; the caller assigns it from the input folder name.
+        is left blank; the caller assigns it from the input folder name. A leading
+        ``override_`` marks a manually cropped replacement image and is stripped before
+        any of the conventions above are tried.
 
         Args:
             image_path (Path): Full path to an image file, e.g.
@@ -199,6 +215,9 @@ class ImageMetadataCuttings(ImageMetadata):
             ImageMetadataCuttings: An instance containing the parsed metadata.
         """
         stem = image_path.stem
+        is_override = bool(_OVERRIDE_PREFIX_REGEX.match(stem))
+        if is_override:
+            stem = _OVERRIDE_PREFIX_REGEX.sub("", stem, count=1)
 
         if cls._UUID_REGEX.match(stem):
             raise ValueError(f"No depth found in filename: {image_path.name}")
@@ -211,34 +230,36 @@ class ImageMetadataCuttings(ImageMetadata):
             depth = float(numbers[0])
             if len(numbers) > 1 and float(numbers[1]) >= cls._GEO_VERSION_MAX:
                 depth = float(numbers[1])
-            return cls(borehole_id="", depth=depth, image_path=image_path)
+            return cls(borehole_id="", depth=depth, image_path=image_path, is_override=is_override)
 
         img_trailing_match = cls._DEPTH_REGEX_IMG_TRAILING.match(stem)
         if img_trailing_match:
             depth = float(img_trailing_match.group("depth"))
-            return cls(borehole_id="", depth=depth, image_path=image_path)
+            return cls(borehole_id="", depth=depth, image_path=image_path, is_override=is_override)
 
         plain_match = cls._DEPTH_REGEX_PLAIN.match(stem)
         if plain_match:
             depth = float(plain_match.group("depth_end") or plain_match.group("depth"))
-            return cls(borehole_id="", depth=depth, image_path=image_path)
+            return cls(borehole_id="", depth=depth, image_path=image_path, is_override=is_override)
 
         v1sm_match = cls._DEPTH_REGEX_V1SM.match(stem)
         if v1sm_match:
             depth = float(v1sm_match.group("depth"))
-            return cls(borehole_id="", depth=depth, image_path=image_path)
+            return cls(borehole_id="", depth=depth, image_path=image_path, is_override=is_override)
 
         range_match = cls._DEPTH_REGEX_RANGE.search(stem)
         if range_match:
             depth = float(range_match.group("depth_end"))
             depth_start = float(range_match.group("depth_start"))
-            return cls(borehole_id="", depth=depth, depth_start=depth_start, image_path=image_path)
+            return cls(
+                borehole_id="", depth=depth, depth_start=depth_start, image_path=image_path, is_override=is_override
+            )
 
         match = cls._DEPTH_REGEX_FORSTHAUS.search(stem)
         if not match:
             raise ValueError(f"No depth found in filename: {image_path.name}")
         depth = float(match.group("depth"))
-        return cls(borehole_id="", depth=depth, image_path=image_path)
+        return cls(borehole_id="", depth=depth, image_path=image_path, is_override=is_override)
 
     def to_dict(self) -> dict:
         """Return this metadata as a plain dict, e.g. for JSON serialization."""
@@ -365,6 +386,7 @@ class ImageMetadataProcessedCores(ImageMetadataCores):
             depth_start=metadata.depth_start,
             depth_end=metadata.depth_end,
             image_path=metadata.image_path,
+            is_override=metadata.is_override,
             core=core,
             tray=tray,
             ruler=ruler,
@@ -513,6 +535,7 @@ class ImageMetadataProcessedCuttings(ImageMetadataCuttings):
             depth=metadata.depth,
             depth_start=metadata.depth_start,
             image_path=metadata.image_path,
+            is_override=metadata.is_override,
             cuttings=cuttings,
         )
         if preload:

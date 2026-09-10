@@ -412,6 +412,12 @@ def segment_cuttings(
     config = config or SegmentationConfig()
     t_start = timer()
 
+    # Override images are already the final crop: skip the real segmenter for them entirely.
+    overridden = [m for m in imgs_metadata if m.is_override]
+    to_segment = [m for m in imgs_metadata if not m.is_override]
+    if overridden:
+        logger.info("Using %d pre-cropped override cuttings image(s); skipping segmentation", len(overridden))
+
     # Pebble cuttings share a physical layout (a reference paper sheet) with the rest of a
     # same-shape batch far more often than per-image thresholding alone can reliably tell --
     # estimate it once per shape group and reuse it, falling back to per-image detection for
@@ -419,17 +425,18 @@ def segment_cuttings(
     paper_by_shape: dict[tuple[int, int, int], CuttingsSegmentResult] = {}
     if cut_type == "pebble":
         logger.info("Processing pebble paper regions by group ...")
-        paper_by_shape = ProcessPebblePaperGroupByShape(config.cuttings.pebble_group, config.n_workers).run(
-            imgs_metadata
-        )
+        paper_by_shape = ProcessPebblePaperGroupByShape(config.cuttings.pebble_group, config.n_workers).run(to_segment)
 
     segmented: list[tuple[ImageMetadataCuttings, CuttingsSegmentResult]] = []
     for img_metadata in tqdm(imgs_metadata, desc="Segmenting cuttings images", mininterval=1.0):
         try:
-            # reuse the shared group detection for this image's shape, if any
-            shared_paper = paper_by_shape.get(img_metadata.shape)
-            cuttings = shared_paper if shared_paper is not None else segmenter(img_metadata, config.cuttings)
-            cuttings = _guard_degenerate_bbox(img_metadata, cuttings, config.cuttings.min_crop_px)
+            if img_metadata.is_override:
+                cuttings = segment_full(img_metadata, config.cuttings)
+            else:
+                # reuse the shared group detection for this image's shape, if any
+                shared_paper = paper_by_shape.get(img_metadata.shape)
+                cuttings = shared_paper if shared_paper is not None else segmenter(img_metadata, config.cuttings)
+                cuttings = _guard_degenerate_bbox(img_metadata, cuttings, config.cuttings.min_crop_px)
             segmented.append((img_metadata, cuttings))
         except (ValueError, OSError, SegmentationError) as e:
             logger.warning("Skipping %s: %s", img_metadata.image_path.name, e)
