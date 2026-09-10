@@ -35,6 +35,28 @@ def test_collect_cuttings_drops_duplicate_depth(tmp_path):
     assert result_last[0].image_path.name == "10m_01.jpg"
 
 
+def test_collect_cuttings_prefers_narrower_span_for_montagny_range_duplicates(tmp_path):
+    """A wide-span pre-existing composite is dropped in favor of the real narrow-span photo."""
+    _write_image(tmp_path / "MONTAGNY-2_Cuttings_1335.00-1400.00.jpg")  # wide composite, 65m span
+    _write_image(tmp_path / "MONTAGNY-2_Cuttings_1395.00-1400.00.jpg")  # real photo, 5m span
+
+    result = collect_cuttings(tmp_path)
+
+    assert len(result) == 1
+    assert result[0].image_path.name == "MONTAGNY-2_Cuttings_1395.00-1400.00.jpg"
+
+
+def test_collect_cuttings_prefers_narrower_span_regardless_of_filename_order(tmp_path):
+    """The narrow-span image wins even when it sorts before the wide one alphabetically."""
+    _write_image(tmp_path / "MONTAGNY-2_Cuttings_0395.00-0400.00.jpg")  # real photo, 5m span
+    _write_image(tmp_path / "MONTAGNY-2_Cuttings_0300.00-0400.00.jpg")  # wide composite, 100m span
+
+    result = collect_cuttings(tmp_path)
+
+    assert len(result) == 1
+    assert result[0].image_path.name == "MONTAGNY-2_Cuttings_0395.00-0400.00.jpg"
+
+
 def test_collect_cuttings_skips_vial_photos(tmp_path):
     """Sample-vial photos (no real depth) are excluded outright, not parsed as depth 0."""
     _write_image(tmp_path / "00-Vials-IMG_20240525_084316.jpg")

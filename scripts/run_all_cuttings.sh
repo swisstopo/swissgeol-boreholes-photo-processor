@@ -35,13 +35,12 @@ run() {
     "$@"
 }
 
-run Montagny tray "$@"
 run Montagny-2 tray "$@"
 run Montagny-2ST tray "$@"
-run Forsthaus-GES-F1 pebble "$@"
-run Forsthaus-GES-F2 pebble "$@"
-run Forsthaus-GES-F3 pebble "$@"
-run Forsthaus-GES-F3A pebble "$@"
+run "Forsthaus GES-F1" pebble "$@"
+run "Forsthaus GES-F2" pebble "$@"
+run "Forsthaus GES-F3" pebble "$@"
+run "Forsthaus GES-F3A" pebble "$@"
 # GEo-01 and GEo-02 have multiple cuttings images sharing the same depth; keep the last
 # (by filename) instead of config.yaml's default ("first").
 run GEo-01 full --dedup-keep last "$@"

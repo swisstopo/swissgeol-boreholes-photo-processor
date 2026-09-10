@@ -20,11 +20,15 @@ def collect_cuttings(
 ) -> list[ImageMetadataCuttings]:
     """Collect cuttings images from a directory, sorted by depth parsed from their filenames.
 
-    Only one image (by filename, per dedup_keep) at each depth is kept; the rest are dropped
-    as duplicates and their count is logged to MLflow when with_mlflow is set. "00-Vials-"
-    files (e.g. GVL-1's sample-vial photos) are excluded outright, as their depth-less names
-    would otherwise parse as depth 0 and pollute the output. "...vue-generale" files (general
-    overview shots, not per-depth cutting samples) are excluded outright too.
+    Only one image at each depth is kept; the rest are dropped as duplicates and their count is
+    logged to MLflow when with_mlflow is set. When two colliding images both carry a
+    depth_start (the Montagny range convention), the narrower-span one is kept -- a
+    pre-existing wide-span composite/overview photo can share an end-depth with the real
+    per-sample photo, and the narrow one is always the genuine single sample. Otherwise the
+    image kept is picked by filename order, per dedup_keep. "00-Vials-" files (e.g. GVL-1's
+    sample-vial photos) are excluded outright, as their depth-less names would otherwise parse
+    as depth 0 and pollute the output. "...vue-generale" files (general overview shots, not
+    per-depth cutting samples) are excluded outright too.
 
     Args:
         input_dir (Path): Path to the directory containing raw cuttings photos.
@@ -53,12 +57,18 @@ def collect_cuttings(
     deduped_by_depth: dict[float, ImageMetadataCuttings] = {}
     duplicate_counts: dict[float, int] = defaultdict(int)
     for metadata in imgs_metadata:
-        if metadata.depth in deduped_by_depth:
-            duplicate_counts[metadata.depth] += 1
-            if dedup_keep == "last":
-                deduped_by_depth[metadata.depth] = metadata
-        else:
+        existing = deduped_by_depth.get(metadata.depth)
+        if existing is None:
             deduped_by_depth[metadata.depth] = metadata
+        else:
+            duplicate_counts[metadata.depth] += 1
+            if existing.depth_start is not None and metadata.depth_start is not None:
+                existing_span = existing.depth - existing.depth_start
+                candidate_span = metadata.depth - metadata.depth_start
+                if candidate_span < existing_span:
+                    deduped_by_depth[metadata.depth] = metadata
+            elif dedup_keep == "last":
+                deduped_by_depth[metadata.depth] = metadata
     deduped_metadata = sorted(deduped_by_depth.values(), key=lambda m: m.depth)
 
     if duplicate_counts:
