@@ -92,8 +92,8 @@ segmentation:
       open_radius: 3 # radius for opening (drops thin bridges/specks before picking the main component)
       erosion_radius: 2 # radius for eroding the main component before the bbox, to trim the residual tray border
       min_area_frac: 0.01 # a detected component below this fraction of the work area is noise, not a real pile
-      max_aspect_ratio_deviation: 0.2 # max relative deviation from the batch's aspect ratio before a crop is left unnormalized
-      max_scale_factor: 2.0 # max factor a crop's size may differ from the batch target before it's left unnormalized
+      max_scale_factor: 2.0 # max factor a narrower-than-target crop may be upsampled by before it's left unnormalized
+      shape_group_merge_tolerance: 0.2 # max relative difference between two shape groups' median widths to merge them onto the smaller one
 
 stitching:
   n_workers: 4 # number of worker threads used to stitch output figures in parallel
