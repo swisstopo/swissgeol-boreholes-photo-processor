@@ -1,6 +1,7 @@
 """Entry point for segmenting a batch of borehole cuttings images."""
 
 import logging
+from collections import defaultdict
 from dataclasses import replace
 from timeit import default_timer as timer
 
@@ -298,83 +299,133 @@ def log_crop_size_consistency(
         )
 
 
-def _normalize_tray_scale(
+def _normalize_tray_size(
     cuttings: list[CuttingsSegmentResult],
-    max_aspect_ratio_deviation: float = 0.2,
+    target_w: float | None = None,
+    target_h: float | None = None,
     max_scale_factor: float = 2.0,
 ) -> list[CuttingsSegmentResult]:
-    """Return copies of the tray results with a common resize target, so all trays render at the same pixel size.
+    """Bring every tray crop to a shared (width, height), cropping first so nothing is ever stretched.
 
-    Unlike pebble/black_circle crops -- where the area outside the detected object is just
-    background -- the tray bbox *is* the tray, and every tray is the same physical size, so
-    differences in its detected pixel size only reflect how close the photo was taken.
-    Rescaling to a shared size (rather than cropping into it) turns that pixel-size difference
-    into a genuine common scale without discarding any of the tray. The target is the median
-    detected size across the batch: a single far-off outlier doesn't drag every other image's
-    resolution down, and only images far from the median need much up/down-sampling. Only bbox
-    tuples are read here, not pixel data; the actual resize happens lazily per image when its
-    crop is loaded.
-
-    A crop whose own aspect ratio deviates from the target's by more than
-    max_aspect_ratio_deviation, or whose native size is more than max_scale_factor away from
-    the target size, is left unnormalized (resize_to stays None, so it keeps its native crop)
-    instead of being stretched/squashed or resampled to match -- this guards against a
-    wrongly-detected or fundamentally different (e.g. non-tray) image getting visibly distorted,
-    and against a crop so far from the batch's scale that up/down-sampling it would meaningfully
-    degrade detail, at the cost of that one image not sharing the batch's scale.
+    First crops (never stretches) whichever axis is in excess so the crop's aspect ratio matches
+    the target's; from there, reaching the exact target size is always a uniform scale (upsample
+    if still smaller, guarded by max_scale_factor; crop further if still bigger, unguarded, since
+    cropping doesn't degrade the pixels it keeps). Only bbox tuples are read here; the actual
+    resize happens lazily when a crop is loaded.
 
     Args:
-        cuttings (list[CuttingsSegmentResult]): Per-image tray detection results to derive
-            resize_to from. Left untouched; the returned list holds the updated copies.
-        max_aspect_ratio_deviation (float): Maximum relative deviation between a crop's own
-            width/height ratio and the batch target's before it's left unnormalized instead
-            of stretched to match.
-        max_scale_factor (float): Maximum factor (in either direction) by which a crop's own
-            size may differ from the batch target before it's left unnormalized instead of
-            being up/down-sampled to match, e.g. 2.0 allows up to 2x upsampling or 2x
-            downsampling.
+        cuttings (list[CuttingsSegmentResult]): Per-image tray detections to normalize.
+        target_w (float | None): Target width; defaults to the median width across `cuttings`.
+        target_h (float | None): Target height; defaults to the median height across `cuttings`.
+        max_scale_factor (float): Max factor an aspect-matched crop may be upsampled by before
+            it's left at that native size instead of resampling it further.
 
     Returns:
-        list[CuttingsSegmentResult]: A new list of copies, each with resize_to set to the
-        shared target size, or left as-is when its aspect ratio or scale deviates too much.
+        list[CuttingsSegmentResult]: Copies with resize_to set (upsampled), bbox trimmed
+        (cropped), or left at the aspect-matched native size (upsample guard triggered).
     """
     if not cuttings:
         return []
 
-    widths = sorted(c.bbox[2] - c.bbox[0] for c in cuttings)
-    heights = sorted(c.bbox[3] - c.bbox[1] for c in cuttings)
-    target_w = round(widths[len(widths) // 2])
-    target_h = round(heights[len(heights) // 2])
+    if target_w is None:
+        widths = sorted(c.bbox[2] - c.bbox[0] for c in cuttings)
+        target_w = widths[len(widths) // 2]
+    if target_h is None:
+        heights = sorted(c.bbox[3] - c.bbox[1] for c in cuttings)
+        target_h = heights[len(heights) // 2]
+    target_w = round(target_w)
+    target_h = round(target_h)
     target_ratio = target_w / target_h
 
     normalized = []
     for c in cuttings:
-        width = c.bbox[2] - c.bbox[0]
-        height = c.bbox[3] - c.bbox[1]
+        x0, y0, x1, y1 = c.bbox
+        width = x1 - x0
+        height = y1 - y0
         ratio = width / height
-        if abs(ratio - target_ratio) / target_ratio > max_aspect_ratio_deviation:
-            logger.warning(
-                "Tray crop aspect ratio %.2f deviates from batch target %.2f by more than %.0f%%; "
-                "leaving it at its native size instead of stretching it to match",
-                ratio,
-                target_ratio,
-                max_aspect_ratio_deviation * 100,
-            )
-            normalized.append(c)
-            continue
 
-        scale_factor = target_w / width  # ~= target_h / height, since the aspect ratio matches above
-        if max(scale_factor, 1 / scale_factor) > max_scale_factor:
-            logger.warning(
-                "Tray crop size would need to be scaled by %.2fx to match the batch target; "
-                "leaving it at its native size instead of resampling it that far",
-                scale_factor,
-            )
-            normalized.append(c)
-            continue
+        if ratio > target_ratio:
+            width = height * target_ratio
+            x1 = x0 + width
+        elif ratio < target_ratio:
+            height = width / target_ratio
+            y1 = y0 + height
 
-        normalized.append(replace(c, resize_to=(target_w, target_h)))
+        scale_factor = target_w / width  # == target_h / height, since the ratio now matches
+        if scale_factor > 1:
+            if scale_factor > max_scale_factor:
+                logger.warning(
+                    "Tray crop would need to be upsampled %.2fx to match the target size; "
+                    "leaving it at its native (aspect-matched) size instead of resampling it that far",
+                    scale_factor,
+                )
+                normalized.append(replace(c, bbox=(x0, y0, x1, y1)))
+                continue
+            normalized.append(replace(c, resize_to=(target_w, target_h), bbox=(x0, y0, x1, y1)))
+        elif scale_factor < 1:
+            normalized.append(replace(c, bbox=(x0, y0, x0 + target_w, y0 + target_h)))
+        else:
+            normalized.append(replace(c, bbox=(x0, y0, x1, y1)))
     return normalized
+
+
+def _cluster_shape_group_target_widths(
+    median_width_by_shape: dict[tuple[int, int, int], float], merge_tolerance: float
+) -> dict[tuple[int, int, int], float]:
+    """Merge native shape groups whose median widths are within merge_tolerance, onto the smaller.
+
+    Different camera resolutions can still land on almost the same tray width once each group is
+    normalized on its own -- that's detection noise, not a genuinely different tray size. Shape
+    groups are sorted by median and chained onto the current cluster's smallest member if within
+    tolerance of it (not just the previous neighbor, so a cluster can't drift arbitrarily far).
+
+    Args:
+        median_width_by_shape (dict[tuple[int, int, int], float]): Each shape group's own median width.
+        merge_tolerance (float): Max relative difference from a cluster's smallest member for a
+            group to join it.
+
+    Returns:
+        dict[tuple[int, int, int], float]: Target width per shape group -- its own median, or its
+        cluster's smallest median if merged.
+    """
+    if not median_width_by_shape:
+        return {}
+
+    ordered = sorted(median_width_by_shape.items(), key=lambda kv: kv[1])
+    target_by_shape: dict[tuple[int, int, int], float] = {}
+    cluster_min = ordered[0][1]
+    for shape, median_width in ordered:
+        if (median_width - cluster_min) / cluster_min > merge_tolerance:
+            cluster_min = median_width
+        target_by_shape[shape] = cluster_min
+    return target_by_shape
+
+
+def _cluster_shape_group_target_heights(
+    target_width_by_shape: dict[tuple[int, int, int], float],
+    heights_by_shape: dict[tuple[int, int, int], list[float]],
+) -> dict[tuple[int, int, int], float]:
+    """Share a pooled target height across shape groups already merged (by width) onto one cluster.
+
+    Reuses the width-based cluster membership (shape groups sharing a target width are the same
+    cluster) and takes the median over every individual image's height pooled across the whole
+    cluster -- not one shape group's own median -- so a single small/atypical group can't drag
+    the shared height for the rest of the cluster.
+
+    Args:
+        target_width_by_shape (dict[tuple[int, int, int], float]): Output of _cluster_shape_group_target_widths.
+        heights_by_shape (dict[tuple[int, int, int], list[float]]): Each shape group's own per-image heights.
+
+    Returns:
+        dict[tuple[int, int, int], float]: Target height per shape group, shared within cluster.
+    """
+    pooled_heights_by_cluster: dict[float, list[float]] = defaultdict(list)
+    for shape, target_w in target_width_by_shape.items():
+        pooled_heights_by_cluster[target_w].extend(heights_by_shape[shape])
+    target_height_by_cluster = {
+        target_w: sorted(heights)[len(heights) // 2] for target_w, heights in pooled_heights_by_cluster.items()
+    }
+    return {shape: target_height_by_cluster[target_w] for shape, target_w in target_width_by_shape.items()}
 
 
 def segment_cuttings(
@@ -441,24 +492,41 @@ def segment_cuttings(
         except (ValueError, OSError, SegmentationError) as e:
             logger.warning("Skipping %s: %s", img_metadata.image_path.name, e)
 
-    # tray is a fixed physical size, so normalize its pixel scale across the batch before
-    # building/preloading the cropped images; pebble/black_circle have no such reference
-    # object, so their crops are left at their native detected size. Uncropped fallback results
-    # are excluded: they're not a real tray detection, so forcing them to the tray's typical size
-    # would distort the whole photo rather than leave it alone.
+    # Tray is a fixed physical size, so every crop's (width, height) is normalized to a shared
+    # target before preloading -- computed per native image shape (different camera resolutions
+    # shouldn't share one median), then shape groups whose medians land close enough are merged
+    # onto the smaller one. Uncropped fallback results are excluded, since they aren't real
+    # detections. Pebble/black_circle have no such reference object and are left untouched.
     if cut_type == "tray":
-        real_tray_indices = [
-            i
-            for i, (img_metadata, cuttings) in enumerate(segmented)
-            if not _is_full_frame_bbox(cuttings.bbox, img_metadata.shape)
-        ]
-        normalized_cuttings = _normalize_tray_scale(
-            [segmented[i][1] for i in real_tray_indices],
-            max_aspect_ratio_deviation=config.cuttings.tray.max_aspect_ratio_deviation,
-            max_scale_factor=config.cuttings.tray.max_scale_factor,
+        real_tray_indices_by_shape: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+        for i, (img_metadata, cuttings) in enumerate(segmented):
+            if not _is_full_frame_bbox(cuttings.bbox, img_metadata.shape):
+                real_tray_indices_by_shape[img_metadata.shape].append(i)
+
+        median_width_by_shape = {
+            shape: sorted(segmented[i][1].bbox[2] - segmented[i][1].bbox[0] for i in shape_indices)[
+                len(shape_indices) // 2
+            ]
+            for shape, shape_indices in real_tray_indices_by_shape.items()
+        }
+        heights_by_shape = {
+            shape: [segmented[i][1].bbox[3] - segmented[i][1].bbox[1] for i in shape_indices]
+            for shape, shape_indices in real_tray_indices_by_shape.items()
+        }
+        target_width_by_shape = _cluster_shape_group_target_widths(
+            median_width_by_shape, config.cuttings.tray.shape_group_merge_tolerance
         )
-        for i, cuttings in zip(real_tray_indices, normalized_cuttings, strict=True):
-            segmented[i] = (segmented[i][0], cuttings)
+        target_height_by_shape = _cluster_shape_group_target_heights(target_width_by_shape, heights_by_shape)
+
+        for shape, shape_indices in real_tray_indices_by_shape.items():
+            normalized_cuttings = _normalize_tray_size(
+                [segmented[i][1] for i in shape_indices],
+                target_w=target_width_by_shape[shape],
+                target_h=target_height_by_shape[shape],
+                max_scale_factor=config.cuttings.tray.max_scale_factor,
+            )
+            for i, cuttings in zip(shape_indices, normalized_cuttings, strict=True):
+                segmented[i] = (segmented[i][0], cuttings)
 
     log_fallback_rate(cut_type, segmented)
     log_crop_size_consistency(cut_type, segmented, config.cuttings.crop_size_cv_warn_threshold)

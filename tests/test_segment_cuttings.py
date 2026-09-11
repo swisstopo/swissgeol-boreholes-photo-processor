@@ -16,9 +16,11 @@ from src.segment.config import (
     SegmentationCuttingsTrayConfig,
 )
 from src.segment.segment_cuttings import (
+    _cluster_shape_group_target_heights,
+    _cluster_shape_group_target_widths,
     _guard_degenerate_bbox,
     _is_full_frame_bbox,
-    _normalize_tray_scale,
+    _normalize_tray_size,
     log_crop_size_consistency,
     log_fallback_rate,
     segment_black_circle,
@@ -108,6 +110,16 @@ def _make_textured_metadata(tmp_path, depth: float, size: tuple[int, int], patch
     image_path = tmp_path / f"{depth:g}m_tray.jpg"
     Image.fromarray(img).save(image_path, quality=95)
     return ImageMetadataCuttings(image_path=image_path, borehole_id="B", depth=depth)
+
+
+def _effective_width(cuttings: CuttingsSegmentResult) -> float:
+    """The crop's final width: resize_to's width when set (upsampled), else its own bbox width."""
+    return cuttings.resize_to[0] if cuttings.resize_to is not None else cuttings.bbox[2] - cuttings.bbox[0]
+
+
+def _effective_height(cuttings: CuttingsSegmentResult) -> float:
+    """The crop's final height: resize_to's height when set (upsampled), else its own bbox height."""
+    return cuttings.resize_to[1] if cuttings.resize_to is not None else cuttings.bbox[3] - cuttings.bbox[1]
 
 
 def test_segment_tray_detects_bbox_of_textured_region(tmp_path):
@@ -376,76 +388,146 @@ def test_segment_cuttings_pebble_falls_back_to_per_image_below_n_min_group(make_
         assert detection.cuttings.approach == ApproachType.SINGLE
 
 
-def test_normalize_tray_scale_sets_median_size_without_touching_bbox():
-    """Every result gets resize_to set to the batch's median width/height; bbox itself is untouched."""
-    small = CuttingsSegmentResult(bbox=(0, 0, 100, 100))
-    mid = CuttingsSegmentResult(bbox=(0, 0, 200, 200))
-    big = CuttingsSegmentResult(bbox=(0, 0, 300, 300))
+@pytest.mark.parametrize(
+    ("bbox", "expected_resize_to", "expected_bbox"),
+    [
+        ((0, 0, 100, 50), (200, 100), None),  # smaller, ratio already right -> upsampled
+        ((0, 0, 200, 100), None, (0, 0, 200, 100)),  # already exact -> untouched
+        ((0, 0, 300, 150), None, (0, 0, 200, 100)),  # bigger, ratio already right -> cropped
+        ((0, 0, 300, 100), None, (0, 0, 200, 100)),  # 3:1, too wide -> cropped to ratio, already at size
+        ((0, 0, 100, 100), (200, 100), None),  # 1:1, too tall -> cropped to ratio, then upsampled
+    ],
+)
+def test_normalize_tray_size_normalizes_to_target(bbox, expected_resize_to, expected_bbox):
+    """Covers upsample/crop/no-op, for crops both already at the target ratio and not."""
+    (result,) = _normalize_tray_size([CuttingsSegmentResult(bbox=bbox)], target_w=200, target_h=100)
 
-    normalized = _normalize_tray_scale([small, mid, big])
-
-    assert [c.bbox for c in normalized] == [(0, 0, 100, 100), (0, 0, 200, 200), (0, 0, 300, 300)]
-    assert all(c.resize_to == (200, 200) for c in normalized)
-    assert small.resize_to is None
-    assert mid.resize_to is None
-    assert big.resize_to is None
-
-
-def test_normalize_tray_scale_handles_empty_list():
-    """An empty batch is a no-op, not a crash."""
-    assert _normalize_tray_scale([]) == []
-
-
-def test_normalize_tray_scale_leaves_aspect_ratio_outlier_unnormalized():
-    """A crop whose aspect ratio is far off the batch target is left at its native size, not stretched."""
-    normal_a = CuttingsSegmentResult(bbox=(0, 0, 200, 100))  # 2:1, matches the batch target ratio
-    normal_b = CuttingsSegmentResult(bbox=(0, 0, 220, 110))  # 2:1, matches the batch target ratio
-    outlier = CuttingsSegmentResult(bbox=(0, 0, 100, 300))  # 1:3, e.g. a mis-detected/non-tray image
-
-    normalized_a, normalized_b, normalized_outlier = _normalize_tray_scale(
-        [normal_a, normal_b, outlier], max_aspect_ratio_deviation=0.2
-    )
-
-    assert normalized_a.resize_to is not None
-    assert normalized_b.resize_to is not None
-    assert normalized_a.resize_to == normalized_b.resize_to
-    assert normalized_outlier.resize_to is None
-    assert normalized_outlier is outlier
+    assert result.resize_to == expected_resize_to
+    if expected_bbox is not None:
+        assert result.bbox == expected_bbox
 
 
-def test_normalize_tray_scale_leaves_extreme_scale_outlier_unnormalized():
-    """A crop whose native size is far from the batch target is left unresampled, not up/down-sampled."""
-    normal_a = CuttingsSegmentResult(bbox=(0, 0, 200, 100))
-    normal_b = CuttingsSegmentResult(bbox=(0, 0, 220, 110))
-    tiny = CuttingsSegmentResult(bbox=(0, 0, 20, 10))  # same 2:1 ratio, but 10x smaller than the target
+def test_normalize_tray_size_leaves_extreme_upsample_outlier_at_its_aspect_matched_size():
+    """A crop needing too much upsampling is still cropped to the target aspect ratio, just not resized to it."""
+    tiny = CuttingsSegmentResult(bbox=(0, 0, 20, 5))  # 4:1, needs both an aspect fix and a 20x upsample
 
-    normalized_a, normalized_b, normalized_tiny = _normalize_tray_scale(
-        [normal_a, normal_b, tiny], max_scale_factor=2.0
-    )
+    (normalized_tiny,) = _normalize_tray_size([tiny], target_w=200, target_h=100, max_scale_factor=2.0)
 
-    assert normalized_a.resize_to is not None
-    assert normalized_b.resize_to is not None
     assert normalized_tiny.resize_to is None
-    assert normalized_tiny is tiny
+    assert normalized_tiny.bbox == (0, 0, 10, 5)  # cropped to the 2:1 ratio (width = height * 2), not resized
 
 
-def test_segment_cuttings_normalizes_tray_scale_across_batch(tmp_path):
-    """Two differently-sized detected tray piles end up with the same resize_to (the batch median)."""
-    small_pile = (150, 150, 250, 250)  # 100x100
-    big_pile = (110, 110, 290, 290)  # 180x180, within the default max_scale_factor of the small pile
-    small = _make_textured_metadata(tmp_path, 1.0, size=(400, 400), patches=[small_pile])
-    big = _make_textured_metadata(tmp_path, 2.0, size=(400, 400), patches=[big_pile])
+def test_normalize_tray_size_defaults_target_to_median_width_and_height():
+    """With no explicit target, both dimensions default to their own median across the input; empty is a no-op."""
+    a = CuttingsSegmentResult(bbox=(0, 0, 100, 50))
+    b = CuttingsSegmentResult(bbox=(0, 0, 200, 100))  # median of both width and height
+    c = CuttingsSegmentResult(bbox=(0, 0, 300, 150))
+
+    normalized_a, normalized_b, normalized_c = _normalize_tray_size([a, b, c])
+
+    assert normalized_b.bbox == (0, 0, 200, 100)  # the median itself needs no change
+    assert normalized_a.resize_to == (200, 100)
+    assert normalized_c.bbox == (0, 0, 200, 100)
+    assert _normalize_tray_size([]) == []
+
+
+def test_segment_cuttings_normalizes_both_width_and_height_within_a_shape_group(tmp_path):
+    """Crops with different native aspect ratios in the same shape group converge to one shared (w, h).
+
+    Regression test: normalizing width alone left height free to vary, so a downstream step that
+    fits each crop into a fixed-aspect-ratio cell (preserving aspect ratio) ended up rendering
+    wildly different widths after all, since whichever axis was relatively larger dominated the
+    fit.
+    """
+    exact = (100, 150, 300, 250)  # 200x100, matches the target ratio (2:1) and size exactly
+    too_tall = (100, 100, 250, 250)  # 150x150, 1:1 -- relatively much taller than the target ratio
+    too_wide = (50, 150, 350, 250)  # 300x100, 3:1 -- relatively much wider than the target ratio
+    exact_img = _make_textured_metadata(tmp_path, 1.0, size=(500, 400), patches=[exact])
+    tall_img = _make_textured_metadata(tmp_path, 2.0, size=(500, 400), patches=[too_tall])
+    wide_img = _make_textured_metadata(tmp_path, 3.0, size=(500, 400), patches=[too_wide])
 
     detections = segment_cuttings(
-        [small, big],
+        [exact_img, tall_img, wide_img],
         config=SegmentationConfig(cuttings=SegmentationCuttingsConfig(downscale_factor=1.0)),
         cut_type="tray",
     )
 
-    assert detections[0].cuttings is not None
-    assert detections[1].cuttings is not None
-    assert detections[0].cuttings.resize_to is not None
-    assert detections[0].cuttings.resize_to == detections[1].cuttings.resize_to
+    by_depth = {d.depth: d.cuttings for d in detections}
+    exact_cuttings, tall_cuttings, wide_cuttings = by_depth[1.0], by_depth[2.0], by_depth[3.0]
+    assert exact_cuttings is not None
+    assert tall_cuttings is not None
+    assert wide_cuttings is not None
+
+    widths = [_effective_width(c) for c in (exact_cuttings, tall_cuttings, wide_cuttings)]
+    heights = [_effective_height(c) for c in (exact_cuttings, tall_cuttings, wide_cuttings)]
+    assert widths[0] == pytest.approx(widths[1], abs=10) == pytest.approx(widths[2], abs=10)
+    assert heights[0] == pytest.approx(heights[1], abs=10) == pytest.approx(heights[2], abs=10)
+
+
+def test_cluster_shape_group_target_widths_merges_close_groups_onto_the_smallest():
+    """Groups within tolerance merge onto the cluster's smallest member, anchored (not chained pairwise)."""
+    medians = {(1, 1, 3): 2979.0, (2, 2, 3): 2988.0, (3, 3, 3): 3173.0}
+    assert _cluster_shape_group_target_widths(medians, merge_tolerance=0.05) == {
+        (1, 1, 3): 2979.0,
+        (2, 2, 3): 2979.0,  # within 5% of 2979, merged onto it
+        (3, 3, 3): 3173.0,  # too far from 2979 (6.5%), kept on its own
+    }
+
+    # 104 is within 5% of the anchor (100) and merges; 109 is 9% from that same anchor -- even
+    # though it's within 5% of 104 -- so it starts a new cluster instead of chaining onward.
+    chained = {(1, 1, 3): 100.0, (2, 2, 3): 104.0, (3, 3, 3): 109.0}
+    assert _cluster_shape_group_target_widths(chained, merge_tolerance=0.05) == {
+        (1, 1, 3): 100.0,
+        (2, 2, 3): 100.0,
+        (3, 3, 3): 109.0,
+    }
+
+    assert _cluster_shape_group_target_widths({}, merge_tolerance=0.05) == {}
+
+
+def test_cluster_shape_group_target_heights_pools_medians_within_a_width_cluster():
+    """A single small/atypical shape group can't drag the shared (pooled-median) height of its cluster."""
+    target_width_by_shape = {
+        (1, 1, 3): 2979.0,
+        (2, 2, 3): 2979.0,  # merged with (1,1,3) onto the same target width
+        (3, 3, 3): 3173.0,  # its own, separate cluster
+    }
+    heights_by_shape = {
+        (1, 1, 3): [1990.0, 2000.0, 2010.0, 2020.0, 2030.0],
+        (2, 2, 3): [500.0],  # small outlier group; shouldn't dominate the pooled median
+        (3, 3, 3): [2200.0, 2200.0],
+    }
+
+    targets = _cluster_shape_group_target_heights(target_width_by_shape, heights_by_shape)
+
+    assert targets[(1, 1, 3)] == 2010.0  # pooled median of [500, 1990, 2000, 2010, 2020, 2030]
+    assert targets[(2, 2, 3)] == 2010.0  # shares the same pooled target as its cluster
+    assert targets[(3, 3, 3)] == 2200.0  # alone in its own cluster, keeps its own pooled median
+
+
+def test_segment_cuttings_merges_close_shape_group_medians_onto_the_smaller(tmp_path):
+    """Two native shape groups whose own medians land close together share the smaller as their target."""
+    # Shape group A (400x400 canvas): detected pile widths ~188.5, ~198.0 -> own median/target width ~198
+    small_a = _make_textured_metadata(tmp_path, 1.0, size=(400, 400), patches=[(105, 105, 295, 295)])
+    big_a = _make_textured_metadata(tmp_path, 2.0, size=(400, 400), patches=[(100, 100, 300, 300)])
+
+    # Shape group B (600x600 canvas): detected pile widths ~201.0, ~203.25 -> own median/target
+    # width ~203.25, only ~2.7% above group A's -- within the default 5% merge tolerance
+    small_b = _make_textured_metadata(tmp_path, 3.0, size=(600, 600), patches=[(199, 199, 401, 401)])
+    big_b = _make_textured_metadata(tmp_path, 4.0, size=(600, 600), patches=[(198, 198, 402, 402)])
+
+    detections = segment_cuttings(
+        [small_a, big_a, small_b, big_b],
+        config=SegmentationConfig(cuttings=SegmentationCuttingsConfig(downscale_factor=1.0)),
+        cut_type="tray",
+    )
+
+    by_depth = {d.depth: d.cuttings for d in detections}
+    cuttings_a, cuttings_b = by_depth[1.0], by_depth[3.0]
+    assert cuttings_a is not None
+    assert cuttings_b is not None
+    assert _effective_width(cuttings_a) == pytest.approx(_effective_width(cuttings_b))
+    assert _effective_width(cuttings_a) == pytest.approx(198, abs=2)
 
 
 def test_segment_cuttings_leaves_black_circle_crops_unnormalized(make_metadata):
@@ -598,7 +680,7 @@ def test_log_crop_size_consistency_skips_black_circle_and_tray_unrelated_types(m
 
 
 def test_segment_cuttings_excludes_fallback_from_tray_normalization(tmp_path):
-    """An uncropped fallback result doesn't skew (or get distorted by) the tray batch's shared resize_to."""
+    """An uncropped fallback result doesn't skew (or get resized/cropped along with) the tray batch's shared target."""
     real_a = _make_textured_metadata(tmp_path, 1.0, size=(400, 400), patches=[(150, 150, 250, 250)])  # 100x100
     real_b = _make_textured_metadata(tmp_path, 2.0, size=(400, 400), patches=[(140, 140, 260, 260)])  # 120x120
     blank = _make_textured_metadata(tmp_path, 3.0, size=(400, 400), patches=[])  # nothing to detect
@@ -614,5 +696,6 @@ def test_segment_cuttings_excludes_fallback_from_tray_normalization(tmp_path):
     assert cuttings_a is not None
     assert cuttings_b is not None
     assert cuttings_blank is not None
-    assert cuttings_blank.resize_to is None  # fallback result is left alone, not stretched to the tray's scale
-    assert cuttings_a.resize_to == cuttings_b.resize_to  # real detections still share a common scale
+    assert cuttings_blank.resize_to is None  # fallback result is left alone, not stretched to the tray's target
+    assert cuttings_blank.bbox == (0, 0, 400, 400)  # ... nor cropped to it
+    assert _effective_width(cuttings_a) == pytest.approx(_effective_width(cuttings_b))  # real detections still share

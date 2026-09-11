@@ -454,7 +454,7 @@ class CuttingsPipelineRunner(
 
     def _web_downscale_factor(self, config: StitchingConfig) -> float:
         """The cuttings canvas (output_width/output_height) is already sized for the final output."""
-        return 1.0
+        return config.cuttings.web_downscale_factor
 
     def _batch_stitch(self, batch: StitchingBatchCuttings, config: StitchingConfig) -> Image.Image:
         """Stitch one page of cuttings into a canvas."""

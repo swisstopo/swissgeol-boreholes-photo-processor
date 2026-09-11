@@ -133,14 +133,18 @@ class SegmentationCuttingsTrayConfig:
     open_radius: int = 3  # radius for opening (drops thin bridges/specks before picking the main component)
     erosion_radius: int = 2  # radius for eroding the main component before the bbox, to trim the residual tray border
     min_area_frac: float = 0.01  # a detected component below this fraction of the work area is noise, not a real pile
-    # max relative deviation between a crop's own aspect ratio and the batch target's before it's
-    # left unnormalized (native size) instead of stretched to match -- guards against distorting a
-    # wrongly-detected or fundamentally different (e.g. non-tray) image
-    max_aspect_ratio_deviation: float = 0.2
-    # max factor (in either direction) a crop's own size may differ from the batch target before
-    # it's left unnormalized instead of being up/down-sampled to match -- guards against resampling
-    # a crop so far from the batch's scale that detail is meaningfully degraded
+    # max factor a narrower-than-target crop may be upsampled by before it's left unnormalized
+    # (native) instead -- guards against resampling a crop so far below the target that detail is
+    # meaningfully degraded; a wider-than-target crop is always cropped down regardless of this
     max_scale_factor: float = 2.0
+    # max relative difference between two native-shape groups' own median tray widths for them to
+    # be merged onto one shared (the smaller of the two) target width -- different camera
+    # resolutions can still land on almost the same tray size once each is normalized on its own.
+    # Only closes gaps that are plausibly detection noise on the same physical rig (observed up to
+    # ~17% between two very small shape groups); a genuinely different setup/resolution can differ
+    # by 60%+, which this is not meant to bridge -- raising it further mostly widens what counts as
+    # "noise" without closing that gap, since nothing sits between the two.
+    shape_group_merge_tolerance: float = 0.2
 
 
 @dataclass
