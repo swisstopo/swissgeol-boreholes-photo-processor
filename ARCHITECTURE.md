@@ -33,9 +33,13 @@ single source of truth for a given run.
 `CorePipelineRunner`, in order:
 
 1. **Collect** — scan the folder for `.tif` files, parse `ImageMetadataCores` (borehole ID
-   + depth range) from each filename, skip unreadable/non-image files.
+   + depth range) from each filename, skip unreadable/non-image files. An `override_` filename
+   prefix (issue #71) marks an already-cropped replacement image; it wins over any other file
+   at the same depth range.
 2. **Segment** (`src/segment/segment_cores.py`) — for each image, detect the core region,
-   the wooden tray, and the depth ruler, producing `ImageMetadataProcessedCores`.
+   the wooden tray, and the depth ruler, producing `ImageMetadataProcessedCores`. Override
+   images skip this entirely: the whole image is the core bbox, with no tray/ruler, so it's
+   scaled via the batch's fallback scale like any other core with an undetected ruler.
 3. **Evaluate** (`src/evaluations/core.py`, only with `--mlflow`) — flag detections whose
    measured core length deviates too far from the batch median, and whose core width deviates
    too far from its depth segment's reference (segments found via `DPCoreWidthEstimation`), as
@@ -168,10 +172,12 @@ produces one canvas image (`stitching_batch`/`_draw_*` in `src/stitching/draw.py
    (the Montagny range convention), the narrower-span one is kept, since a pre-existing
    wide-span composite/overview photo can otherwise share an end-depth with the real
    per-sample photo; otherwise the first or last by filename is kept, selected via
-   `--dedup-keep`.
+   `--dedup-keep`. An `override_` filename prefix (issue #71) marks an already-cropped
+   replacement image; it always wins at its depth.
 2. **Segment** (`src/segment/segment_cuttings.py`) — crop the cuttings region using one of
    two interchangeable methods, selected via `--cut-type`, producing
-   `ImageMetadataProcessedCuttings`.
+   `ImageMetadataProcessedCuttings`. Override images always skip this and get the full
+   image as their bbox, regardless of `--cut-type`.
 3. *(No evaluation step yet — `_evaluate` is a no-op for this pipeline.)*
 4. **Stitch** (`src/stitching/stitching_cuttings.py`) — arrange into fixed-size grid pages.
 
@@ -262,6 +268,11 @@ scale to preserve, so layout is purely grid-based:
   depth parseable under one of six borehole-specific conventions (see Cuttings pipeline
   above); the borehole ID instead comes from the folder name. Files that don't match are
   skipped with a warning, not fatal to the whole batch.
+- **`override_` is a filename-only escape hatch** (issue #71), not a UI feature: stripped
+  before the normal parsing above, it marks a manually cropped replacement image
+  (`is_override`) that skips automatic segmentation and wins over any other file at the same
+  depth/range. A core override still needs a real ruler somewhere in the batch, since it has
+  none of its own and falls back to the batch's scale.
 - **Shape grouping assumes a static camera (cores), or at least a static paper position
   (cuttings' `pebble`), per batch of same-shaped images.** If two genuinely different
   camera setups happen to produce images of the same pixel dimensions, they'd incorrectly

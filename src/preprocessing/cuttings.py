@@ -21,14 +21,15 @@ def collect_cuttings(
     """Collect cuttings images from a directory, sorted by depth parsed from their filenames.
 
     Only one image at each depth is kept; the rest are dropped as duplicates and their count is
-    logged to MLflow when with_mlflow is set. When two colliding images both carry a
-    depth_start (the Montagny range convention), the narrower-span one is kept -- a
-    pre-existing wide-span composite/overview photo can share an end-depth with the real
-    per-sample photo, and the narrow one is always the genuine single sample. Otherwise the
-    image kept is picked by filename order, per dedup_keep. "00-Vials-" files (e.g. GVL-1's
-    sample-vial photos) are excluded outright, as their depth-less names would otherwise parse
-    as depth 0 and pollute the output. "...vue-generale" files (general overview shots, not
-    per-depth cutting samples) are excluded outright too.
+    logged to MLflow when with_mlflow is set. An `override_` file always wins at its depth,
+    regardless of dedup_keep or span. Otherwise, when two colliding images both carry a
+    depth_start (the Montagny range convention), the
+    narrower-span one is kept -- a pre-existing wide-span composite/overview photo can share an
+    end-depth with the real per-sample photo, and the narrow one is always the genuine single
+    sample. Otherwise the image kept is picked by filename order, per dedup_keep. "00-Vials-"
+    files (e.g. GVL-1's sample-vial photos) are excluded outright, as their depth-less names
+    would otherwise parse as depth 0 and pollute the output. "...vue-generale" files (general
+    overview shots, not per-depth cutting samples) are excluded outright too.
 
     Args:
         input_dir (Path): Path to the directory containing raw cuttings photos.
@@ -54,9 +55,24 @@ def collect_cuttings(
                 logging.warning("Skipping %s: %s", f.name, e)
     imgs_metadata.sort(key=lambda m: (m.depth, m.image_path.name))
 
-    deduped_by_depth: dict[float, ImageMetadataCuttings] = {}
+    # An override always wins at its depth; the rest are dropped below.
+    overrides_by_depth: dict[float, ImageMetadataCuttings] = {}
     duplicate_counts: dict[float, int] = defaultdict(int)
     for metadata in imgs_metadata:
+        if not metadata.is_override:
+            continue
+        if metadata.depth in overrides_by_depth:
+            duplicate_counts[metadata.depth] += 1
+        else:
+            overrides_by_depth[metadata.depth] = metadata
+
+    deduped_by_depth: dict[float, ImageMetadataCuttings] = {}
+    for metadata in imgs_metadata:
+        if metadata.is_override:
+            continue
+        if metadata.depth in overrides_by_depth:
+            duplicate_counts[metadata.depth] += 1
+            continue
         existing = deduped_by_depth.get(metadata.depth)
         if existing is None:
             deduped_by_depth[metadata.depth] = metadata
@@ -69,8 +85,11 @@ def collect_cuttings(
                     deduped_by_depth[metadata.depth] = metadata
             elif dedup_keep == "last":
                 deduped_by_depth[metadata.depth] = metadata
+    deduped_by_depth.update(overrides_by_depth)
     deduped_metadata = sorted(deduped_by_depth.values(), key=lambda m: m.depth)
 
+    if overrides_by_depth:
+        logging.info("Using %d override cuttings image(s) in %s", len(overrides_by_depth), input_dir.name)
     if duplicate_counts:
         logging.warning(
             "Dropped %d duplicate-depth cuttings image(s) in %s", sum(duplicate_counts.values()), input_dir.name

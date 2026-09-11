@@ -34,6 +34,7 @@ def make_metadata(tmp_path):
         depth_end: float,
         draw_fn: Callable[[ImageDraw.ImageDraw], None] = lambda draw: None,
         size: tuple[int, int] = _IMG_SIZE,
+        is_override: bool = False,
     ) -> ImageMetadataCores:
         """Creates an ImageMetadataCores pointing to a synthetic TIF image built by draw_fn.
 
@@ -44,6 +45,7 @@ def make_metadata(tmp_path):
                 background image (e.g. to add a core or tray rectangle). Defaults to a no-op,
                 producing a flat background image.
             size (tuple[int, int]): Size of the synthetic image in pixels. Defaults to _IMG_SIZE.
+            is_override (bool): Whether this represents a manually cropped override image.
 
         Returns:
             ImageMetadataCores: Metadata pointing at the saved synthetic TIF image.
@@ -58,6 +60,7 @@ def make_metadata(tmp_path):
             depth_start=depth_start,
             depth_end=depth_end,
             image_path=image_path,
+            is_override=is_override,
         )
 
     return _factory
@@ -258,6 +261,29 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     assert detections[1].depth_start == 16.0
     assert detections[1].core is not None
     assert detections[1].core.bbox == core_box
+
+
+def test_segment_override_image_skips_detection_and_uses_full_frame(make_metadata):
+    """An override image bypasses detection: the whole image is the core, with no ruler detected."""
+    override = make_metadata(15.0, 16.0, is_override=True, size=(900, 300))
+    good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle((200, 150, 600, 700), fill=(200, 200, 200)))
+
+    detections = segment_cores(
+        [good, override],
+        config=SegmentationConfig(
+            core=SegmentationCoreConfig(
+                tray_single=SegmentationTraySingleConfig(downscale_factor=1),
+                core=SegmentationCoreTrimConfig(downscale_factor=1),
+            ),
+        ),
+    )
+
+    assert len(detections) == 2
+    override_detection = next(d for d in detections if d.depth_start == 15.0)
+    assert override_detection.core is not None
+    assert override_detection.core.bbox == (0, 0, 900, 300)
+    assert override_detection.tray is None
+    assert override_detection.ruler is None
 
 
 def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, make_metadata):

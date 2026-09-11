@@ -57,6 +57,17 @@ def test_collect_cuttings_prefers_narrower_span_regardless_of_filename_order(tmp
     assert result[0].image_path.name == "MONTAGNY-2_Cuttings_0395.00-0400.00.jpg"
 
 
+def test_collect_cuttings_override_wins_over_duplicate_depth(tmp_path):
+    """An override_ file always wins at its depth, regardless of dedup_keep or filename order."""
+    _write_image(tmp_path / "10m_00.jpg")
+    _write_image(tmp_path / "override_10m_01.jpg")
+
+    result = collect_cuttings(tmp_path, dedup_keep="first")
+
+    assert len(result) == 1
+    assert result[0].image_path.name == "override_10m_01.jpg"
+
+
 def test_collect_cuttings_skips_vial_photos(tmp_path):
     """Sample-vial photos (no real depth) are excluded outright, not parsed as depth 0."""
     _write_image(tmp_path / "00-Vials-IMG_20240525_084316.jpg")
