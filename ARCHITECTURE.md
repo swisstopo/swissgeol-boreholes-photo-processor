@@ -40,9 +40,9 @@ single source of truth for a given run.
    measured core length deviates too far from the batch median, and whose core width deviates
    too far from its depth segment's reference (segments found via `DPCoreWidthEstimation`), as
    a segmentation quality signal.
-4. **Stitch** (`src/stitching/stitching_cores.py`) — group processed images into chunks of
-   `num_cores_per_image`, resize each core to a shared physical scale, and compose them
-   onto labeled canvases with rulers.
+4. **Stitch** (`src/stitching/stitching_cores.py`) — greedily pack processed images onto
+   pages by predicted rendered width (`core_area_width`, `min_core_gap`), resize each core to
+   a shared physical scale, and compose them onto labeled canvases with rulers.
 
 ### Segmentation
 
@@ -131,10 +131,15 @@ aggregation and the per-image fallback pass run in parallel worker pools sized b
 
 ### Stitching / Output
 
-`src/stitching/stitching_cores.py` chunks the processed images into groups of
-`num_cores_per_image` and, per chunk, produces one canvas image
-(`stitching_batch`/`_draw_*` in `src/stitching/draw.py`):
+`src/stitching/stitching_cores.py` packs the processed images onto pages and, per page,
+produces one canvas image (`stitching_batch`/`_draw_*` in `src/stitching/draw.py`):
 
+- Cores are assigned to a page greedily by predicted rendered width, so as many as fit within
+  `core_area_width` (with at least `min_core_gap` between them) land on the same page — instead
+  of a fixed cores-per-page count, which wasted space for narrow cores and overflowed for wide
+  ones. The predicted width is estimated from each core's bbox and scale, without loading pixel
+  data; the actual (larger-or-equal) gap is only fixed once stitching, spread evenly across the
+  page's leftover width.
 - Each core crop is resized so that its ruler's `px_per_unit` maps to a shared canvas
   scale (`max_core_height / shared_ruler_steps`), so cores from different images end up at
   a consistent physical scale even though their pixel resolutions differ. Cores with no
@@ -277,8 +282,8 @@ scale to preserve, so layout is purely grid-based:
   cropping/stitching.
 
 <!-- arch-sync:metadata
-generated-at: 2026-09-02
-git-ref: f0de4c8
+generated-at: 2026-09-09
+git-ref: 8523e80
 covered-paths:
   - src/run.py
   - src/pipeline_runner.py
