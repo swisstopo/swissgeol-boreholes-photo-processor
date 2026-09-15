@@ -171,6 +171,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
         output_dir: Path,
         with_mlflow: bool = False,
         run_id: str | None = None,
+        write_tiff: bool = True,
     ) -> None:
         """Render one batch and write/log its output image; unit of work for the stitching pool.
 
@@ -182,6 +183,8 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
             with_mlflow (bool, optional): Whether to log this figure as an MLflow artifact. Defaults to False.
             run_id (str | None, optional): MLflow run to attach the logged artifact to. Only used
                 when `with_mlflow` is True. Defaults to None.
+            write_tiff (bool, optional): Whether to additionally write the full-resolution TIFF
+                output. Defaults to True.
         """
         img = self._batch_stitch(batch, config)
         if with_mlflow:
@@ -198,7 +201,8 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                 int(img.size[1] * web_downscale_factor),
             )
         ).save(output_dir / f"{prefix}.jpg", quality=config.web_output_quality)
-        img.save(output_dir / f"{prefix}.tif")
+        if write_tiff:
+            img.save(output_dir / f"{prefix}.tif")
 
     def run(
         self,
@@ -211,6 +215,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
         log_path: Path | None = None,
         cache: bool = False,
         cut_type: str = DEFAULT_CUT_TYPE,
+        write_tiff: bool = True,
     ) -> None:
         """Process raw photos from input_dir into stitched output figure(s) in output_dir.
 
@@ -226,6 +231,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                 completes. Only meaningful for a top-level (non-nested) run.
             cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
             cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
+            write_tiff (bool): Whether to additionally write the full-resolution TIFF output.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow, nested=nested):
             imgs_metadata = self._collect(input_dir, with_mlflow=with_mlflow, config=config.segmentation)
@@ -259,6 +265,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                 output_dir=output_dir,
                 with_mlflow=with_mlflow,
                 run_id=active_run.info.run_id if with_mlflow and active_run is not None else None,
+                write_tiff=write_tiff,
             )
 
             with ThreadPoolExecutor(max_workers=config.stitching.n_workers) as ex:
@@ -284,6 +291,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
         log_path: Path | None = None,
         cache: bool = False,
         cut_type: str = DEFAULT_CUT_TYPE,
+        write_tiff: bool = True,
     ) -> None:
         """Accepts a root directory and runs the pipeline on all subdirectories.
 
@@ -299,6 +307,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                 completes.
             cache (bool): Whether to eagerly load and cache each image's cropped region in memory.
             cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
+            write_tiff (bool): Whether to additionally write the full-resolution TIFF output.
         """
         with _mlflow_run(input_dir.name, with_mlflow=with_mlflow) as active_run:
             subdirs = sorted([p for p in input_dir.iterdir() if p.is_dir()])
@@ -314,6 +323,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                     nested=True,
                     cache=cache,
                     cut_type=cut_type,
+                    write_tiff=write_tiff,
                 )
 
             if active_run is not None:

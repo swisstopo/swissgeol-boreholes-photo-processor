@@ -1,5 +1,6 @@
 """Shared package utilities."""
 
+import logging
 from functools import cache, lru_cache
 from pathlib import Path
 
@@ -13,6 +14,11 @@ from src.config import SegmentationError
 # Cores are always TIFF; cuttings additionally allow common photo formats, which
 # tifffile cannot decode, so those are routed through PIL instead.
 _TIFF_EXTENSIONS = {".tif", ".tiff"}
+
+# Some scanner-produced input TIFFs carry OME-XML metadata that mismatches their actual
+# (interleaved) pixel layout; tifffile logs a "cannot handle discontiguous storage" warning
+# and falls back to reading the array correctly, so this is benign noise, not a real error.
+logging.getLogger("tifffile").setLevel(logging.ERROR)
 
 
 # Store up to 4 different image (downscaled) in memory
