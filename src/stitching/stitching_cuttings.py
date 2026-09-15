@@ -29,7 +29,7 @@ def stitching_batch_cuttings(
 
     Cuttings are arranged into a fixed grid, filled column by column. Portrait images are
     rotated 90 degrees to landscape, then scaled down (never up) to fit within the grid cell
-    while preserving aspect ratio, and left-aligned in their cell.
+    while preserving aspect ratio, and centered horizontally and vertically in their cell.
 
     The values are padding_horizontal (PH), padding_vertical (PV),
     and padding cuttings (PC). FROM/TO show the depth_start of the topmost/bottommost
@@ -110,8 +110,9 @@ def stitching_batch_cuttings(
         column, row = divmod(i, rows)
         image_x = cuttings_config.padding_horizontal + column * column_step
         cell_y = cuttings_config.padding_vertical + row * (cell_height + cuttings_config.padding_cuttings)
+        x = image_x + (image_width - cutting_img.width) // 2
         y = cell_y + (cell_height - cutting_img.height) // 2
-        canvas.paste(cutting_img, (image_x, y))
+        canvas.paste(cutting_img, (x, y))
 
         annotation_x = image_x + image_width + cuttings_config.annotation_gap
         canvas = _draw_cuttings_annotation(
@@ -130,22 +131,22 @@ def stitching_batch_cuttings(
             break
         end_idx = min(start_idx + rows, len(cuttings)) - 1
         image_x = cuttings_config.padding_horizontal + column * column_step
+        # centered over the column's content area, matching the cuttings' own centering
+        image_center_x = image_x + image_width // 2
 
-        # left-anchored at image_x since cuttings are left-aligned in their column, so the
-        # left edge is the one x position shared by every cutting in the column
         canvas = _draw_cuttings_border_label(
             canvas,
             depth=cuttings[start_idx].depth,
-            loc=(image_x, round(cuttings_config.padding_vertical * 3 / 4)),
+            loc=(image_center_x, round(cuttings_config.padding_vertical * 3 / 4)),
             font_size=cuttings_config.font_size,
-            anchor="lm",
+            anchor="mm",
         )
         canvas = _draw_cuttings_border_label(
             canvas,
             depth=cuttings[end_idx].depth,
-            loc=(image_x, round(cuttings_config.output_height - cuttings_config.padding_vertical / 2)),
+            loc=(image_center_x, round(cuttings_config.output_height - cuttings_config.padding_vertical / 2)),
             font_size=cuttings_config.font_size,
-            anchor="lm",
+            anchor="mm",
         )
 
     return canvas
