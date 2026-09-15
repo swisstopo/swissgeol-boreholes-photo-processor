@@ -331,7 +331,11 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
         with_mlflow: bool,
         config: SegmentationConfig,  # unused: no dedup concept for cores
     ) -> list[ImageMetadataCores]:
-        """Collect all TIF images from the input directory and parse filename metadata."""
+        """Collect all TIF images from the input directory and parse filename metadata.
+
+        An `override_` file always wins at its depth range: any other image sharing that same
+        (depth_start, depth_end) is dropped in its favor.
+        """
         imgs_metadata: list[ImageMetadataCores] = []
         for f in map(Path, glob.glob(str(input_dir / "*"), include_hidden=False)):
             if f.suffix.lower() == ".tif":
@@ -342,6 +346,31 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
                 except (ValueError, SegmentationError, tifffile.TiffFileError) as e:
                     logging.warning("Skipping %s: %s", f.name, e)
         imgs_metadata.sort(key=lambda m: m.depth_start)
+
+        overrides_by_range: dict[tuple[float, float], ImageMetadataCores] = {}
+        for metadata in imgs_metadata:
+            if metadata.is_override:
+                overrides_by_range.setdefault((metadata.depth_start, metadata.depth_end), metadata)
+        if overrides_by_range:
+            before = len(imgs_metadata)
+            kept_overrides: set[tuple[float, float]] = set()
+            filtered: list[ImageMetadataCores] = []
+            for metadata in imgs_metadata:
+                key = (metadata.depth_start, metadata.depth_end)
+                override = overrides_by_range.get(key)
+                if override is None:
+                    filtered.append(metadata)
+                elif metadata is override and key not in kept_overrides:
+                    kept_overrides.add(key)
+                    filtered.append(metadata)
+            imgs_metadata = filtered
+            logging.info(
+                "Using %d override core image(s), dropping %d duplicate(s) in %s",
+                len(overrides_by_range),
+                before - len(imgs_metadata),
+                input_dir.name,
+            )
+
         logging.info("Found %d TIF images in %s", len(imgs_metadata), input_dir.name)
         return imgs_metadata
 

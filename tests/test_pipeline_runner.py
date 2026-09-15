@@ -5,8 +5,8 @@ from typing import Any
 
 from PIL import Image
 
-from src.config import PipelineConfig
-from src.pipeline_runner import CuttingsPipelineRunner, PipelineRunner
+from src.config import PipelineConfig, SegmentationConfig
+from src.pipeline_runner import CorePipelineRunner, CuttingsPipelineRunner, PipelineRunner
 
 
 class _FakeRunner(PipelineRunner[Any, Any, Any]):
@@ -50,3 +50,14 @@ def test_cuttings_pipeline_runner_produces_output_for_depth_photos(tmp_path):
 
     assert (output_dir / "GES-F-1_001.jpg").exists()
     assert (output_dir / "GES-F-1_001.tif").exists()
+
+
+def test_core_pipeline_runner_collect_prefers_override_at_same_depth_range(tmp_path):
+    """An override_ file always wins over any other TIF sharing its depth range."""
+    Image.new("RGB", (60, 80), color=(128, 128, 128)).save(tmp_path / "GBC-CB50_0015.00-0016.00_vd_p.TIF")
+    Image.new("RGB", (60, 80), color=(128, 128, 128)).save(tmp_path / "override_GBC-CB50_0015.00-0016.00_vd_p.TIF")
+
+    imgs_metadata = CorePipelineRunner()._collect(tmp_path, with_mlflow=False, config=SegmentationConfig())
+
+    assert len(imgs_metadata) == 1
+    assert imgs_metadata[0].image_path.name == "override_GBC-CB50_0015.00-0016.00_vd_p.TIF"

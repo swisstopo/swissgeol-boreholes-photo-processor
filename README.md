@@ -138,6 +138,10 @@ For **batch processing** across multiple boreholes, the input directory should c
 
 The pipeline detects the mode automatically: if the input directory contains subdirectories it runs in batch mode, otherwise it processes the directory as a single borehole. The input folder structure is mirrored in the output directory.
 
+**Manually cropped overrides**
+
+Prefix a filename with `override_` (e.g. `override_GBC-CB50_0015.00-0016.00_vd_p.tif`) to supply an already-cropped image for that depth range instead of letting the pipeline segment it automatically; it wins over any other file at the same range. It must still be a `.tif`, since it's scaled like any other core with no detected ruler (the batch's fallback scale).
+
 ### Expected Data Format (Cuttings)
 
 The pipeline processes cuttings photos in **JPG, JPEG, BMP, TIF, and TIFF format** (case-insensitive). Files with other extensions are ignored.
@@ -163,6 +167,10 @@ sample-vial photos rather than depth photos.
 Only the first photo (by filename) found at a given depth is kept; any extra photos at the same
 depth are dropped and the count is logged (and, with `--mlflow`, recorded as a metric). Naming every
 photo at a shared depth with the convention above (unique, incrementing `sequence`) avoids this.
+
+**Manually cropped overrides**
+
+Prefix a filename with `override_` (e.g. `override_1234.50m_01.jpg`) to supply an already-cropped image for that depth instead of letting the pipeline crop it automatically; it wins over any other file at the same depth.
 
 **Folder structure**
 
