@@ -46,5 +46,6 @@ class StitchingConfig:
 
     n_workers: int = 4  # number of worker threads used to stitch output figures in parallel
     web_output_quality: int = 95  # output JPG quality/compression tradeoff, in the range 0–100
+    write_tiff: bool = True  # whether to additionally write the full-resolution TIFF output
     core: CoreStitchingConfig = field(default_factory=CoreStitchingConfig)
     cuttings: CuttingsStitchingConfig = field(default_factory=CuttingsStitchingConfig)

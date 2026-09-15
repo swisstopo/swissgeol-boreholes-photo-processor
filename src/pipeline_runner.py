@@ -198,7 +198,8 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                 int(img.size[1] * web_downscale_factor),
             )
         ).save(output_dir / f"{prefix}.jpg", quality=config.web_output_quality)
-        img.save(output_dir / f"{prefix}.tif")
+        if config.write_tiff:
+            img.save(output_dir / f"{prefix}.tif")
 
     def run(
         self,

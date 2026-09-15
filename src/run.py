@@ -22,6 +22,7 @@ def _run(
     cache: bool,
     cut_type: str = DEFAULT_CUT_TYPE,
     dedup_keep: Literal["first", "last"] | None = None,
+    jpg_only: bool = False,
 ) -> None:
     """Run the given pipeline runner over an already-validated set of CLI options.
 
@@ -36,6 +37,7 @@ def _run(
         cut_type (str): Cuttings segmentation method to use. Ignored by the cores pipeline.
         dedup_keep (str | None): If set, overrides config's segmentation.cuttings.dedup_keep for
             this run. Ignored by the cores pipeline.
+        jpg_only (bool): If set, skip writing the full-resolution TIFF output.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -53,6 +55,8 @@ def _run(
     pipeline_config = PipelineConfig.from_yaml(config)
     if dedup_keep is not None:
         pipeline_config.segmentation.cuttings.dedup_keep = dedup_keep
+    if jpg_only:
+        pipeline_config.stitching.write_tiff = False
 
     has_subdirs = any(p.is_dir() for p in input_dir.iterdir())
     run_fn = runner.batch_run if has_subdirs else runner.run
@@ -80,6 +84,13 @@ def _pipeline_options(f):
     f = click.option(
         "--cache", is_flag=True, default=False, help="Whether to cache images in memory for faster processing."
     )(f)
+    f = click.option(
+        "--jpg-only",
+        "jpg_only",
+        is_flag=True,
+        default=False,
+        help="Skip writing the full-resolution TIFF output; only generate the JPG.",
+    )(f)
     f = click.option("--debug", is_flag=True, help="Whether to log debug images to MLflow.")(f)
     f = click.option("--mlflow", is_flag=True, help="Whether to log artifacts to MLflow.")(f)
     f = click.option(
@@ -106,9 +117,11 @@ def cli() -> None:
 
 @cli.command("cores")
 @_pipeline_options
-def cores_command(input_dir: Path, output_dir: Path, mlflow: bool, debug: bool, config: Path, cache: bool) -> None:
+def cores_command(
+    input_dir: Path, output_dir: Path, mlflow: bool, debug: bool, config: Path, cache: bool, jpg_only: bool
+) -> None:
     """Run the core-photos pipeline."""
-    _run(CorePipelineRunner(), input_dir, output_dir, mlflow, debug, config, cache)
+    _run(CorePipelineRunner(), input_dir, output_dir, mlflow, debug, config, cache, jpg_only=jpg_only)
 
 
 @cli.command("cuttings")
@@ -135,6 +148,7 @@ def cuttings_command(
     debug: bool,
     config: Path,
     cache: bool,
+    jpg_only: bool,
     cut_type: str,
     dedup_keep: Literal["first", "last"] | None,
 ) -> None:
@@ -149,6 +163,7 @@ def cuttings_command(
         cache,
         cut_type=cut_type,
         dedup_keep=dedup_keep,
+        jpg_only=jpg_only,
     )
 
 
