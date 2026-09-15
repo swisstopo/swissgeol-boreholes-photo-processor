@@ -1,6 +1,7 @@
 """Ruler detection: per-image OCR and aggregation across a shape group."""
 
 from timeit import default_timer as timer
+from typing import cast
 
 import numpy as np
 import pytesseract
@@ -177,7 +178,8 @@ class ProcessRulerGroupByShape(ProcessGroupByShape[ImageMetadataCores, RulerSegm
             RulerSegmentResult | None: The detection whose `px_per_unit` is the median across
                 the group, or None if no detections are available.
         """
-        if not processed_items:
+        valid_items = [d for d in processed_items if d.px_per_unit is not None]
+        if not valid_items:
             return None
 
-        return sorted(processed_items, key=lambda d: d.px_per_unit)[len(processed_items) // 2]
+        return sorted(valid_items, key=lambda d: cast(float, d.px_per_unit))[len(valid_items) // 2]
