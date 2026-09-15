@@ -55,8 +55,6 @@ def _run(
     pipeline_config = PipelineConfig.from_yaml(config)
     if dedup_keep is not None:
         pipeline_config.segmentation.cuttings.dedup_keep = dedup_keep
-    if jpg_only:
-        pipeline_config.stitching.write_tiff = False
 
     has_subdirs = any(p.is_dir() for p in input_dir.iterdir())
     run_fn = runner.batch_run if has_subdirs else runner.run
@@ -69,6 +67,7 @@ def _run(
         log_path=log_path if mlflow else None,
         cache=cache,
         cut_type=cut_type,
+        write_tiff=not jpg_only,
     )
 
 
