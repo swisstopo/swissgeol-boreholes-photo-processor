@@ -33,7 +33,7 @@ class CuttingsStitchingConfig:
     output_height: int = 10000  # total output canvas height (pixels), split evenly across the rows
     output_width: int = 8000  # total output canvas width (pixels), split evenly across the columns
     num_cuttings_columns: int = 3  # cuttings placed side by side per output sheet
-    num_cuttings_rows: int = 15  # cuttings stacked per column per output sheet
+    num_cuttings_rows: int = 10  # cuttings stacked per column per output sheet
     padding_cuttings: int = 69  # gap in pixels between neighboring cells, carved out of the output dimensions
     padding_horizontal: int = 508  # left/right border width in pixels
     padding_vertical: int = 518  # top/bottom border height in pixels
