@@ -423,7 +423,7 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
         """Generate the filename for a single output figure.
 
         Args:
-            batch (list[ImageMetadataProcessedCores]): One batch produced by `_collate_stitch`.
+            batch (StitchingBatchCores): One batch produced by `_collate_stitch`.
 
         Returns:
             str: The output filename for the composite image created from this batch.
@@ -485,7 +485,7 @@ class CuttingsPipelineRunner(
         """Generate the filename for a single output figure.
 
         Args:
-            batch (list[ImageMetadataProcessedCores]): One batch produced by `_collate_stitch`.
+            batch (StitchingBatchCuttings): One batch produced by `_collate_stitch`.
 
         Returns:
             str: The output filename for the composite image created from this batch.
