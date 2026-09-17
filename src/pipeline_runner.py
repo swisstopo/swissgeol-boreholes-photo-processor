@@ -151,6 +151,18 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
         ...
 
     @abstractmethod
+    def _output_filename(self, batch: Q) -> str:
+        """Generate the filename for a single output figure.
+
+        Args:
+            batch (Q): One batch produced by `_collate_stitch`.
+
+        Returns:
+            str: The output filename for the composite image created from this batch.
+        """
+        ...
+
+    @abstractmethod
     def _batch_stitch(self, batch: Q, config: StitchingConfig) -> Image.Image:
         """Render a single batch into one output figure.
 
@@ -166,7 +178,6 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
     def _stitch(
         self,
         batch: Q,
-        prefix: str,
         config: StitchingConfig,
         output_dir: Path,
         with_mlflow: bool = False,
@@ -177,7 +188,6 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
 
         Args:
             batch (Q): One batch produced by `_collate_stitch`.
-            prefix (str): Output filename stem (without extension) for this batch's figure.
             config (StitchingConfig): Tunable layout parameters.
             output_dir (Path): Directory the output files are written to.
             with_mlflow (bool, optional): Whether to log this figure as an MLflow artifact. Defaults to False.
@@ -187,6 +197,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
                 output. Defaults to True.
         """
         img = self._batch_stitch(batch, config)
+        prefix = self._output_filename(batch)
         if with_mlflow:
             log_artifact_with_mlflow(
                 img=img,
@@ -270,7 +281,7 @@ class PipelineRunner(ABC, Generic[M, P, Q]):
 
             with ThreadPoolExecutor(max_workers=config.stitching.n_workers) as ex:
                 for _ in tqdm(
-                    ex.map(worker, batches, [f"{input_dir.name}_{idx + 1:03d}" for idx in range(len(batches))]),
+                    ex.map(worker, batches),
                     total=len(batches),
                     desc="Stitching images",
                 ):
@@ -408,6 +419,20 @@ class CorePipelineRunner(PipelineRunner[ImageMetadataCores, ImageMetadataProcess
             results = evaluate_detections(detections, config)
             log_evaluation_results_with_mlflow(results, folder_name=folder_name)
 
+    def _output_filename(self, batch: StitchingBatchCores) -> str:
+        """Generate the filename for a single output figure.
+
+        Args:
+            batch (StitchingBatchCores): One batch produced by `_collate_stitch`.
+
+        Returns:
+            str: The output filename for the composite image created from this batch.
+        """
+        borehole_name = batch.shared_borehole_id
+        first_depth = batch.cores[0].depth_start
+        last_depth = batch.cores[-1].depth_end
+        return f"{borehole_name}_{first_depth:.2f}-{last_depth:.2f}_cores"
+
     def _collate_stitch(
         self, imgs: list[ImageMetadataProcessedCores], config: StitchingConfig
     ) -> list[StitchingBatchCores]:
@@ -455,6 +480,20 @@ class CuttingsPipelineRunner(
         return segment_cuttings(
             imgs_metadata, config=config, with_mlflow=with_mlflow, debug=debug, cache=cache, cut_type=cut_type
         )
+
+    def _output_filename(self, batch: StitchingBatchCuttings) -> str:
+        """Generate the filename for a single output figure.
+
+        Args:
+            batch (StitchingBatchCuttings): One batch produced by `_collate_stitch`.
+
+        Returns:
+            str: The output filename for the composite image created from this batch.
+        """
+        borehole_name = batch.shared_borehole_id
+        first_depth = batch.cuttings[0].depth
+        last_depth = batch.cuttings[-1].depth
+        return f"{borehole_name}_{first_depth:.2f}-{last_depth:.2f}_cuttings"
 
     def _collate_stitch(
         self, imgs: list[ImageMetadataProcessedCuttings], config: StitchingConfig

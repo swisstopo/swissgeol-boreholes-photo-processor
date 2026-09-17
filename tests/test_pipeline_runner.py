@@ -27,6 +27,9 @@ class _FakeRunner(PipelineRunner[Any, Any, Any]):
     def _batch_stitch(self, batch: Any, config) -> Image.Image:
         return Image.new("RGB", (1, 1))
 
+    def _output_filename(self, batch: Any) -> str:
+        return "output"
+
 
 def test_run_with_no_images_creates_empty_output_dir_without_crashing(tmp_path):
     """run() handles the empty-collection/empty-stitch path (the idx=-1 guard) without raising."""
@@ -48,8 +51,8 @@ def test_cuttings_pipeline_runner_produces_output_for_depth_photos(tmp_path):
 
     CuttingsPipelineRunner().run(input_dir=input_dir, output_dir=output_dir, config=PipelineConfig())
 
-    assert (output_dir / "GES-F-1_001.jpg").exists()
-    assert (output_dir / "GES-F-1_001.tif").exists()
+    assert (output_dir / "GES-F-1_10.00-20.00_cuttings.jpg").exists()
+    assert (output_dir / "GES-F-1_10.00-20.00_cuttings.tif").exists()
 
 
 def test_core_pipeline_runner_collect_prefers_override_at_same_depth_range(tmp_path):
