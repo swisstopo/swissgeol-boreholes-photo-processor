@@ -24,7 +24,7 @@ segmentation:
       opening_disk: 20 # radius for binary_opening (removes noise)
 
     ruler:
-      downscale_factor: 0.25 # scale images by this factor before OCR, before: 0.5
+      downscale_factor: 0.5 # scale images by this factor before OCR, before: 0.5
       text_min_value: 1 # minimal visible number on ruler
       text_max_value: 99 # maximal visible number on ruler
       r_error_outliers: 0.1 # allow 10% error for outliers detection
