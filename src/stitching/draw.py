@@ -50,14 +50,14 @@ def _draw_cores(
 
         draw.text(
             (x_offset + core.width / 2, y_min - padding_vertical),
-            _format_depth(start_label) + ("" if correct else "*"),
+            _format_depth(start_label),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",
         )
         draw.text(
             (x_offset + core.width / 2, y_min + max_core_height + padding_vertical),
-            _format_depth(end_label) + ("" if correct else "*"),
+            _format_depth(end_label),
             fill=(255, 255, 255),
             font=font,
             anchor="mm",
