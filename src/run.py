@@ -4,6 +4,7 @@ import datetime
 import logging
 from pathlib import Path
 from typing import Literal
+import time
 
 import click
 
@@ -56,19 +57,35 @@ def _run(
     if dedup_keep is not None:
         pipeline_config.segmentation.cuttings.dedup_keep = dedup_keep
 
+    
     has_subdirs = any(p.is_dir() for p in input_dir.iterdir())
     run_fn = runner.batch_run if has_subdirs else runner.run
-    run_fn(
-        input_dir=input_dir,
-        output_dir=output_dir,
-        config=pipeline_config,
-        with_mlflow=mlflow,
-        debug=debug,
-        log_path=log_path if mlflow else None,
-        cache=cache,
-        cut_type=cut_type,
-        write_tiff=not jpg_only,
-    )
+
+    # Start measuring runtime
+    start_time = time.perf_counter()
+
+    try:
+        run_fn(
+            input_dir=input_dir,
+            output_dir=output_dir,
+            config=pipeline_config,
+            with_mlflow=mlflow,
+            debug=debug,
+            log_path=log_path if mlflow else None,
+            cache=cache,
+            cut_type=cut_type,
+            write_tiff=not jpg_only,
+        )
+    finally:
+        # Calculate and log total runtime
+        elapsed = time.perf_counter() - start_time
+
+        logging.info(
+            "Total pipeline runtime: %.2f seconds (%.2f minutes)",
+            elapsed,
+            elapsed / 60,
+        )
+
 
 
 def _pipeline_options(f):
