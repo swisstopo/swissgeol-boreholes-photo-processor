@@ -1,17 +1,19 @@
 """Core bbox detection: trimming the wooden tray and black background around the core."""
 
+import logging
 from itertools import groupby
 from timeit import default_timer as timer
 
 import numpy as np
 from skimage.color import rgb2gray, rgb2hsv
-from skimage.feature import canny
-from skimage.filters import prewitt_h, prewitt_v
+from skimage.filters import prewitt_h
 from skimage.transform import hough_line, hough_line_peaks
 
 from src.config import SegmentationCoreTrimConfig
 from src.models import CoreSegmentResult, ImageMetadataCores, ImageSegmentResult
 from src.utils import scale_bbox
+
+logger = logging.getLogger(__name__)
 
 
 def _in_range(values: np.ndarray, threshold_low: float = 0.0, threshold_high: float = 1.0) -> np.ndarray:
@@ -52,16 +54,13 @@ def _find_valid_intervals(detections: np.ndarray) -> list[tuple[int, int]]:
         detections (np.ndarray): Sorted indices of rows/columns classified as valid.
 
     Returns:
-        list[tuple[int, int]]: Start and end index of each interval, sorted by length in
-            descending order. Single-index (empty) intervals are dropped.
+        list[tuple[int, int]]: Start and end index of each interval. Single-index (empty) intervals are dropped.
     """
     # Group detections to intervals
     groups = [[v for _, v in g] for _, g in groupby(enumerate(detections), key=lambda iv: iv[1] - iv[0])]
-    results = np.array([[g[0], g[-1]] for g in groups])
-    results = [tuple(x) for x in sorted(results.tolist(), key=lambda x: x[1] - x[0], reverse=True)]
 
     # Remove empty intervals [x, x]
-    return [result for result in results if result[0] != result[1]]
+    return [(g[0], g[-1]) for g in groups if g[0] != g[-1]]
 
 
 def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimConfig) -> list[int]:
@@ -90,63 +89,70 @@ def _find_horizontal_lines(img_gray: np.ndarray, config: SegmentationCoreTrimCon
     return [0] + y_lines + [img_gray.shape[0]]
 
 
-def _find_left_right_intervals(
+def _find_left_right_foreground_intervals(
     img_hsv: np.ndarray, config: SegmentationCoreTrimConfig
-) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+) -> list[tuple[int, int]]:
     """Find the column intervals to keep after trimming black background on the left/right.
 
-    Falls back to the full image width if no interval survives the minimum height filter.
+    Falls back to the full image width if no interval survives the minimum width filter.
 
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
-        tuple[list[tuple[int, int]], list[tuple[int, int]]]: Two sets of surviving column
-            intervals, each sorted by length in descending order. The first is based on
-            black-background trimming only (falls back to the full image width if empty).
-            The second additionally excludes wood-colored (hue/saturation) columns, and
-            falls back to the first set if empty.
+        list[tuple[int, int]]: Surviving column intervals based on black-background
+            trimming (falls back to the full image width if empty).
     """
     # Get all segments that are valid and drop short ones
     feature_col_foreground = _in_range(img_hsv[:, :, 2], threshold_high=config.background_val_threshold).mean(axis=0)
     indicator_col_foreground = np.nonzero(feature_col_foreground < config.background_val_vratio)[0]
     min_segment_len = config.downscale_factor * config.min_segment_height_px
 
-    feature_col_no_wood = (
-        _in_range(img_hsv[:, :, 0], config.wood_hue_threshold_low, config.wood_hue_threshold_high)
-        & _in_range(img_hsv[:, :, 1], config.wood_sat_threshold_low, config.wood_sat_threshold_high)
-    ).mean(axis=0)
-    indicator_col_no_wood = np.nonzero(
-        (feature_col_no_wood < config.wood_vratio) & (feature_col_foreground < config.background_val_vratio)
-    )[0]
-
     lr_trims_foreground = [
         lr_trim
         for lr_trim in _find_valid_intervals(detections=indicator_col_foreground)
-        if config.downscale_factor * config.min_segment_height_px <= lr_trim[1] - lr_trim[0]
-    ]
-
-    lr_trims_no_wood = [
-        lr_trim
-        for lr_trim in _find_valid_intervals(detections=indicator_col_no_wood)
         if min_segment_len <= lr_trim[1] - lr_trim[0]
     ]
 
     if len(lr_trims_foreground) == 0:
         lr_trims_foreground = [(0, img_hsv.shape[1] - 1)]
 
-    if len(lr_trims_no_wood) == 0:
-        lr_trims_no_wood = lr_trims_foreground
+    return lr_trims_foreground
 
-    return lr_trims_foreground, lr_trims_no_wood
+
+def _find_left_right_wood_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrimConfig) -> list[tuple[int, int]]:
+    """Find the column intervals that contain wooden blocks.
+
+    This is useful for identifier wooden trays, as well as "Kernverlust" (loss of core)
+    placeholder blocks.
+
+    Args:
+        img_hsv (np.ndarray): HSV image of the cropped tray region.
+        config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
+
+    Returns:
+        list[tuple[int, int]]: Column intervals based on wood-color (hue/saturation).
+    """
+    # Get all segments that are valid and drop short ones
+    min_segment_len = config.downscale_factor * config.min_segment_height_px
+
+    feature_col_wood = (
+        _in_range(img_hsv[:, :, 0], config.wood_hue_threshold_low, config.wood_hue_threshold_high)
+        & _in_range(img_hsv[:, :, 1], config.wood_sat_threshold_low, config.wood_sat_threshold_high)
+    ).mean(axis=0)
+    indicator_col_wood = np.nonzero(feature_col_wood >= config.wood_vratio)[0]
+
+    return [
+        lr_trim
+        for lr_trim in _find_valid_intervals(detections=indicator_col_wood)
+        if min_segment_len <= lr_trim[1] - lr_trim[0]
+    ]
 
 
 def _find_top_bottom_intervals(
     img_hsv: np.ndarray,
-    img_gray: np.ndarray,
     y_lines: list[int],
-    lr_trims: list[tuple[int, int]],
     config: SegmentationCoreTrimConfig,
 ) -> list[tuple[int, int]]:
     """Find the row intervals to keep after trimming wooden tray and black background top/bottom.
@@ -160,37 +166,34 @@ def _find_top_bottom_intervals(
 
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
-        img_gray (np.ndarray): Grayscale image of the cropped tray region.
         y_lines (list[int]): Row indices of detected horizontal dividers, sorted ascending.
-        lr_trims (list[tuple[int, int]]): Start and end column indices of the surviving
-            left/right intervals, used to restrict the columns considered.
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
         list[tuple[int, int]]: Start and end row indices of each candidate top/bottom
             interval, sorted by score in descending order.
     """
-    im_edges = np.abs(prewitt_v(canny(img_gray, sigma=config.wood_texture_sigma)))
     detections = []
-    for start, end in zip(y_lines[:-1], y_lines[1:], strict=True):
-        im_segment = np.concatenate([img_hsv[start:end, lr[0] : lr[1] + 1, :] for lr in lr_trims], axis=1)
-        im_edges_segment = np.concatenate([im_edges[start:end, lr[0] : lr[1] + 1] for lr in lr_trims], axis=1)
-        im_hue, im_sat, im_val = np.moveaxis(im_segment, 2, 0)
 
-        is_wood_texture = im_edges_segment.mean() < config.wood_texture_ratio
-        is_wood_hue = _is_in_range_ratio(
-            values=im_hue,
-            threshold_low=config.wood_hue_threshold_low,
-            threshold_high=config.wood_hue_threshold_high,
-            ratio=config.wood_hratio,
-        )
+    wood_intervals_per_row = [
+        _find_left_right_wood_intervals(img_hsv[start:end, :, :], config)
+        for start, end in zip(y_lines[:-1], y_lines[1:], strict=True)
+    ]
+    wood_lengths = [
+        sum([wood_end - wood_start for wood_start, wood_end in wood_intervals])
+        for wood_intervals in wood_intervals_per_row
+    ]
+    if not wood_lengths:
+        return []
+    max_wood_length = max(wood_lengths)
 
-        is_wood_sat = _is_in_range_ratio(
-            values=im_sat,
-            threshold_low=config.wood_sat_threshold_low,
-            threshold_high=config.wood_sat_threshold_high,
-            ratio=config.wood_hratio,
-        )
+    for start, end, wood_length in zip(y_lines[:-1], y_lines[1:], wood_lengths, strict=True):
+        if wood_length > 0.9 * max_wood_length and wood_length > 0.5 * img_hsv.shape[0]:
+            # too much wood, ignore this segment
+            continue
+
+        im_segment = img_hsv[start:end, :, :]
+        _, _, im_val = np.moveaxis(im_segment, 2, 0)
 
         is_background = _is_in_range_ratio(
             values=im_val,
@@ -198,7 +201,7 @@ def _find_top_bottom_intervals(
             ratio=config.background_val_hratio,
         )
 
-        if not (is_wood_sat and is_wood_hue and is_wood_texture) and not is_background:
+        if not is_background:
             detections.extend(list(range(start, end)))
 
     if len(detections) <= 1:
@@ -249,18 +252,16 @@ def segment_core(
     gray = rgb2gray(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
 
     # Remove black background (left/right)
-    lr_trims_foreground, lr_trims_no_wood = _find_left_right_intervals(img_hsv=hsv, config=config)
-    left_trim_background = np.array(lr_trims_foreground)[:, 0].min().item()
-    right_trim_background = np.array(lr_trims_foreground)[:, 1].max().item()
+    lr_trims_foreground = _find_left_right_foreground_intervals(img_hsv=hsv, config=config)
+    left_trim_background = lr_trims_foreground[0][0]
+    right_trim_background = lr_trims_foreground[-1][1]
 
     # Remove wood / background (top/bottom). Pick the best-scored interval (large and
     # close to vertical center)
     y_lines = _find_horizontal_lines(img_gray=gray, config=config)
     top_trim, bottom_trim = _find_top_bottom_intervals(
-        img_hsv=hsv,
-        img_gray=gray,
+        img_hsv=hsv[:, left_trim_background:right_trim_background, :],
         y_lines=y_lines,
-        lr_trims=lr_trims_no_wood,
         config=config,
     )[0]
 
@@ -277,14 +278,13 @@ def segment_core(
         bbox_segments=[
             scale_bbox(
                 bbox=(
-                    x_min + left_trim,
+                    x_min + left_trim_background,
                     y_min + top_trim,
-                    x_min + right_trim,
+                    x_min + right_trim_background,
                     y_min + bottom_trim,
                 ),
                 factor=1 / config.downscale_factor,
             )
-            for left_trim, right_trim in lr_trims_no_wood
         ],
         time=timer() - t_start,
         y_lines=((y_min + np.array(y_lines)) / config.downscale_factor).tolist(),
