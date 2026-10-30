@@ -189,7 +189,7 @@ def _find_top_bottom_intervals(
     max_wood_length = max(wood_lengths)
 
     for start, end, wood_length in zip(y_lines[:-1], y_lines[1:], wood_lengths, strict=True):
-        if wood_length > 0.9 * max_wood_length and wood_length * 0.5 * img_hsv.shape[0]:
+        if wood_length > 0.9 * max_wood_length and wood_length > 0.5 * img_hsv.shape[0]:
             # too much wood, ignore this segment
             continue
 
