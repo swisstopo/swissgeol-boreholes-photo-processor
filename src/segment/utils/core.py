@@ -1,7 +1,6 @@
 """Core bbox detection: trimming the wooden tray and black background around the core."""
 
 import logging
-
 from itertools import groupby
 from timeit import default_timer as timer
 
@@ -108,7 +107,7 @@ def _find_left_right_foreground_intervals(
     # Get all segments that are valid and drop short ones
     feature_col_foreground = _in_range(img_hsv[:, :, 2], threshold_high=config.background_val_threshold).mean(axis=0)
     indicator_col_foreground = np.nonzero(feature_col_foreground < config.background_val_vratio)[0]
-    min_segment_len= config.downscale_factor * config.min_segment_height_px
+    min_segment_len = config.downscale_factor * config.min_segment_height_px
 
     lr_trims_foreground = [
         lr_trim
@@ -121,9 +120,8 @@ def _find_left_right_foreground_intervals(
 
     return lr_trims_foreground
 
-def _find_left_right_wood_intervals(
-    img_hsv: np.ndarray, config: SegmentationCoreTrimConfig
-) -> list[tuple[int, int]]:
+
+def _find_left_right_wood_intervals(img_hsv: np.ndarray, config: SegmentationCoreTrimConfig) -> list[tuple[int, int]]:
     """Find the column intervals that contain wooden blocks.
 
     This is useful for identifier wooden trays, as well as "Kernverlust" (loss of core)
@@ -182,7 +180,8 @@ def _find_top_bottom_intervals(
         for start, end in zip(y_lines[:-1], y_lines[1:], strict=True)
     ]
     wood_lengths = [
-        sum([wood_end - wood_start for wood_start, wood_end in wood_intervals]) for wood_intervals in wood_intervals_per_row
+        sum([wood_end - wood_start for wood_start, wood_end in wood_intervals])
+        for wood_intervals in wood_intervals_per_row
     ]
     if not wood_lengths:
         return []
@@ -261,7 +260,7 @@ def segment_core(
     # close to vertical center)
     y_lines = _find_horizontal_lines(img_gray=gray, config=config)
     top_trim, bottom_trim = _find_top_bottom_intervals(
-        img_hsv=hsv[:, left_trim_background : right_trim_background, :],
+        img_hsv=hsv[:, left_trim_background:right_trim_background, :],
         y_lines=y_lines,
         config=config,
     )[0]
