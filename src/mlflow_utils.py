@@ -96,12 +96,9 @@ def log_image_metadata_processed_mlflow(
     font = ImageFont.load_default(size=font_size)
 
     if result.core is not None:
-        # Draw segments < overall detection
-        for bbox in result.core.bbox_segments or []:
-            draw.rectangle(bbox, outline=(0, 255, 0, 255), fill=(0, 255, 0, 30), width=2)
         for line in result.core.y_lines or []:
             draw.line([(0, line), (img_pil.width, line)], fill=(0, 255, 0, 255), width=2)
-        draw.rectangle(result.core.bbox, outline=(0, 255, 0, 255), width=5)
+        draw.rectangle(result.core.bbox, outline=(0, 255, 0, 255), fill=(0, 255, 0, 30), width=5)
 
     if result.ruler is not None:
         # Draw units < overall detection < resolution text

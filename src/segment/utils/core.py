@@ -275,17 +275,6 @@ def segment_core(
             ),
             factor=1 / config.downscale_factor,
         ),
-        bbox_segments=[
-            scale_bbox(
-                bbox=(
-                    x_min + left_trim_background,
-                    y_min + top_trim,
-                    x_min + right_trim_background,
-                    y_min + bottom_trim,
-                ),
-                factor=1 / config.downscale_factor,
-            )
-        ],
         time=timer() - t_start,
         y_lines=((y_min + np.array(y_lines)) / config.downscale_factor).tolist(),
     )
