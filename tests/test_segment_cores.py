@@ -51,7 +51,6 @@ def make_metadata(tmp_path):
         Returns:
             ImageMetadataCores: Metadata pointing at the saved synthetic TIF image.
         """
-        tmp_path = Path("tmp")
         filename = f"{uuid.uuid4()}_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
         image_path = tmp_path / filename
         img = Image.new("RGB", size, color=_BACKGROUND_COLOR)
