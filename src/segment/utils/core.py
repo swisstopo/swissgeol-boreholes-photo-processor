@@ -107,7 +107,7 @@ def _find_left_right_foreground_intervals(
     # Get all segments that are valid and drop short ones
     feature_col_foreground = _in_range(img_hsv[:, :, 2], threshold_high=config.background_val_threshold).mean(axis=0)
     indicator_col_foreground = np.nonzero(feature_col_foreground < config.background_val_vratio)[0]
-    min_segment_len = config.downscale_factor * config.min_segment_height_px
+    min_segment_len = config.downscale_factor * config.min_segment_width_px
 
     lr_trims_foreground = [
         lr_trim
@@ -135,11 +135,12 @@ def _find_left_right_wood_intervals(img_hsv: np.ndarray, config: SegmentationCor
         list[tuple[int, int]]: Column intervals based on wood-color (hue/saturation).
     """
     # Get all segments that are valid and drop short ones
-    min_segment_len = config.downscale_factor * config.min_segment_height_px
+    min_segment_len = config.downscale_factor * config.min_segment_width_px
 
     feature_col_wood = (
         _in_range(img_hsv[:, :, 0], config.wood_hue_threshold_low, config.wood_hue_threshold_high)
         & _in_range(img_hsv[:, :, 1], config.wood_sat_threshold_low, config.wood_sat_threshold_high)
+        & _in_range(img_hsv[:, :, 2], threshold_low=config.wood_value_threshold_low)
     ).mean(axis=0)
     indicator_col_wood = np.nonzero(feature_col_wood >= config.wood_vratio)[0]
 
@@ -153,6 +154,7 @@ def _find_left_right_wood_intervals(img_hsv: np.ndarray, config: SegmentationCor
 def _find_top_bottom_intervals(
     img_hsv: np.ndarray,
     y_lines: list[int],
+    wood_lengths: list[int],
     config: SegmentationCoreTrimConfig,
 ) -> list[tuple[int, int]]:
     """Find the row intervals to keep after trimming wooden tray and black background top/bottom.
@@ -167,6 +169,7 @@ def _find_top_bottom_intervals(
     Args:
         img_hsv (np.ndarray): HSV image of the cropped tray region.
         y_lines (list[int]): Row indices of detected horizontal dividers, sorted ascending.
+        wood_lengths (list[int]): Total length of the identified wood segments per row.
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
 
     Returns:
@@ -175,20 +178,15 @@ def _find_top_bottom_intervals(
     """
     detections = []
 
-    wood_intervals_per_row = [
-        _find_left_right_wood_intervals(img_hsv[start:end, :, :], config)
-        for start, end in zip(y_lines[:-1], y_lines[1:], strict=True)
-    ]
-    wood_lengths = [
-        sum([wood_end - wood_start for wood_start, wood_end in wood_intervals])
-        for wood_intervals in wood_intervals_per_row
-    ]
     if not wood_lengths:
         return []
     max_wood_length = max(wood_lengths)
 
     for start, end, wood_length in zip(y_lines[:-1], y_lines[1:], wood_lengths, strict=True):
-        if wood_length > 0.9 * max_wood_length and wood_length > 0.5 * img_hsv.shape[0]:
+        if (
+            wood_length > config.wood_per_row_threshold_relative_to_max_wood * max_wood_length
+            and wood_length > config.wood_per_row_threshold_relative_to_width * img_hsv.shape[1]
+        ):
             # too much wood, ignore this segment
             continue
 
@@ -259,9 +257,21 @@ def segment_core(
     # Remove wood / background (top/bottom). Pick the best-scored interval (large and
     # close to vertical center)
     y_lines = _find_horizontal_lines(img_gray=gray, config=config)
+
+    trimmed_hsv = hsv[:, left_trim_background:right_trim_background, :]
+
+    wood_lengths = []
+    wood_bboxes = []
+
+    for start, end in zip(y_lines[:-1], y_lines[1:], strict=True):
+        wood_intervals = _find_left_right_wood_intervals(trimmed_hsv[start:end, :, :], config)
+        wood_bboxes.extend([(x0, start, x1, end) for x0, x1 in wood_intervals])
+        wood_lengths.append(sum([wood_end - wood_start for wood_start, wood_end in wood_intervals]))
+
     top_trim, bottom_trim = _find_top_bottom_intervals(
-        img_hsv=hsv[:, left_trim_background:right_trim_background, :],
+        img_hsv=trimmed_hsv,
         y_lines=y_lines,
+        wood_lengths=wood_lengths,
         config=config,
     )[0]
 
@@ -275,6 +285,18 @@ def segment_core(
             ),
             factor=1 / config.downscale_factor,
         ),
+        wood_bboxes=[
+            scale_bbox(
+                bbox=(
+                    x_min + left_trim_background + x0,
+                    y_min + y0,
+                    x_min + left_trim_background + x1,
+                    y_min + y1,
+                ),
+                factor=1 / config.downscale_factor,
+            )
+            for x0, y0, x1, y1 in wood_bboxes
+        ],
         time=timer() - t_start,
         y_lines=((y_min + np.array(y_lines)) / config.downscale_factor).tolist(),
     )
