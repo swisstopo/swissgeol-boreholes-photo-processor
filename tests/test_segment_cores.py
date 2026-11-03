@@ -1,5 +1,6 @@
 """Tests for the segment module."""
 
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -50,7 +51,7 @@ def make_metadata(tmp_path):
         Returns:
             ImageMetadataCores: Metadata pointing at the saved synthetic TIF image.
         """
-        filename = f"GBC-CB50_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
+        filename = f"{uuid.uuid4()}_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
         image_path = tmp_path / filename
         img = Image.new("RGB", size, color=_BACKGROUND_COLOR)
         draw_fn(ImageDraw.Draw(img))
@@ -145,7 +146,7 @@ def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
     detection_core_out = segment_core(
         metadata,
         tray=ImageSegmentResult(bbox=tray_box),
-        config=SegmentationCoreTrimConfig(downscale_factor=1, wood_sat_threshold_low=1.0),
+        config=SegmentationCoreTrimConfig(downscale_factor=1, wood_min_sat=1.0),
     )
 
     assert detection_core is not None
@@ -168,7 +169,7 @@ def test_segment_core_trims_black_background_left_right(make_metadata):
 
 
 def test_segment_core_splits_fragmented_core_into_segments(make_metadata):
-    """A core split in two by a black gap yields two bbox_segments and a bbox spanning their union."""
+    """A core split in two by a black gap yields bbox spanning the union of the two segments."""
     size = (400, 100)
     left_box = (50, 0, 150, 99)
     right_box = (250, 0, 350, 99)
@@ -187,9 +188,6 @@ def test_segment_core_splits_fragmented_core_into_segments(make_metadata):
 
     assert result is not None
     assert result.bbox == (left_box[0], 0, right_box[2], 99)
-    assert result.bbox_segments is not None
-    assert len(result.bbox_segments) == 2
-    assert sorted(result.bbox_segments) == sorted([left_box, right_box])
 
 
 def test_segment_core_drops_thin_segments(make_metadata):
@@ -212,8 +210,6 @@ def test_segment_core_drops_thin_segments(make_metadata):
 
     assert result is not None
     assert result.bbox == core_box  # segment excluded, doesn't pull the left edge out to x=10
-    assert result.bbox_segments is not None
-    assert len(result.bbox_segments) == 1
 
 
 def test_segment_skips_image_with_no_detectable_regions(make_metadata):

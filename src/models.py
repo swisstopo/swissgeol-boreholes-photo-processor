@@ -319,10 +319,10 @@ class ImageSegmentResult:
 class CoreSegmentResult(ImageSegmentResult):
     """Result of detecting the core bbox (bbox is used downstream for cropping/evaluation/stitching)."""
 
-    # Per-segment bboxes before merging into `bbox`; kept only for MLflow debug visualization.
-    bbox_segments: list[tuple[float, float, float, float]] | None = None
     # Detected horizontal tray-divider row positions; kept only for MLflow debug visualization.
     y_lines: list[float] | None = None
+    # Detected horizontal tray-divider row positions; kept only for MLflow debug visualization.
+    wood_bboxes: list[tuple[float, float, float, float]] | None = None
 
 
 @dataclass
