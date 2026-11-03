@@ -35,7 +35,7 @@ def test_from_yaml_reads_all_sections(tmp_path):
             segmentation:
               core:
                 core:
-                  wood_sat_threshold_low: 0.5
+                  wood_min_sat: 0.5
                 ruler:
                   text_max_value: 50
                 tray_group:

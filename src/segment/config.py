@@ -18,7 +18,7 @@ class SegmentationCoreTrimConfig:
     wood_min_hue: float = 0.04  # hue below this = not wood
     wood_max_hue: float = 0.075  # hue above this = not wood
     wood_min_sat: float = 0.23  # saturation below this = not wood
-    wood_max_sat: float = 0.60  # saturation above this = not wood
+    wood_max_sat: float = 0.65  # saturation above this = not wood
     wood_min_value: float = 0.14  # value below this (i.e. darker) = not wood
     # if a row has less than 90% of the max total wood length, then don't ignore it as wood
     max_wood_per_row_relative_to_max_wood: float = 0.9

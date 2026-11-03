@@ -180,7 +180,7 @@ def _find_top_bottom_intervals(
         return []
     max_wood_length = max(wood_lengths)
 
-    height, width = img_hsv.shape
+    height, width, _ = img_hsv.shape
     intervals = []
     current_interval = []
 
@@ -220,7 +220,7 @@ def _find_top_bottom_intervals(
             if width - wood_length > config.min_non_wood_per_row_relative_to_max * max_non_wood_length
         ]
         # there will always be at least one valid segment
-        detections.append((valid_segments[0][0], valid_segments[-1][1]))
+        detections.append((valid_segments[0][0], valid_segments[-1][1] - 1))
 
     return (
         # Look for interval that is large (x1-x0) and close to center (1 - |(x1+x0-H)/H|)
