@@ -7,7 +7,6 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
-from typing import Generic, TypeVar
 
 import mlflow
 import tifffile
@@ -38,10 +37,6 @@ from src.stitching.config import StitchingConfig
 from src.stitching.stitching_cores import StitchingBatchCores, stitching_batch_cores, stitching_cores
 from src.stitching.stitching_cuttings import StitchingBatchCuttings, stitching_batch_cuttings, stitching_cuttings
 
-M = TypeVar("M", bound=ImageMetadata)
-P = TypeVar("P", bound=ImageMetadata)
-Q = TypeVar("Q")
-
 
 def _mlflow_run(
     run_name: str, with_mlflow: bool, nested: bool = False
@@ -62,7 +57,7 @@ def _mlflow_run(
     return contextlib.nullcontext()
 
 
-class PipelineRunner(ABC, Generic[M, P, Q]):
+class PipelineRunner[M: ImageMetadata, P: ImageMetadata, Q](ABC):
     """Template-method orchestrator shared by the core and cuttings pipelines.
 
     Subclasses implement `_collect`, `_segment`, and `_stitch`; `_evaluate` is a no-op unless
