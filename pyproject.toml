@@ -3,33 +3,33 @@ name = "swissgeol-boreholes-photo-processor"
 version = "0.1.0"
 description = "Python project that generates composite images from photos of borehole cores and cuttings"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
-    "click>=8.1.0",
-    "imagecodecs>=2026.3.6",
-    "matplotlib==3.10.9",
-    "mlflow==3.16.0",
-    "Pillow==12.3.0",
+    "click>=8.5.0",
+    "imagecodecs>=2026.10.10",
+    "matplotlib==3.11.2",
+    "mlflow==3.17.2",
+    "pillow==13.0.0",
     "PyYAML==6.0.3",
     "scikit-image>=0.26.0",
-    "scikit-learn>=1.9.0",
+    "scikit-learn>=1.9.1",
     "tifffile>=2026.3.3",
-    "tqdm==4.67.1",
+    "tqdm==4.70.1",
     "pytesseract==0.3.13",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest==9.1.1",
-    "pytest-cov==6.2.1",
-    "moto==5.1.10",
+    "pytest==9.2.0",
+    "pytest-cov==7.1.0",
+    "moto==5.2.5",
 ]
 
 [dependency-groups]
 dev = [
     "ruff",
     "ty",
-    "pre-commit==4.3.0",
+    "pre-commit==4.7.0",
 ]
 
 # ---- Configuration for package building

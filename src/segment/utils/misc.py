@@ -6,20 +6,16 @@ from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from timeit import default_timer as timer
-from typing import Generic, TypeVar
 
 import numpy as np
+from tqdm import tqdm
 
 from src.models import ApproachType, ImageMetadata, ImageSegmentResult
-
-M = TypeVar("M", bound=ImageMetadata)
-K = TypeVar("K", bound=ImageSegmentResult)
-T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
 
-def group_images_by_shape(imgs_metadata: Sequence[M]) -> dict[tuple[int, int, int], list[M]]:
+def group_images_by_shape[M: ImageMetadata](imgs_metadata: Sequence[M]) -> dict[tuple[int, int, int], list[M]]:
     """Group images by their shape (height, width, channels).
 
     Args:
@@ -35,7 +31,7 @@ def group_images_by_shape(imgs_metadata: Sequence[M]) -> dict[tuple[int, int, in
     return grouped
 
 
-class ProcessGroupByShape(ABC, Generic[M, K, T]):
+class ProcessGroupByShape[M: ImageMetadata, K: ImageSegmentResult, T](ABC):
     """Abstract base class for processing groups of images into a single aggregated result.
 
     Images are grouped by shape (see `group_images_by_shape`), a fixed-size random sample is
@@ -107,8 +103,10 @@ class ProcessGroupByShape(ABC, Generic[M, K, T]):
         Returns:
             K | None: The aggregated result for the group, or None.
         """
-        processed_items = list(
-            executor.map(partial(self._preprocess, img_metadata_ref=imgs_metadata[0]), imgs_metadata)
+        processed_items = tqdm(
+            executor.map(partial(self._preprocess, img_metadata_ref=imgs_metadata[0]), imgs_metadata),
+            total=len(imgs_metadata),
+            desc="Preprocessing images for group",
         )
 
         # Remove unwanted detections
