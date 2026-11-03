@@ -138,9 +138,9 @@ def _find_left_right_wood_intervals(img_hsv: np.ndarray, config: SegmentationCor
     min_segment_len = config.downscale_factor * config.min_segment_width_px
 
     feature_col_wood = (
-        _in_range(img_hsv[:, :, 0], config.wood_hue_threshold_low, config.wood_hue_threshold_high)
-        & _in_range(img_hsv[:, :, 1], config.wood_sat_threshold_low, config.wood_sat_threshold_high)
-        & _in_range(img_hsv[:, :, 2], threshold_low=config.wood_value_threshold_low)
+        _in_range(img_hsv[:, :, 0], config.wood_min_hue, config.wood_max_hue)
+        & _in_range(img_hsv[:, :, 1], config.wood_min_sat, config.wood_max_sat)
+        & _in_range(img_hsv[:, :, 2], threshold_low=config.wood_min_value)
     ).mean(axis=0)
     indicator_col_wood = np.nonzero(feature_col_wood >= config.wood_vratio)[0]
 
@@ -176,46 +176,61 @@ def _find_top_bottom_intervals(
         list[tuple[int, int]]: Start and end row indices of each candidate top/bottom
             interval, sorted by score in descending order.
     """
-    detections = []
-
     if not wood_lengths:
         return []
     max_wood_length = max(wood_lengths)
 
+    height, width = img_hsv.shape
+    intervals = []
+    current_interval = []
+
     for start, end, wood_length in zip(y_lines[:-1], y_lines[1:], wood_lengths, strict=True):
         if (
-            wood_length > config.wood_per_row_threshold_relative_to_max_wood * max_wood_length
-            and wood_length > config.wood_per_row_threshold_relative_to_width * img_hsv.shape[1]
+            wood_length > config.max_wood_per_row_relative_to_max_wood * max_wood_length
+            and wood_length > config.max_wood_per_row_relative_to_width * width
         ):
             # too much wood, ignore this segment
-            continue
+            is_valid = False
+        else:
+            im_segment = img_hsv[start:end, :, :]
+            _, _, im_val = np.moveaxis(im_segment, 2, 0)
 
-        im_segment = img_hsv[start:end, :, :]
-        _, _, im_val = np.moveaxis(im_segment, 2, 0)
+            is_valid = not _is_in_range_ratio(
+                values=im_val,
+                threshold_high=config.background_val_threshold,
+                ratio=config.background_val_hratio,
+            )
 
-        is_background = _is_in_range_ratio(
-            values=im_val,
-            threshold_high=config.background_val_threshold,
-            ratio=config.background_val_hratio,
-        )
+        if is_valid:
+            current_interval.append((start, end, wood_length))
+        elif current_interval:
+            intervals.append(current_interval)
+            current_interval = []
 
-        if not is_background:
-            detections.extend(list(range(start, end)))
+    if current_interval:
+        intervals.append(current_interval)
 
-    if len(detections) <= 1:
-        detections = list(range(0, y_lines[-1]))
-
-    tb_intersects = _find_valid_intervals(np.array(detections))
+    detections = []
+    for interval in intervals:
+        # remove segments at the top/bottom of the interval that don't haven sufficient non-wood
+        max_non_wood_length = max(width - wood_length for _, _, wood_length in interval)
+        valid_segments = [
+            (start, end)
+            for start, end, wood_length in interval
+            if width - wood_length > config.min_non_wood_per_row_relative_to_max * max_non_wood_length
+        ]
+        # there will always be at least one valid segment
+        detections.append((valid_segments[0][0], valid_segments[-1][1]))
 
     return (
         # Look for interval that is large (x1-x0) and close to center (1 - |(x1+x0-H)/H|)
         sorted(
-            tb_intersects,
-            key=lambda x: (x[1] - x[0]) * (1 - abs((x[1] + x[0] - img_hsv.shape[0]) / img_hsv.shape[0])),
+            detections,
+            key=lambda x: (x[1] - x[0]) * (1 - abs((x[1] + x[0] - height) / height)),
             reverse=True,
         )
-        if tb_intersects
-        else [(0, img_hsv.shape[0] - 1)]
+        if detections
+        else [(0, height - 1)]
     )
 
 
