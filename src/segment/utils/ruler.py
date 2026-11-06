@@ -1,17 +1,22 @@
 """Ruler detection: per-image OCR and aggregation across a shape group."""
 
+import hashlib
+import json
+import os
+from pathlib import Path
 from timeit import default_timer as timer
 from typing import cast
 
 import numpy as np
-import pytesseract
-from skimage.color import rgb2gray
-from skimage.filters import threshold_otsu
+from rapidocr import ModelType, RapidOCR
+from rapidocr.utils.output import RapidOCROutput
 from sklearn.metrics import pairwise_distances
 
 from src.config import SegmentationRulerConfig
 from src.models import ImageMetadataCores, RulerSegmentResult
 from src.segment.utils.misc import ProcessGroupByShape
+
+ocr_engine = RapidOCR(params={"Rec.model_type": ModelType.SMALL})
 
 
 def _select_inlier_detections(X: np.ndarray, y: np.ndarray, r_error_outliers: float) -> tuple[np.ndarray, float]:
@@ -81,21 +86,34 @@ def segment_ruler(img_metadata: ImageMetadataCores, config: SegmentationRulerCon
     t_start = timer()
     img = img_metadata.load_image(factor=config.downscale_factor)
 
-    # OCR performs better on binarized images
-    img_gray = rgb2gray(img)
-    local_thresh = threshold_otsu(img_gray)
-    img_bin = (img_gray > local_thresh).astype(np.uint8)
+    img_hash = hashlib.sha256(img.data).hexdigest()
 
-    # Run OCR
-    img_data = pytesseract.image_to_data(255 * img_bin, output_type=pytesseract.Output.DICT)
+    cache_file = Path("ocr-cache") / "rapid" / f"{img_hash}.json"
+    if os.path.exists(cache_file):
+        with open(cache_file, encoding="utf-8") as file:
+            img_data = json.load(file)
+    else:
+        # Run OCR and save results to cache
+        img_data = ocr_engine(255 * img, return_word_box=True)
+        if not isinstance(img_data, RapidOCROutput) or img_data.word_results is None:
+            return None
+        img_data = [
+            (
+                text,
+                (min(c[0] for c in bbox), min(c[1] for c in bbox), max(c[0] for c in bbox), max(c[1] for c in bbox)),
+            )
+            for text, _, bbox in list(img_data.word_results)
+            if bbox is not None
+        ]
+        with open(cache_file, "w", encoding="utf-8") as file:
+            json.dump(img_data, file, indent=4, ensure_ascii=False)
 
     data = np.array(
         # Only keep text from text_min_value to text_max_value
+        # store as (text, x0, y0, width, height)
         [
-            (int(text), left, top, width, height)
-            for text, left, top, width, height in zip(
-                img_data["text"], img_data["left"], img_data["top"], img_data["width"], img_data["height"], strict=True
-            )
+            (int(text), bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1])
+            for text, bbox in img_data
             if text.isdigit() and config.text_min_value <= int(text) <= config.text_max_value
         ]
     )
