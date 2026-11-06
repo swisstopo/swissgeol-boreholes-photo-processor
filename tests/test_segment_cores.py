@@ -80,7 +80,6 @@ def make_metadata(tmp_path):
         img = Image.new("RGB", size, color=_BACKGROUND_COLOR)
         draw_fn(img)
         img.save(image_path)
-        img.save(f"data/debug/{filename}")
         return ImageMetadataCores(
             borehole_id="GBC-CB50",
             depth_start=depth_start,
