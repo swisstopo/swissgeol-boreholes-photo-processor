@@ -6,7 +6,7 @@ from timeit import default_timer as timer
 
 import numpy as np
 from skimage.color import rgb2gray, rgb2hsv
-from skimage.filters import prewitt_h
+from skimage.filters import prewitt_h, scharr
 from skimage.transform import hough_line, hough_line_peaks
 
 from src.config import SegmentationCoreTrimConfig
@@ -193,13 +193,23 @@ def _find_top_bottom_intervals(
             is_valid = False
         else:
             im_segment = img_hsv[start:end, :, :]
-            _, _, im_val = np.moveaxis(im_segment, 2, 0)
 
-            is_valid = not _is_in_range_ratio(
-                values=im_val,
-                threshold_high=config.background_val_threshold,
-                ratio=config.background_val_hratio,
-            )
+            # Slice out 10% from top, bottom, left, and right
+            segment_height, segment_width = im_segment.shape[:2]
+            margin_height = int(segment_height * config.background_margin_percentage)
+            margin_width = int(segment_width * config.background_margin_percentage)
+            cropped_img = im_segment[
+                margin_height : segment_height - margin_height, margin_width : segment_width - margin_width
+            ]
+
+            im_hue, im_sat, im_val = np.moveaxis(cropped_img, 2, 0)
+
+            # Background must be both low on texture (based on Scharr oparator of the hue and saturation channels) as
+            # well as dark (based on value channel)
+            hue_scharr = scharr(im_hue)
+            sat_scharr = scharr(im_sat)
+            background_score = np.sqrt(sat_scharr**2 + hue_scharr**2) * im_val
+            is_valid = np.median(background_score) > config.max_background_score
 
         if is_valid:
             current_interval.append((start, end, wood_length))
@@ -283,6 +293,7 @@ def segment_core(
         wood_bboxes.extend([(x0, start, x1, end) for x0, x1 in wood_intervals])
         wood_lengths.append(sum([wood_end - wood_start for wood_start, wood_end in wood_intervals]))
 
+    print(img_metadata.image_path)
     top_trim, bottom_trim = _find_top_bottom_intervals(
         img_hsv=trimmed_hsv,
         y_lines=y_lines,
