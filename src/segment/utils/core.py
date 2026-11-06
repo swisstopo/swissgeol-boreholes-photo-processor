@@ -293,7 +293,6 @@ def segment_core(
         wood_bboxes.extend([(x0, start, x1, end) for x0, x1 in wood_intervals])
         wood_lengths.append(sum([wood_end - wood_start for wood_start, wood_end in wood_intervals]))
 
-    print(img_metadata.image_path)
     top_trim, bottom_trim = _find_top_bottom_intervals(
         img_hsv=trimmed_hsv,
         y_lines=y_lines,
