@@ -29,11 +29,35 @@ _BACKGROUND_COLOR = (20, 20, 20)  # dark, unsaturated — stands in for the tray
 
 
 @pytest.fixture
+def draw_core():
+    def _factory(canvas: Image.Image, bbox: tuple[int, int, int, int]):
+        x0, y0, x1, y1 = bbox
+        with Image.open(Path("examples/EX-EX_0001.00-002.00.jpg")) as img:
+            img = img.crop((100, 1300, 9800, 2000))
+            resized_img = img.resize((x1 - x0, y1 - y0), Image.Resampling.LANCZOS)
+            canvas.paste(resized_img, (x0, y0))
+
+    return _factory
+
+
+@pytest.fixture
+def draw_wood():
+    def _factory(canvas: Image.Image, bbox: tuple[int, int, int, int]):
+        x0, y0, x1, y1 = bbox
+        with Image.open(Path("examples/EX-EX_0001.00-002.00.jpg")) as img:
+            img = img.crop((300, 2100, 5000, 2200))
+            resized_img = img.resize((x1 - x0, y1 - y0), Image.Resampling.LANCZOS)
+            canvas.paste(resized_img, (x0, y0))
+
+    return _factory
+
+
+@pytest.fixture
 def make_metadata(tmp_path):
     def _factory(
         depth_start: float,
         depth_end: float,
-        draw_fn: Callable[[ImageDraw.ImageDraw], None] = lambda draw: None,
+        draw_fn: Callable[[Image.Image], None] = lambda draw: None,
         size: tuple[int, int] = _IMG_SIZE,
         is_override: bool = False,
     ) -> ImageMetadataCores:
@@ -42,7 +66,7 @@ def make_metadata(tmp_path):
         Args:
             depth_start (float): Top-of-core depth in metres, encoded into the filename.
             depth_end (float): Bottom-of-core depth in metres, encoded into the filename.
-            draw_fn (Callable[[ImageDraw.ImageDraw], None]): Callback that draws onto the
+            draw_fn (Callable[[Image.Image], None]): Callback that draws onto the
                 background image (e.g. to add a core or tray rectangle). Defaults to a no-op,
                 producing a flat background image.
             size (tuple[int, int]): Size of the synthetic image in pixels. Defaults to _IMG_SIZE.
@@ -54,7 +78,7 @@ def make_metadata(tmp_path):
         filename = f"{uuid.uuid4()}_{depth_start:07.2f}-{depth_end:07.2f}_vd_p.TIF"
         image_path = tmp_path / filename
         img = Image.new("RGB", size, color=_BACKGROUND_COLOR)
-        draw_fn(ImageDraw.Draw(img))
+        draw_fn(img)
         img.save(image_path)
         return ImageMetadataCores(
             borehole_id="GBC-CB50",
@@ -107,7 +131,7 @@ def test_segment_example(example):
 def test_segment_detects_core_bbox(make_metadata):
     """A bright, unsaturated core region on a dark background is detected as-is (no trimming needed)."""
     core_box = (200, 150, 600, 700)
-    metadata = make_metadata(15.0, 16.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
+    metadata = make_metadata(15.0, 16.0, lambda img: ImageDraw.Draw(img).rectangle(core_box, fill=(200, 200, 200)))
 
     # downscale_factor=1.0: detection precision is under test here, not the downscale speedup
     detections = segment_cores(
@@ -125,14 +149,14 @@ def test_segment_detects_core_bbox(make_metadata):
     assert detections[0].core.bbox == core_box
 
 
-def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
+def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata, draw_core, draw_wood):
     """Wood tray saturation trimming is configurable."""
     tray_box = (150, 100, 1050, 700)
     core_box = (150, 250, 1050, 550)
     metadata = make_metadata(
         15.0,
         16.0,
-        lambda draw: (draw.rectangle(tray_box, fill=(173, 133, 112)), draw.rectangle(core_box, fill=(200, 200, 200))),
+        lambda img: (draw_wood(img, tray_box), draw_core(img, core_box)),
     )
 
     # Default (correct threshold)
@@ -151,15 +175,17 @@ def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata):
 
     assert detection_core is not None
     assert detection_core_out is not None
-    assert np.isclose(detection_core.bbox, core_box, atol=1).all()
-    assert np.isclose(detection_core_out.bbox, tray_box, atol=1).all()
+    assert np.isclose(detection_core.bbox, core_box, atol=5).all()
+    assert np.isclose(detection_core_out.bbox, tray_box, atol=5).all()
 
 
 def test_segment_core_trims_black_background_left_right(make_metadata):
     """Black background left/right of a full-height, unsaturated core is trimmed via the value channel alone."""
     size = (400, 100)
     core_box = (100, 0, 300, 99)
-    metadata = make_metadata(15.0, 16.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)), size=size)
+    metadata = make_metadata(
+        15.0, 16.0, lambda img: ImageDraw.Draw(img).rectangle(core_box, fill=(200, 200, 200)), size=size
+    )
     tray = TraySegmentResult(bbox=(0, 0, size[0] - 1, size[1] - 1))
 
     result = segment_core(metadata, tray, config=SegmentationCoreTrimConfig(downscale_factor=1))
@@ -176,9 +202,9 @@ def test_segment_core_splits_fragmented_core_into_segments(make_metadata):
     metadata = make_metadata(
         15.0,
         16.0,
-        lambda draw: (
-            draw.rectangle(left_box, fill=(200, 200, 200)),
-            draw.rectangle(right_box, fill=(200, 200, 200)),
+        lambda img: (
+            ImageDraw.Draw(img).rectangle(left_box, fill=(200, 200, 200)),
+            ImageDraw.Draw(img).rectangle(right_box, fill=(200, 200, 200)),
         ),
         size=size,
     )
@@ -198,9 +224,9 @@ def test_segment_core_drops_thin_segments(make_metadata):
     metadata = make_metadata(
         15.0,
         16.0,
-        lambda draw: (
-            draw.rectangle(core_box, fill=(200, 200, 200)),
-            draw.rectangle(segment_box, fill=(200, 200, 200)),
+        lambda img: (
+            ImageDraw.Draw(img).rectangle(core_box, fill=(200, 200, 200)),
+            ImageDraw.Draw(img).rectangle(segment_box, fill=(200, 200, 200)),
         ),
         size=size,
     )
@@ -237,7 +263,7 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
     """One unsegmentable image doesn't prevent the rest of the batch from being processed."""
     blank = make_metadata(15.0, 16.0)
     core_box = (200, 150, 600, 700)
-    good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
+    good = make_metadata(16.0, 17.0, lambda img: ImageDraw.Draw(img).rectangle(core_box, fill=(200, 200, 200)))
 
     detections = segment_cores(
         [blank, good],
@@ -262,7 +288,9 @@ def test_segment_continues_after_skipping_an_unsegmentable_image(make_metadata):
 def test_segment_override_image_skips_detection_and_uses_full_frame(make_metadata):
     """An override image bypasses detection: the whole image is the core, with no ruler detected."""
     override = make_metadata(15.0, 16.0, is_override=True, size=(900, 300))
-    good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle((200, 150, 600, 700), fill=(200, 200, 200)))
+    good = make_metadata(
+        16.0, 17.0, lambda img: ImageDraw.Draw(img).rectangle((200, 150, 600, 700), fill=(200, 200, 200))
+    )
 
     detections = segment_cores(
         [good, override],
@@ -289,7 +317,7 @@ def test_segment_skips_blank_non_integer_image_without_crashing_batch(tmp_path, 
     bad = ImageMetadataCores(borehole_id="GBC-CB50", depth_start=15.0, depth_end=16.0, image_path=bad_image_path)
 
     core_box = (200, 150, 600, 700)
-    good = make_metadata(16.0, 17.0, lambda draw: draw.rectangle(core_box, fill=(200, 200, 200)))
+    good = make_metadata(16.0, 17.0, lambda img: ImageDraw.Draw(img).rectangle(core_box, fill=(200, 200, 200)))
 
     detections = segment_cores(
         [bad, good],
@@ -336,7 +364,12 @@ def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
     core_box = (0, 50, 100, 100)
     fills = [50, 90, 130, 170, 210, 250]
     imgs = [
-        make_metadata(15.0 + i, 16.0 + i, lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)), size=(100, 100))
+        make_metadata(
+            15.0 + i,
+            16.0 + i,
+            lambda img, f=f: ImageDraw.Draw(img).rectangle(core_box, fill=(f, f, f)),
+            size=(100, 100),
+        )
         for i, f in enumerate(fills)
     ]
 
@@ -374,7 +407,7 @@ def test_process_tray_group_by_shape_estimates_independently_per_shape(make_meta
             make_metadata(
                 depth_offset + i,
                 depth_offset + i + 1,
-                lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)),
+                lambda img, f=f: ImageDraw.Draw(img).rectangle(core_box, fill=(f, f, f)),
                 size=size,
             )
             for i, f in enumerate(fills)

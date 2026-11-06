@@ -11,9 +11,10 @@ class SegmentationCoreTrimConfig:
     downscale_factor: float = 0.125  # scale images by this factor before segmenting (< 1.0 speeds up morphology)
     min_line_edge_value: float = 0.01  # Prewitt edge strength above this = edge pixel, fed to Hough line detection
     min_line_hough_interval: int = 40  # minimum spacing (px) enforced between detected horizontal divider lines
-    background_val_hratio: float = 0.70  # fraction of dark-background pixels in a row required to trim that row
     background_val_vratio: float = 0.70  # fraction of dark-background pixels in a column required to trim that column
     background_val_threshold: float = 0.15  # value (HSV) below this = black background (not rock)
+    background_margin_percentage: float = 0.1  # cut away 10% of the segment on all sides before detecting background
+    max_background_score: float = 0.002  # score (based on texture and brightness) above this = not background
     wood_vratio: float = 0.60  # fraction of tray pixels in a col required to classify that col as tray
     wood_min_hue: float = 0.04  # hue below this = not wood
     wood_max_hue: float = 0.075  # hue above this = not wood
