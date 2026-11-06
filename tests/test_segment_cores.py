@@ -365,7 +365,12 @@ def test_estimate_foreground_highlights_the_varying_core_region(make_metadata):
     core_box = (0, 50, 100, 100)
     fills = [50, 90, 130, 170, 210, 250]
     imgs = [
-        make_metadata(15.0 + i, 16.0 + i, lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)), size=(100, 100))
+        make_metadata(
+            15.0 + i,
+            16.0 + i,
+            lambda img, f=f: ImageDraw.Draw(img).rectangle(core_box, fill=(f, f, f)),
+            size=(100, 100),
+        )
         for i, f in enumerate(fills)
     ]
 
@@ -403,7 +408,7 @@ def test_process_tray_group_by_shape_estimates_independently_per_shape(make_meta
             make_metadata(
                 depth_offset + i,
                 depth_offset + i + 1,
-                lambda draw, f=f: draw.rectangle(core_box, fill=(f, f, f)),
+                lambda img, f=f: ImageDraw.Draw(img).rectangle(core_box, fill=(f, f, f)),
                 size=size,
             )
             for i, f in enumerate(fills)
