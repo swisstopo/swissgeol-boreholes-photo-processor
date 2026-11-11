@@ -140,7 +140,6 @@ def _find_left_right_wood_intervals(img_hsv: np.ndarray, config: SegmentationCor
     feature_col_wood = (
         _in_range(img_hsv[:, :, 0], config.wood_min_hue, config.wood_max_hue)
         & _in_range(img_hsv[:, :, 1], config.wood_min_sat, config.wood_max_sat)
-        & _in_range(img_hsv[:, :, 2], threshold_low=config.wood_min_value)
     ).mean(axis=0)
     indicator_col_wood = np.nonzero(feature_col_wood >= config.wood_vratio)[0]
 

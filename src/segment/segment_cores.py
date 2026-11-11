@@ -22,6 +22,7 @@ from src.models import (
     RulerSegmentResult,
     TraySegmentResult,
 )
+from src.segment.fix_core_width import fix_core_width
 from src.segment.utils.core import segment_core
 from src.segment.utils.ruler import ProcessRulerGroupByShape, segment_ruler
 from src.segment.utils.tray import ProcessTrayGroupByShape, segment_tray
@@ -234,6 +235,8 @@ def segment_cores(
                 )
             )
         detections.sort(key=lambda d: d.depth_start)
+
+    detections = fix_core_width(detections, config)
 
     if with_mlflow:
         log_segmentation_results_with_mlflow(detections, time=timer() - t_start)
