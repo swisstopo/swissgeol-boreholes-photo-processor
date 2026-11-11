@@ -1,4 +1,4 @@
-"""Fix common mistakes where the detected core is too narrow."""
+"""Fix common mistakes where the detected core width is incorrect."""
 
 import logging
 
@@ -69,11 +69,11 @@ def _find_closest_y_line(
     return closest_line if diff <= max_diff else None
 
 
-def fix_narrow_cores(
+def fix_core_width(
     detections: list[ImageMetadataProcessedCores],
     config: SegmentationConfig,
 ) -> list[ImageMetadataProcessedCores]:
-    """Fix common mistakes where the detected core is too narrow.
+    """Fix common mistakes where the detected core width is incorrect.
 
     Iterates through detections sorted by depth and applies a fallback when:
     - Current and previous input images have identical dimensions
@@ -88,7 +88,7 @@ def fix_narrow_cores(
         config (SegmentationConfig): Segmentation configuration.
 
     Returns:
-        list[ImageMetadataProcessedCores]: Updated detections with fixed narrow cores.
+        list[ImageMetadataProcessedCores]: Updated detections with fixed core widths.
     """
     if len(detections) < 2:
         return detections
@@ -100,8 +100,8 @@ def fix_narrow_cores(
         prev = sorted_detections[i - 1]
         curr = sorted_detections[i]
 
-        # Skip if either detection has no core
-        if prev.core is None or curr.core is None:
+        # Skip if either detection is an override or has no core
+        if prev.is_override or curr.is_override or prev.core is None or curr.core is None:
             continue
 
         # Condition 1: Check if image dimensions are identical
@@ -144,7 +144,8 @@ def fix_narrow_cores(
             if new_bottom is None:
                 new_bottom = prev_bbox[3]
 
-            logger.info(f"Applying fallback for narrow core for {curr.image_path.name}.")
+            logger.info(f"Applying fallback for incorrect core width for {curr.image_path.name}.")
             curr.core.bbox = (curr_bbox[0], new_top, curr_bbox[2], new_bottom)
+            curr.release_core_cache()
 
     return sorted_detections
