@@ -44,7 +44,6 @@ segmentation:
       wood_max_hue: 0.075 # hue above this = not wood
       wood_min_sat: 0.23 # saturation below this = not wood
       wood_max_sat: 0.65 # saturation above this = not wood
-      wood_min_value: 0.14 # value below this (i.e. darker) = not wood
       # if a row has less than 90% of the max total wood length, then don't ignore it as wood
       max_wood_per_row_relative_to_max_wood: 0.9
       # if a row has less than 50% wood compared to the total width, then don't ignore it as wood
