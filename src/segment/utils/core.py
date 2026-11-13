@@ -8,6 +8,7 @@ import numpy as np
 from skimage.color import rgb2gray, rgb2hsv
 from skimage.filters import prewitt_h, scharr
 from skimage.transform import hough_line, hough_line_peaks
+from scipy.ndimage import uniform_filter
 
 from src.config import SegmentationCoreTrimConfig
 from src.models import CoreSegmentResult, ImageMetadataCores, ImageSegmentResult
@@ -152,10 +153,12 @@ def _find_left_right_wood_intervals(img_hsv: np.ndarray, config: SegmentationCor
 
 
 def _find_top_bottom_intervals(
+    img_gray: np.ndarray,
     img_hsv: np.ndarray,
     y_lines: list[int],
     wood_lengths: list[int],
     config: SegmentationCoreTrimConfig,
+    filename: str,
 ) -> list[tuple[int, int]]:
     """Find the row intervals to keep after trimming wooden tray and black background top/bottom.
 
@@ -167,6 +170,7 @@ def _find_top_bottom_intervals(
     vertical center. Falls back to the full image height if fewer than two rows survive.
 
     Args:
+        img_gray(np.ndarray): Grayscale image of the cropped tray image.
         img_hsv (np.ndarray): HSV image of the cropped tray region.
         y_lines (list[int]): Row indices of detected horizontal dividers, sorted ascending.
         wood_lengths (list[int]): Total length of the identified wood segments per row.
@@ -192,24 +196,45 @@ def _find_top_bottom_intervals(
             # too much wood, ignore this segment
             is_valid = False
         else:
-            im_segment = img_hsv[start:end, :, :]
+            im_segment_hsv = img_hsv[start:end, :, :]
+            im_segment_gray = img_gray[start:end, :]
 
             # Slice out 10% from top, bottom, left, and right
-            segment_height, segment_width = im_segment.shape[:2]
+            segment_height, segment_width = im_segment_hsv.shape[:2]
             margin_height = int(segment_height * config.background_margin_percentage)
             margin_width = int(segment_width * config.background_margin_percentage)
-            cropped_img = im_segment[
-                margin_height : segment_height - margin_height, margin_width : segment_width - margin_width
+            cropped_img_hsv = im_segment_hsv[
+                margin_height : segment_height - margin_height, margin_width : segment_width - margin_width, :
             ]
+            cropped_img_gray = im_segment_gray[
+                margin_height : segment_height - margin_height, margin_width : segment_width - margin_width]
 
-            im_hue, im_sat, im_val = np.moveaxis(cropped_img, 2, 0)
+            im_val = cropped_img_hsv[:, :, 2]
 
-            # Background must be both low on texture (based on Scharr oparator of the hue and saturation channels) as
-            # well as dark (based on value channel)
-            hue_scharr = scharr(im_hue)
-            sat_scharr = scharr(im_sat)
-            background_score = np.sqrt(sat_scharr**2 + hue_scharr**2) * im_val
-            is_valid = np.median(background_score) > config.max_background_score
+            # Background must be both low on texture (based on local standard deviation of grayscale image) as
+            # well as dark (based on value channel of HSV image)
+
+            mean = uniform_filter(cropped_img_gray, size=7)
+            mean_sq = uniform_filter(cropped_img_gray**2, size=7)
+            
+            local_std = np.sqrt(np.maximum(mean_sq - mean**2, 0))
+            
+            background_score = np.sqrt(local_std**2 + im_val**2)
+            #is_valid = np.median(background_score) > config.max_background_score
+            is_valid = np.median(local_std) > 0.01
+
+            logger.info(f"File:{filename},"
+                        f"Rows: {start}-{end},"
+                        f"Median value: {np.median(im_val)},"
+                        f"Average value: {im_val.mean()}"
+                        f"Average local_std:{local_std.mean()},"
+                        f"Median local_std:{np.median(local_std)},"
+                        f"Average background score: {background_score.mean()},"
+                        f"Median background score: {np.median(background_score)}"
+                        f"Is valid: {is_valid}")
+                                             
+                                             
+
 
         if is_valid:
             current_interval.append((start, end, wood_length))
@@ -271,6 +296,8 @@ def segment_core(
     img = img_metadata.load_image(factor=config.downscale_factor)
     x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 
+    logger.info(f"Filename:{img_metadata.image_path.name}, Coordinates scaled bounding box: x_min:{x_min}, y_min:{y_min}, x_max:{x_max}, y_max:{y_max}")
+
     hsv = rgb2hsv(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
     gray = rgb2gray(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
 
@@ -279,11 +306,16 @@ def segment_core(
     left_trim_background = lr_trims_foreground[0][0]
     right_trim_background = lr_trims_foreground[-1][1]
 
+    logger.info(f"Filename:{img_metadata.image_path.name}, left_trim_backgrond:{left_trim_background}, right_trim_background:{right_trim_background}")
+
     # Remove wood / background (top/bottom). Pick the best-scored interval (large and
     # close to vertical center)
     y_lines = _find_horizontal_lines(img_gray=gray, config=config)
 
+    logger.info(f"Filename:{img_metadata.image_path.name},y-lines: {y_lines}")
+
     trimmed_hsv = hsv[:, left_trim_background:right_trim_background, :]
+    trimmed_gray = gray[:, left_trim_background: right_trim_background]
 
     wood_lengths = []
     wood_bboxes = []
@@ -294,11 +326,15 @@ def segment_core(
         wood_lengths.append(sum([wood_end - wood_start for wood_start, wood_end in wood_intervals]))
 
     top_trim, bottom_trim = _find_top_bottom_intervals(
+        img_gray=trimmed_gray,
         img_hsv=trimmed_hsv,
         y_lines=y_lines,
         wood_lengths=wood_lengths,
         config=config,
+        filename=img_metadata.image_path.name
     )[0]
+
+    logger.info
 
     return CoreSegmentResult(
         bbox=scale_bbox(
