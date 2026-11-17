@@ -209,7 +209,7 @@ def _find_top_bottom_intervals(
             
             local_std = np.sqrt(np.maximum(mean_sq - mean**2, 0))
     
-            is_valid = np.median(local_std) > 0.01
+            is_valid = np.median(local_std) > config.background_local_std_threshold
 
         if is_valid:
             current_interval.append((start, end, wood_length))

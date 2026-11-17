@@ -53,6 +53,7 @@ segmentation:
       min_non_wood_per_row_relative_to_max: 0.5
       min_segment_width_px: 20 # minimum width (px) for a left/right segment (wood / foreground)
       window_size: 7 # Size of window used for computation of local standard deviation
+      background_local_std_threshold: 0.01 # Median local std below this = background (not rock)
 
   cuttings:
     downscale_factor: 0.25 # scale images by this factor before segmenting (< 1.0 speeds up morphology)
