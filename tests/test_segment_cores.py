@@ -170,7 +170,7 @@ def test_segment_wood_tray_trim_threshold_is_configurable(make_metadata, draw_co
     detection_core_out = segment_core(
         metadata,
         tray=ImageSegmentResult(bbox=tray_box),
-        config=SegmentationCoreTrimConfig(downscale_factor=1, wood_min_sat=1.0),
+        config=SegmentationCoreTrimConfig(downscale_factor=1, wood_min_sat=1.0, background_local_std_threshold=0.0001),
     )
 
     assert detection_core is not None
