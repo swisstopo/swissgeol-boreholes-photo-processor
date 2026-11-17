@@ -28,8 +28,8 @@ class SegmentationCoreTrimConfig:
     # ignore rows at the start/end of a segment that have less than 50% of the maximal non-wood content
     min_non_wood_per_row_relative_to_max: float = 0.5
     min_segment_width_px: int = 20  # minimum width (px) for a left/right segment (wood / foreground)
-    window_size: int = 7 #Window size used for computation of local standard deviation
-    background_local_std_threshold: float = 0.01 # Median local std below this = background (not rock)
+    window_size: int = 7  # Window size used for computation of local standard deviation
+    background_local_std_threshold: float = 0.01  # Median local std below this = background (not rock)
 
 
 @dataclass

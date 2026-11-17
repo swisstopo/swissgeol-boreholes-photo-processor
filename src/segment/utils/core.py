@@ -5,10 +5,10 @@ from itertools import groupby
 from timeit import default_timer as timer
 
 import numpy as np
-from skimage.color import rgb2gray, rgb2hsv
-from skimage.filters import prewitt_h, scharr
-from skimage.transform import hough_line, hough_line_peaks
 from scipy.ndimage import uniform_filter
+from skimage.color import rgb2gray, rgb2hsv
+from skimage.filters import prewitt_h
+from skimage.transform import hough_line, hough_line_peaks
 
 from src.config import SegmentationCoreTrimConfig
 from src.models import CoreSegmentResult, ImageMetadataCores, ImageSegmentResult
@@ -201,14 +201,15 @@ def _find_top_bottom_intervals(
             margin_height = int(segment_height * config.background_margin_percentage)
             margin_width = int(segment_width * config.background_margin_percentage)
             cropped_img_gray = im_segment_gray[
-                margin_height : segment_height - margin_height, margin_width : segment_width - margin_width]
+                margin_height : segment_height - margin_height, margin_width : segment_width - margin_width
+            ]
 
-            # Background must be low on texture (based on local standard deviation of grayscale image) 
+            # Background must be low on texture (based on local standard deviation of grayscale image)
             mean = uniform_filter(cropped_img_gray, size=config.window_size)
             mean_sq = uniform_filter(cropped_img_gray**2, size=config.window_size)
-            
+
             local_std = np.sqrt(np.maximum(mean_sq - mean**2, 0))
-    
+
             is_valid = np.median(local_std) > config.background_local_std_threshold
 
         if is_valid:
@@ -271,7 +272,6 @@ def segment_core(
     img = img_metadata.load_image(factor=config.downscale_factor)
     x_min, y_min, x_max, y_max = scale_bbox(tray.bbox, factor=config.downscale_factor)
 
-
     hsv = rgb2hsv(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
     gray = rgb2gray(img[round(y_min) : round(y_max + 1), round(x_min) : round(x_max + 1)])
 
@@ -280,14 +280,12 @@ def segment_core(
     left_trim_background = lr_trims_foreground[0][0]
     right_trim_background = lr_trims_foreground[-1][1]
 
-
     # Remove wood / background (top/bottom). Pick the best-scored interval (large and
     # close to vertical center)
     y_lines = _find_horizontal_lines(img_gray=gray, config=config)
 
-
     trimmed_hsv = hsv[:, left_trim_background:right_trim_background, :]
-    trimmed_gray = gray[:, left_trim_background: right_trim_background]
+    trimmed_gray = gray[:, left_trim_background:right_trim_background]
 
     wood_lengths = []
     wood_bboxes = []
@@ -298,12 +296,8 @@ def segment_core(
         wood_lengths.append(sum([wood_end - wood_start for wood_start, wood_end in wood_intervals]))
 
     top_trim, bottom_trim = _find_top_bottom_intervals(
-        img_gray=trimmed_gray,
-        y_lines=y_lines,
-        wood_lengths=wood_lengths,
-        config=config
+        img_gray=trimmed_gray, y_lines=y_lines, wood_lengths=wood_lengths, config=config
     )[0]
-
 
     return CoreSegmentResult(
         bbox=scale_bbox(
