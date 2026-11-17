@@ -23,6 +23,7 @@ tests/output/
 
 # mlflow
 mlruns/
+mlartifacts/
 mlflow.db
 
 # logs
