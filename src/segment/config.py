@@ -14,7 +14,6 @@ class SegmentationCoreTrimConfig:
     background_val_vratio: float = 0.70  # fraction of dark-background pixels in a column required to trim that column
     background_val_threshold: float = 0.15  # value (HSV) below this = black background (not rock)
     background_margin_percentage: float = 0.1  # cut away 10% of the segment on all sides before detecting background
-    max_background_score: float = 0.002  # score (based on texture and brightness) above this = not background
     wood_vratio: float = 0.60  # fraction of tray pixels in a col required to classify that col as tray
     wood_min_hue: float = 0.04  # hue below this = not wood
     wood_max_hue: float = 0.075  # hue above this = not wood
@@ -27,6 +26,8 @@ class SegmentationCoreTrimConfig:
     # ignore rows at the start/end of a segment that have less than 50% of the maximal non-wood content
     min_non_wood_per_row_relative_to_max: float = 0.5
     min_segment_width_px: int = 20  # minimum width (px) for a left/right segment (wood / foreground)
+    window_size: int = 7  # Window size used for computation of local standard deviation
+    background_local_std_threshold: float = 0.009  # Median local std below this = background (not rock)
 
 
 @dataclass

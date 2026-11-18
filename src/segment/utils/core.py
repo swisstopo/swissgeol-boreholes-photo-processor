@@ -5,8 +5,9 @@ from itertools import groupby
 from timeit import default_timer as timer
 
 import numpy as np
+from scipy.ndimage import uniform_filter
 from skimage.color import rgb2gray, rgb2hsv
-from skimage.filters import prewitt_h, scharr
+from skimage.filters import prewitt_h
 from skimage.transform import hough_line, hough_line_peaks
 
 from src.config import SegmentationCoreTrimConfig
@@ -151,7 +152,7 @@ def _find_left_right_wood_intervals(img_hsv: np.ndarray, config: SegmentationCor
 
 
 def _find_top_bottom_intervals(
-    img_hsv: np.ndarray,
+    img_gray: np.ndarray,
     y_lines: list[int],
     wood_lengths: list[int],
     config: SegmentationCoreTrimConfig,
@@ -166,7 +167,7 @@ def _find_top_bottom_intervals(
     vertical center. Falls back to the full image height if fewer than two rows survive.
 
     Args:
-        img_hsv (np.ndarray): HSV image of the cropped tray region.
+        img_gray(np.ndarray): Grayscale image of the cropped tray image.
         y_lines (list[int]): Row indices of detected horizontal dividers, sorted ascending.
         wood_lengths (list[int]): Total length of the identified wood segments per row.
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
@@ -179,7 +180,7 @@ def _find_top_bottom_intervals(
         return []
     max_wood_length = max(wood_lengths)
 
-    height, width, _ = img_hsv.shape
+    height, width = img_gray.shape
     intervals = []
     current_interval = []
 
@@ -191,24 +192,23 @@ def _find_top_bottom_intervals(
             # too much wood, ignore this segment
             is_valid = False
         else:
-            im_segment = img_hsv[start:end, :, :]
+            im_segment_gray = img_gray[start:end, :]
 
             # Slice out 10% from top, bottom, left, and right
-            segment_height, segment_width = im_segment.shape[:2]
+            segment_height, segment_width = im_segment_gray.shape
             margin_height = int(segment_height * config.background_margin_percentage)
             margin_width = int(segment_width * config.background_margin_percentage)
-            cropped_img = im_segment[
+            cropped_img_gray = im_segment_gray[
                 margin_height : segment_height - margin_height, margin_width : segment_width - margin_width
             ]
 
-            im_hue, im_sat, im_val = np.moveaxis(cropped_img, 2, 0)
+            # Background must be low on texture (based on local standard deviation of grayscale image)
+            mean = uniform_filter(cropped_img_gray, size=config.window_size)
+            mean_sq = uniform_filter(cropped_img_gray**2, size=config.window_size)
 
-            # Background must be both low on texture (based on Scharr oparator of the hue and saturation channels) as
-            # well as dark (based on value channel)
-            hue_scharr = scharr(im_hue)
-            sat_scharr = scharr(im_sat)
-            background_score = np.sqrt(sat_scharr**2 + hue_scharr**2) * im_val
-            is_valid = np.median(background_score) > config.max_background_score
+            local_std = np.sqrt(np.maximum(mean_sq - mean**2, 0))
+
+            is_valid = np.median(local_std) > config.background_local_std_threshold
 
         if is_valid:
             current_interval.append((start, end, wood_length))
@@ -283,6 +283,7 @@ def segment_core(
     y_lines = _find_horizontal_lines(img_gray=gray, config=config)
 
     trimmed_hsv = hsv[:, left_trim_background:right_trim_background, :]
+    trimmed_gray = gray[:, left_trim_background:right_trim_background]
 
     wood_lengths = []
     wood_bboxes = []
@@ -293,10 +294,7 @@ def segment_core(
         wood_lengths.append(sum([wood_end - wood_start for wood_start, wood_end in wood_intervals]))
 
     top_trim, bottom_trim = _find_top_bottom_intervals(
-        img_hsv=trimmed_hsv,
-        y_lines=y_lines,
-        wood_lengths=wood_lengths,
-        config=config,
+        img_gray=trimmed_gray, y_lines=y_lines, wood_lengths=wood_lengths, config=config
     )[0]
 
     return CoreSegmentResult(
