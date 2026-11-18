@@ -168,7 +168,6 @@ def _find_top_bottom_intervals(
 
     Args:
         img_gray(np.ndarray): Grayscale image of the cropped tray image.
-        img_hsv (np.ndarray): HSV image of the cropped tray region.
         y_lines (list[int]): Row indices of detected horizontal dividers, sorted ascending.
         wood_lengths (list[int]): Total length of the identified wood segments per row.
         config (SegmentationCoreTrimConfig): Tunable segmentation parameters.
