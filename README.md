@@ -249,6 +249,8 @@ uv run boreholes-photo-processor --input <input-dir> --output <output-dir>
 - `--input`: Path to the directory containing raw borehole photos (`.tif` only), or nested folders containing them
 - `--output`: Path to the directory where processed images will be written
 - `--config`: Path to the YAML config file for segmentation, stitching, and evaluation parameters (default: `config.yaml`)
+- `--jpg-only`: Skip writing the full-resolution TIFF output; only generate the JPG. Useful when the
+  large TIFF sheets are not needed (e.g. for quick previews or web publication only).
 
 **With In-Memory processing (faster)**
 
