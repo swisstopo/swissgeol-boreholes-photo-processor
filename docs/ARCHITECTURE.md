@@ -5,7 +5,7 @@
 This pipeline turns individual close-up photos of borehole core or cuttings segments into
 composite "sheet" images for a borehole. It's built for batch processing across many
 boreholes (folders) at once, run either locally or via CLI in a deployed environment, with
-optional MLflow tracking. See [README.md](README.md) for installation, CLI usage, and the
+optional MLflow tracking. See [README.md](../README.md) for installation, CLI usage, and the
 expected input/output folder layout — this document covers *how the pipeline works
 internally and why*.
 

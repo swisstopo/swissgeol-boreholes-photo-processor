@@ -1,0 +1,39 @@
+publiccodeYmlVersion: 0.5.0
+name: swissgeol-boreholes-photo-processor
+applicationSuite: swissgeol.ch
+url: https://github.com/swisstopo/swissgeol-boreholes-photo-processor/
+platforms:
+  - linux
+developmentStatus: beta
+softwareType: standalone/backend
+organisation:
+  uri: https://ld.admin.ch/office/IV.1.5a
+  name: Bundesamt für Landestopografie (swisstopo)
+description:
+  en:
+    shortDescription: >-
+      Pipeline to generate publication-ready composite images from borehole core
+      and cuttings photos.
+    longDescription: >-
+      The boreholes photo processor is an automatic pipeline to turn individual 
+      close-up photos of borehole cores and cuttings into composite images that 
+      are suitable for publication on boreholes.swissgeol.ch.
+    features:
+      - Segment borehole core photos into core, tray, and ruler regions
+      - Calibrate depth scales using OCR on printed ruler tick numbers
+      - Stitch core segments into depth-calibrated composite sheets
+      - Segment cuttings photos (full, black_circle, pebble, tray layouts)
+      - Arrange cuttings into fixed-size grid pages with depth labels
+      - Batch processing across many boreholes, with optional MLflow tracking
+
+legal:
+  license: MIT
+maintenance:
+  type: community
+  contacts:
+    - name: Stijn Vermeeren
+      email: stijn.vermeeren@swisstopo.ch
+localisation:
+  localisationReady: false
+  availableLanguages:
+    - en
